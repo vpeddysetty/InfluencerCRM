@@ -11,10 +11,10 @@
     </parent>
 
     <groupId>com.influencer</groupId>
-    <artifactId>InfluencerDAO</artifactId>
+    <artifactId>InfluencerWebExperience</artifactId>
     <version>1.0.0</version>
-    <name>InfluencerDAO</name>
-    <description>Spring Boot CRUD service for InfluencerCRM DB</description>
+    <name>InfluencerWebExperience</name>
+    <description>Spring Boot web experience service for brand auth and DAO integration</description>
 
     <properties>
         <java.version>17</java.version>
@@ -27,21 +27,15 @@
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-data-jpa</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
         <dependency>
-            <groupId>org.apache.poi</groupId>
-            <artifactId>poi-ooxml</artifactId>
-            <version>5.2.5</version>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-crypto</artifactId>
         </dependency>
         <dependency>
-            <groupId>org.postgresql</groupId>
-            <artifactId>postgresql</artifactId>
-            <scope>runtime</scope>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>

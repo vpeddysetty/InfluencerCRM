@@ -1,0 +1,284 @@
+openapi: 3.0.3
+info:
+  title: InfluencerCRB Web Experience Service API
+  version: 1.0.0
+  description: Brand authentication API for signup, login, logout, and Google/Facebook social auth.
+servers:
+  - url: https://localhost:8081
+paths:
+  /health:
+    get:
+      summary: Health check
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+  /api/auth/signup:
+    post:
+      summary: Brand sign up
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BrandSignupRequest'
+      responses:
+        '201':
+          description: Brand user created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /api/auth/login:
+    post:
+      summary: Brand login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /api/auth/logout:
+    post:
+      summary: Logout bearer token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LogoutRequest'
+      responses:
+        '204':
+          description: Logged out
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /api/auth/google/signup:
+    post:
+      summary: Google social sign up
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SocialSignupRequest'
+      responses:
+        '201':
+          description: Google user created or updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /api/auth/facebook/signup:
+    post:
+      summary: Facebook social sign up
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SocialSignupRequest'
+      responses:
+        '201':
+          description: Facebook user created or updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /api/auth/oauth/google/start:
+    get:
+      summary: Start browser-based Google OAuth
+      parameters:
+        - name: brandName
+          in: query
+          schema:
+            type: string
+        - name: displayName
+          in: query
+          schema:
+            type: string
+      responses:
+        '302':
+          description: Redirect to Google authorization
+  /api/auth/oauth/google/callback:
+    get:
+      summary: Complete browser-based Google OAuth
+      parameters:
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /api/auth/oauth/facebook/start:
+    get:
+      summary: Start browser-based Facebook OAuth
+      parameters:
+        - name: brandName
+          in: query
+          schema:
+            type: string
+        - name: displayName
+          in: query
+          schema:
+            type: string
+      responses:
+        '302':
+          description: Redirect to Facebook authorization
+  /api/auth/oauth/facebook/callback:
+    get:
+      summary: Complete browser-based Facebook OAuth
+      parameters:
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+components:
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+  schemas:
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: ok
+      required:
+        - status
+    BrandSignupRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+        brandName:
+          type: string
+      required:
+        - email
+        - password
+    LoginRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+      required:
+        - email
+        - password
+    LogoutRequest:
+      type: object
+      properties:
+        accessToken:
+          type: string
+      required:
+        - accessToken
+    SocialSignupRequest:
+      type: object
+      properties:
+        accessToken:
+          type: string
+          description: Optional provider access token for direct social signup
+        fallbackEmail:
+          type: string
+          format: email
+        fallbackDisplayName:
+          type: string
+        brandName:
+          type: string
+    AuthResponse:
+      type: object
+      properties:
+        userId:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        brandName:
+          type: string
+          nullable: true
+        role:
+          type: string
+          example: owner
+        plan:
+          type: string
+          example: free
+        accessToken:
+          type: string
+        tokenType:
+          type: string
+          example: Bearer
+        issuedAt:
+          type: string
+          format: date-time
+      required:
+        - userId
+        - email
+        - role
+        - plan
+        - accessToken
+        - tokenType
+        - issuedAt
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error

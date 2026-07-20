@@ -3,6 +3,7 @@ package com.influencer.dao.controller;
 import com.influencer.dao.model.User;
 import com.influencer.dao.repository.UserRepository;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.UUID;
@@ -19,6 +20,12 @@ public class UserController {
     @GetMapping
     public List<User> findAll() {
         return repository.findAll();
+    }
+
+    @GetMapping("/by-email")
+    public User findByEmail(@RequestParam String email) {
+        return repository.findByEmailIgnoreCase(email)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
     }
 
     @GetMapping("/{id}")
