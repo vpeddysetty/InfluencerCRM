@@ -4,6 +4,21 @@ Build order for the influencer CRM. The organizing bet: prove small brands will 
 See CLAUDE.md for product context and influencer_crm_schema.sql for the data model.
 
 
+Current UI implementation milestone (mock, no backend integration)
+Status: completed as a React mock in InfluencerUI, branded for tejdux.io.
+
+What is included:
+- Home/auth entry view for brands and solo startup owners (sign up / login UX)
+- Spreadsheet import UI accepting CSV/XLS/XLSX with preview support
+- Campaign creation UI
+- Creator creation UI
+- Creator-to-campaign tying workflow
+- Kanban-style campaign_creator relationship board (outreach -> agreed -> shipped -> posted -> paid)
+
+Scope note:
+- This milestone is intentionally mock-only and does not integrate with agent_service or DAO APIs yet.
+
+
 Phase 1 — MVP: the spreadsheet replacement
 Goal: a brand imports their existing creator sheet and, within their first session, is running campaigns out of the app instead of the sheet. This is the only thing Phase 1 needs to prove.
 

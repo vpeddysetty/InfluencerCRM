@@ -10,6 +10,10 @@ erDiagram
     USERS ||--o{ CAMPAIGN_CREATORS : manages
     USERS ||--o{ INTERACTIONS : records
     USERS ||--o{ MAPPING_EXAMPLES : approves
+    USERS ||--o{ CREATOR_WORKFLOW_TASKS : assigns
+    USERS ||--o{ CREATOR_WORKFLOW_APPROVALS : reviews
+    USERS ||--o{ CREATOR_WORKFLOW_PAYMENTS : pays
+    USERS ||--o{ CREATOR_WORKFLOW_EVENTS : audits
 
     IMPORT_BATCHES ||--o{ CREATORS : imported_from
     IMPORT_BATCHES ||--o{ CAMPAIGN_CREATORS : source_import
@@ -17,6 +21,10 @@ erDiagram
     CAMPAIGNS ||--o{ CAMPAIGN_CREATORS : includes
     CREATORS ||--o{ CAMPAIGN_CREATORS : participates_in
     CREATORS ||--o{ INTERACTIONS : has
+    CAMPAIGN_CREATORS ||--o{ CREATOR_WORKFLOW_TASKS : executes
+    CAMPAIGN_CREATORS ||--o{ CREATOR_WORKFLOW_APPROVALS : reviews
+    CAMPAIGN_CREATORS ||--o{ CREATOR_WORKFLOW_PAYMENTS : settles
+    CAMPAIGN_CREATORS ||--o{ CREATOR_WORKFLOW_EVENTS : logs
 
     USERS {
         uuid id PK
@@ -109,6 +117,59 @@ erDiagram
         uuid creator_id FK
         interaction_type type
         text body
+        timestamptz created_at
+    }
+
+    CREATOR_WORKFLOW_TASKS {
+        uuid id PK
+        uuid user_id FK
+        uuid campaign_creator_id FK
+        text title
+        workflow_actor assignee_actor
+        uuid assignee_creator_id FK
+        workflow_task_status status
+        timestamptz due_at
+        timestamptz completed_at
+        jsonb metadata
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    CREATOR_WORKFLOW_APPROVALS {
+        uuid id PK
+        uuid user_id FK
+        uuid campaign_creator_id FK
+        integer review_round
+        text submission_url
+        workflow_actor submitted_by_actor
+        approval_decision decision
+        workflow_actor decided_by_actor
+        timestamptz submitted_at
+        timestamptz decided_at
+        jsonb metadata
+    }
+
+    CREATOR_WORKFLOW_PAYMENTS {
+        uuid id PK
+        uuid user_id FK
+        uuid campaign_creator_id FK
+        numeric amount
+        text currency
+        payout_status status
+        timestamptz scheduled_at
+        timestamptz paid_at
+        jsonb metadata
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    CREATOR_WORKFLOW_EVENTS {
+        uuid id PK
+        uuid user_id FK
+        uuid campaign_creator_id FK
+        workflow_actor actor
+        text event_type
+        jsonb event_data
         timestamptz created_at
     }
 ```

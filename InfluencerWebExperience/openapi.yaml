@@ -178,7 +178,1055 @@ paths:
                 $ref: '#/components/schemas/AuthResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
+  /api/campaigns:
+    get:
+      summary: List campaigns
+      parameters:
+        - name: userId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/PageQuery'
+        - $ref: '#/components/parameters/SizeQuery'
+      responses:
+        '200':
+          description: Campaign list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListOrPaginatedGenericJson'
+              examples:
+                nonPaginated:
+                  summary: Response when page and size are omitted
+                  value:
+                    - id: "7f6d9c90-8f77-4f73-a8af-c4b5b2e5fabc"
+                      userId: "0f88ea2e-4f11-4f30-b5a6-7d8e9f10a111"
+                      name: "Summer Glow Launch"
+                      budget: "24000"
+                      status: "active"
+                paginated:
+                  summary: Response when page and/or size is provided
+                  value:
+                    items:
+                      - id: "7f6d9c90-8f77-4f73-a8af-c4b5b2e5fabc"
+                        userId: "0f88ea2e-4f11-4f30-b5a6-7d8e9f10a111"
+                        name: "Summer Glow Launch"
+                        budget: "24000"
+                        status: "active"
+                    page: 1
+                    size: 20
+                    total: 1
+                    totalPages: 1
+                    hasPrevious: false
+                    hasNext: false
+    post:
+      summary: Create campaign
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericJson'
+      responses:
+        '200':
+          description: Created campaign
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericJson'
+  /api/campaigns/{id}:
+    get:
+      summary: Get campaign by id
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: Campaign
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericJson'
+    put:
+      summary: Update campaign
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericJson'
+      responses:
+        '200':
+          description: Updated campaign
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericJson'
+    delete:
+      summary: Delete campaign
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '204':
+          description: Deleted
+  /api/creators:
+    get:
+      summary: List creators
+      parameters:
+        - name: userId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/PageQuery'
+        - $ref: '#/components/parameters/SizeQuery'
+      responses:
+        '200':
+          description: Creator list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListOrPaginatedGenericJson'
+              examples:
+                nonPaginated:
+                  summary: Response when page and size are omitted
+                  value:
+                    - id: "d95d57d0-8be3-4a71-8d34-49ab8828a222"
+                      userId: "0f88ea2e-4f11-4f30-b5a6-7d8e9f10a111"
+                      name: "Lena Park"
+                      handle: "@lenalights"
+                      platform: "Instagram"
+                paginated:
+                  summary: Response when page and/or size is provided
+                  value:
+                    items:
+                      - id: "d95d57d0-8be3-4a71-8d34-49ab8828a222"
+                        userId: "0f88ea2e-4f11-4f30-b5a6-7d8e9f10a111"
+                        name: "Lena Park"
+                        handle: "@lenalights"
+                        platform: "Instagram"
+                    page: 1
+                    size: 20
+                    total: 1
+                    totalPages: 1
+                    hasPrevious: false
+                    hasNext: false
+    post:
+      summary: Create creator
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericJson'
+      responses:
+        '200':
+          description: Created creator
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericJson'
+  /api/creators/{id}:
+    get:
+      summary: Get creator by id
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: Creator
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericJson'
+    put:
+      summary: Update creator
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericJson'
+      responses:
+        '200':
+          description: Updated creator
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericJson'
+    delete:
+      summary: Delete creator
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '204':
+          description: Deleted
+  /api/campaign-creators:
+    get:
+      summary: List campaign-creator assignments
+      parameters:
+        - name: userId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: campaignId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: creatorId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: stage
+          in: query
+          schema:
+            type: string
+        - $ref: '#/components/parameters/PageQuery'
+        - $ref: '#/components/parameters/SizeQuery'
+      responses:
+        '200':
+          description: Assignment list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListOrPaginatedGenericJson'
+              examples:
+                nonPaginated:
+                  summary: Response when page and size are omitted
+                  value:
+                    - id: "a89d2f61-37a3-4b48-95f8-06da45a0a333"
+                      campaignId: "7f6d9c90-8f77-4f73-a8af-c4b5b2e5fabc"
+                      creatorId: "d95d57d0-8be3-4a71-8d34-49ab8828a222"
+                      stage: "outreach"
+                paginated:
+                  summary: Response when page and/or size is provided
+                  value:
+                    items:
+                      - id: "a89d2f61-37a3-4b48-95f8-06da45a0a333"
+                        campaignId: "7f6d9c90-8f77-4f73-a8af-c4b5b2e5fabc"
+                        creatorId: "d95d57d0-8be3-4a71-8d34-49ab8828a222"
+                        stage: "outreach"
+                    page: 1
+                    size: 20
+                    total: 1
+                    totalPages: 1
+                    hasPrevious: false
+                    hasNext: false
+    post:
+      summary: Create campaign-creator assignment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericJson'
+      responses:
+        '200':
+          description: Created assignment
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericJson'
+  /api/campaign-creators/{id}:
+    get:
+      summary: Get campaign-creator assignment by id
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: Assignment
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericJson'
+    put:
+      summary: Update campaign-creator assignment
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericJson'
+      responses:
+        '200':
+          description: Updated assignment
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericJson'
+    delete:
+      summary: Delete campaign-creator assignment
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '204':
+          description: Deleted
+  /api/campaign-creators/{id}/stage:
+    patch:
+      summary: Update campaign-creator stage
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericJson'
+      responses:
+        '200':
+          description: Updated assignment
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericJson'
+  /api/import-batches:
+    get:
+      summary: List import batches
+      parameters:
+        - name: userId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/PageQuery'
+        - $ref: '#/components/parameters/SizeQuery'
+      responses:
+        '200':
+          description: Import batch list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListOrPaginatedGenericJson'
+              examples:
+                nonPaginated:
+                  summary: Response when page and size are omitted
+                  value:
+                    - id: "f2d37f81-0e40-4ff6-9ea2-a5a5985ec444"
+                      userId: "0f88ea2e-4f11-4f30-b5a6-7d8e9f10a111"
+                      status: "discovered"
+                paginated:
+                  summary: Response when page and/or size is provided
+                  value:
+                    items:
+                      - id: "f2d37f81-0e40-4ff6-9ea2-a5a5985ec444"
+                        userId: "0f88ea2e-4f11-4f30-b5a6-7d8e9f10a111"
+                        status: "discovered"
+                    page: 1
+                    size: 20
+                    total: 1
+                    totalPages: 1
+                    hasPrevious: false
+                    hasNext: false
+  /api/import-batches/{id}:
+    get:
+      summary: Get import batch by id
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: Import batch
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericJson'
+  /api/import-batches/discover:
+    post:
+      summary: Discover import schema from uploaded file
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                userId:
+                  type: string
+                  format: uuid
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Discovery result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericJson'
+  /api/import-batches/{id}/preview:
+    post:
+      summary: Preview import rows
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericJson'
+      responses:
+        '200':
+          description: Preview result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericJson'
+  /api/import-batches/{id}/column-mapping:
+    patch:
+      summary: Update import column mapping
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericJson'
+      responses:
+        '200':
+          description: Updated import batch
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericJson'
+  /api/import-batches/{id}/hydrate:
+    post:
+      summary: Hydrate import data into domain records
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericJson'
+      responses:
+        '200':
+          description: Hydration result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericJson'
+  /api/creator-workflow-tasks:
+    get:
+      summary: List creator workflow tasks
+      parameters:
+        - name: userId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: campaignCreatorId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/PageQuery'
+        - $ref: '#/components/parameters/SizeQuery'
+      responses:
+        '200':
+          description: Task list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListOrPaginatedGenericJson'
+              examples:
+                nonPaginated:
+                  summary: Response when page and size are omitted
+                  value:
+                    - id: "9bf35060-6da7-43de-b38f-3f15dce8f555"
+                      campaignCreatorId: "a89d2f61-37a3-4b48-95f8-06da45a0a333"
+                      title: "Ship product"
+                      status: "todo"
+                paginated:
+                  summary: Response when page and/or size is provided
+                  value:
+                    items:
+                      - id: "9bf35060-6da7-43de-b38f-3f15dce8f555"
+                        campaignCreatorId: "a89d2f61-37a3-4b48-95f8-06da45a0a333"
+                        title: "Ship product"
+                        status: "todo"
+                    page: 1
+                    size: 20
+                    total: 1
+                    totalPages: 1
+                    hasPrevious: false
+                    hasNext: false
+    post:
+      summary: Create creator workflow task
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericJson'
+      responses:
+        '200':
+          description: Created task
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericJson'
+  /api/creator-workflow-tasks/{id}:
+    get:
+      summary: Get creator workflow task by id
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: Task
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericJson'
+    put:
+      summary: Update creator workflow task
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericJson'
+      responses:
+        '200':
+          description: Updated task
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericJson'
+    delete:
+      summary: Delete creator workflow task
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '204':
+          description: Deleted
+  /api/creator-workflow-approvals:
+    get:
+      summary: List creator workflow approvals
+      parameters:
+        - name: userId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: campaignCreatorId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/PageQuery'
+        - $ref: '#/components/parameters/SizeQuery'
+      responses:
+        '200':
+          description: Approval list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListOrPaginatedGenericJson'
+              examples:
+                nonPaginated:
+                  summary: Response when page and size are omitted
+                  value:
+                    - id: "3f96da5f-0380-4f90-bb80-67d57f84d666"
+                      campaignCreatorId: "a89d2f61-37a3-4b48-95f8-06da45a0a333"
+                      reviewRound: 1
+                      decision: "approved"
+                paginated:
+                  summary: Response when page and/or size is provided
+                  value:
+                    items:
+                      - id: "3f96da5f-0380-4f90-bb80-67d57f84d666"
+                        campaignCreatorId: "a89d2f61-37a3-4b48-95f8-06da45a0a333"
+                        reviewRound: 1
+                        decision: "approved"
+                    page: 1
+                    size: 20
+                    total: 1
+                    totalPages: 1
+                    hasPrevious: false
+                    hasNext: false
+    post:
+      summary: Create creator workflow approval
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericJson'
+      responses:
+        '200':
+          description: Created approval
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericJson'
+  /api/creator-workflow-approvals/{id}:
+    get:
+      summary: Get creator workflow approval by id
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: Approval
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericJson'
+    put:
+      summary: Update creator workflow approval
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericJson'
+      responses:
+        '200':
+          description: Updated approval
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericJson'
+    delete:
+      summary: Delete creator workflow approval
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '204':
+          description: Deleted
+  /api/creator-workflow-payments:
+    get:
+      summary: List creator workflow payments
+      parameters:
+        - name: userId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: campaignCreatorId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/PageQuery'
+        - $ref: '#/components/parameters/SizeQuery'
+      responses:
+        '200':
+          description: Payment list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListOrPaginatedGenericJson'
+              examples:
+                nonPaginated:
+                  summary: Response when page and size are omitted
+                  value:
+                    - id: "8a1b5ff2-4be8-4405-80de-4dbefc4b3777"
+                      campaignCreatorId: "a89d2f61-37a3-4b48-95f8-06da45a0a333"
+                      amount: 950.00
+                      status: "pending"
+                paginated:
+                  summary: Response when page and/or size is provided
+                  value:
+                    items:
+                      - id: "8a1b5ff2-4be8-4405-80de-4dbefc4b3777"
+                        campaignCreatorId: "a89d2f61-37a3-4b48-95f8-06da45a0a333"
+                        amount: 950.00
+                        status: "pending"
+                    page: 1
+                    size: 20
+                    total: 1
+                    totalPages: 1
+                    hasPrevious: false
+                    hasNext: false
+    post:
+      summary: Create creator workflow payment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericJson'
+      responses:
+        '200':
+          description: Created payment
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericJson'
+  /api/creator-workflow-payments/{id}:
+    get:
+      summary: Get creator workflow payment by id
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: Payment
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericJson'
+    put:
+      summary: Update creator workflow payment
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericJson'
+      responses:
+        '200':
+          description: Updated payment
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericJson'
+    delete:
+      summary: Delete creator workflow payment
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '204':
+          description: Deleted
+  /api/creator-workflow-events:
+    get:
+      summary: List creator workflow events
+      parameters:
+        - name: userId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: campaignCreatorId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/PageQuery'
+        - $ref: '#/components/parameters/SizeQuery'
+      responses:
+        '200':
+          description: Event list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListOrPaginatedGenericJson'
+              examples:
+                nonPaginated:
+                  summary: Response when page and size are omitted
+                  value:
+                    - id: "1e5c29c8-4119-4d28-baa4-c3a1fdc4e888"
+                      campaignCreatorId: "a89d2f61-37a3-4b48-95f8-06da45a0a333"
+                      eventType: "message_sent"
+                      actor: "brand_owner"
+                paginated:
+                  summary: Response when page and/or size is provided
+                  value:
+                    items:
+                      - id: "1e5c29c8-4119-4d28-baa4-c3a1fdc4e888"
+                        campaignCreatorId: "a89d2f61-37a3-4b48-95f8-06da45a0a333"
+                        eventType: "message_sent"
+                        actor: "brand_owner"
+                    page: 1
+                    size: 20
+                    total: 1
+                    totalPages: 1
+                    hasPrevious: false
+                    hasNext: false
+    post:
+      summary: Create creator workflow event
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericJson'
+      responses:
+        '200':
+          description: Created event
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericJson'
+  /api/creator-workflow-events/{id}:
+    get:
+      summary: Get creator workflow event by id
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: Event
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericJson'
+    put:
+      summary: Update creator workflow event
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericJson'
+      responses:
+        '200':
+          description: Updated event
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericJson'
+    delete:
+      summary: Delete creator workflow event
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '204':
+          description: Deleted
+  /api/influencer-campaign-codes:
+    get:
+      summary: List influencer campaign codes
+      parameters:
+        - name: userId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: campaignId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: creatorId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/PageQuery'
+        - $ref: '#/components/parameters/SizeQuery'
+      responses:
+        '200':
+          description: Code list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListOrPaginatedGenericJson'
+              examples:
+                nonPaginated:
+                  summary: Response when page and size are omitted
+                  value:
+                    - id: "99a1418f-86e7-455b-a020-27f7d2532999"
+                      campaignId: "7f6d9c90-8f77-4f73-a8af-c4b5b2e5fabc"
+                      creatorId: "d95d57d0-8be3-4a71-8d34-49ab8828a222"
+                      code: "LENA10"
+                paginated:
+                  summary: Response when page and/or size is provided
+                  value:
+                    items:
+                      - id: "99a1418f-86e7-455b-a020-27f7d2532999"
+                        campaignId: "7f6d9c90-8f77-4f73-a8af-c4b5b2e5fabc"
+                        creatorId: "d95d57d0-8be3-4a71-8d34-49ab8828a222"
+                        code: "LENA10"
+                    page: 1
+                    size: 20
+                    total: 1
+                    totalPages: 1
+                    hasPrevious: false
+                    hasNext: false
+    post:
+      summary: Create influencer campaign code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericJson'
+      responses:
+        '200':
+          description: Created code
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericJson'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/influencer-campaign-codes/{id}:
+    get:
+      summary: Get influencer campaign code by id
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: Code
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericJson'
+    put:
+      summary: Update influencer campaign code
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericJson'
+      responses:
+        '200':
+          description: Updated code
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericJson'
+    delete:
+      summary: Delete influencer campaign code
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '204':
+          description: Deleted
+  /api/influencer-sale-attributions:
+    get:
+      summary: List influencer sale attributions
+      parameters:
+        - name: userId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: campaignCodeId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: campaignCreatorId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/PageQuery'
+        - $ref: '#/components/parameters/SizeQuery'
+      responses:
+        '200':
+          description: Attribution list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListOrPaginatedGenericJson'
+              examples:
+                nonPaginated:
+                  summary: Response when page and size are omitted
+                  value:
+                    - id: "deeb7df8-1e3c-4f99-a46a-cf9dbdbb0aaa"
+                      campaignCodeId: "99a1418f-86e7-455b-a020-27f7d2532999"
+                      orderId: "ORDER-1001"
+                      status: "attributed"
+                paginated:
+                  summary: Response when page and/or size is provided
+                  value:
+                    items:
+                      - id: "deeb7df8-1e3c-4f99-a46a-cf9dbdbb0aaa"
+                        campaignCodeId: "99a1418f-86e7-455b-a020-27f7d2532999"
+                        orderId: "ORDER-1001"
+                        status: "attributed"
+                    page: 1
+                    size: 20
+                    total: 1
+                    totalPages: 1
+                    hasPrevious: false
+                    hasNext: false
+    post:
+      summary: Create influencer sale attribution
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericJson'
+      responses:
+        '200':
+          description: Created attribution
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericJson'
+  /api/influencer-sale-attributions/{id}:
+    get:
+      summary: Get influencer sale attribution by id
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: Attribution
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericJson'
+    put:
+      summary: Update influencer sale attribution
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericJson'
+      responses:
+        '200':
+          description: Updated attribution
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericJson'
+    delete:
+      summary: Delete influencer sale attribution
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '204':
+          description: Deleted
 components:
+  parameters:
+    IdPath:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    PageQuery:
+      name: page
+      in: query
+      required: false
+      description: 1-based page number. When omitted with size, defaults to 1.
+      schema:
+        type: integer
+        minimum: 1
+    SizeQuery:
+      name: size
+      in: query
+      required: false
+      description: Page size. When omitted with page, defaults to 20.
+      schema:
+        type: integer
+        minimum: 1
   responses:
     BadRequest:
       description: Invalid request
@@ -186,7 +1234,53 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
+    Conflict:
+      description: Conflict
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
   schemas:
+    GenericJson:
+      type: object
+      additionalProperties: true
+    PaginatedGenericJson:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/GenericJson'
+        page:
+          type: integer
+          minimum: 1
+        size:
+          type: integer
+          minimum: 1
+        total:
+          type: integer
+          minimum: 0
+        totalPages:
+          type: integer
+          minimum: 0
+        hasPrevious:
+          type: boolean
+        hasNext:
+          type: boolean
+      required:
+        - items
+        - page
+        - size
+        - total
+        - totalPages
+        - hasPrevious
+        - hasNext
+    ListOrPaginatedGenericJson:
+      oneOf:
+        - type: array
+          items:
+            $ref: '#/components/schemas/GenericJson'
+        - $ref: '#/components/schemas/PaginatedGenericJson'
     HealthResponse:
       type: object
       properties:
@@ -278,7 +1372,14 @@ components:
     ErrorResponse:
       type: object
       properties:
-        error:
+        errorCode:
           type: string
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+          nullable: true
       required:
-        - error
+        - errorCode
+        - message

@@ -16,6 +16,12 @@ create type campaign_status as enum ('draft', 'active', 'completed', 'archived')
 create type pipeline_stage  as enum ('outreach', 'agreed', 'shipped', 'posted', 'paid');
 create type interaction_type as enum ('note', 'email', 'dm');
 create type content_review_status as enum ('not_requested', 'requested', 'in_review', 'approved', 'rejected');
+create type workflow_actor as enum ('brand_owner', 'creator', 'system');
+create type workflow_task_status as enum ('todo', 'in_progress', 'blocked', 'submitted', 'approved', 'rejected', 'done');
+create type approval_decision as enum ('approved', 'changes_requested', 'rejected');
+create type payout_status as enum ('draft', 'pending', 'scheduled', 'paid', 'failed', 'cancelled');
+create type attribution_platform as enum ('instagram', 'tiktok', 'youtube', 'shopify', 'amazon', 'woocommerce', 'direct', 'other');
+create type attribution_status as enum ('pending', 'attributed', 'refunded', 'cancelled');
 
 -- =============================================================
 -- users  (the brand owner / solo marketer who signs up)
@@ -177,6 +183,148 @@ create table interactions (
 );
 
 -- =============================================================
+-- creator_workflow_tasks  (operational work items between brand-owner and creator)
+-- =============================================================
+create table creator_workflow_tasks (
+    id                  uuid primary key default gen_random_uuid(),
+    user_id             uuid not null references users(id) on delete cascade,
+    campaign_creator_id uuid not null references campaign_creators(id) on delete cascade,
+    title               text not null,
+    description         text,
+    assignee_actor      workflow_actor not null default 'brand_owner',
+    assignee_creator_id uuid references creators(id) on delete set null,
+    status              workflow_task_status not null default 'todo',
+    priority            text not null default 'medium',
+    due_at              timestamptz,
+    started_at          timestamptz,
+    completed_at        timestamptz,
+    metadata            jsonb not null default '{}'::jsonb,
+    created_by_actor    workflow_actor not null default 'brand_owner',
+    created_at          timestamptz not null default now(),
+    updated_at          timestamptz not null default now(),
+    constraint creator_workflow_tasks_assignee_ck
+        check (
+            (assignee_actor = 'creator' and assignee_creator_id is not null)
+            or assignee_actor in ('brand_owner', 'system')
+        )
+);
+
+-- =============================================================
+-- creator_workflow_approvals  (submission / review rounds for creator deliverables)
+-- =============================================================
+create table creator_workflow_approvals (
+    id                  uuid primary key default gen_random_uuid(),
+    user_id             uuid not null references users(id) on delete cascade,
+    campaign_creator_id uuid not null references campaign_creators(id) on delete cascade,
+    review_round        integer not null default 1,
+    submission_url      text,
+    submission_notes    text,
+    submitted_by_actor  workflow_actor not null default 'creator',
+    submitted_at        timestamptz not null default now(),
+    decision            approval_decision,
+    decision_notes      text,
+    decided_by_actor    workflow_actor,
+    decided_at          timestamptz,
+    metadata            jsonb not null default '{}'::jsonb,
+    created_at          timestamptz not null default now(),
+    constraint creator_workflow_approvals_decision_ck
+        check (
+            (decision is null and decided_at is null and decided_by_actor is null)
+            or (decision is not null and decided_at is not null and decided_by_actor is not null)
+        )
+);
+
+-- =============================================================
+-- creator_workflow_payments  (creator payout operations)
+-- =============================================================
+create table creator_workflow_payments (
+    id                  uuid primary key default gen_random_uuid(),
+    user_id             uuid not null references users(id) on delete cascade,
+    campaign_creator_id uuid not null references campaign_creators(id) on delete cascade,
+    currency            text not null default 'USD',
+    amount              numeric(12,2) not null,
+    status              payout_status not null default 'draft',
+    invoice_reference   text,
+    payment_provider    text,
+    provider_txn_id     text,
+    notes               text,
+    scheduled_at        timestamptz,
+    paid_at             timestamptz,
+    failed_at           timestamptz,
+    metadata            jsonb not null default '{}'::jsonb,
+    created_at          timestamptz not null default now(),
+    updated_at          timestamptz not null default now()
+);
+
+-- =============================================================
+-- creator_workflow_events  (immutable timeline for auditing handoffs)
+-- =============================================================
+create table creator_workflow_events (
+    id                  uuid primary key default gen_random_uuid(),
+    user_id             uuid not null references users(id) on delete cascade,
+    campaign_creator_id uuid not null references campaign_creators(id) on delete cascade,
+    actor               workflow_actor not null default 'system',
+    actor_creator_id    uuid references creators(id) on delete set null,
+    event_type          text not null,
+    event_body          text,
+    event_data          jsonb not null default '{}'::jsonb,
+    created_at          timestamptz not null default now(),
+    constraint creator_workflow_events_actor_ck
+        check (
+            (actor = 'creator' and actor_creator_id is not null)
+            or actor in ('brand_owner', 'system')
+        )
+);
+
+-- =============================================================
+-- influencer_campaign_codes  (creator campaign/referral/discount codes)
+-- =============================================================
+create table influencer_campaign_codes (
+    id                  uuid primary key default gen_random_uuid(),
+    user_id             uuid not null references users(id) on delete cascade,
+    campaign_id         uuid not null references campaigns(id) on delete cascade,
+    creator_id          uuid not null references creators(id) on delete cascade,
+    campaign_creator_id uuid references campaign_creators(id) on delete set null,
+    code                text not null,
+    code_type           text not null default 'discount',
+    landing_url         text,
+    starts_at           timestamptz,
+    ends_at             timestamptz,
+    is_active           boolean not null default true,
+    metadata            jsonb not null default '{}'::jsonb,
+    created_at          timestamptz not null default now(),
+    updated_at          timestamptz not null default now(),
+    unique (user_id, code)
+);
+
+-- =============================================================
+-- influencer_sale_attributions  (attribution of brand sales to influencer code/campaign)
+-- =============================================================
+create table influencer_sale_attributions (
+    id                   uuid primary key default gen_random_uuid(),
+    user_id              uuid not null references users(id) on delete cascade,
+    campaign_code_id     uuid not null references influencer_campaign_codes(id) on delete cascade,
+    campaign_id          uuid not null references campaigns(id) on delete cascade,
+    creator_id           uuid not null references creators(id) on delete cascade,
+    campaign_creator_id  uuid references campaign_creators(id) on delete set null,
+    platform             attribution_platform not null default 'direct',
+    status               attribution_status not null default 'pending',
+    order_id             text not null,
+    order_line_id        text,
+    customer_external_id text,
+    sale_amount          numeric(12,2) not null,
+    discount_amount      numeric(12,2) not null default 0,
+    net_amount           numeric(12,2),
+    commission_amount    numeric(12,2),
+    currency             text not null default 'USD',
+    occurred_at          timestamptz not null default now(),
+    tracked_at           timestamptz not null default now(),
+    raw_payload          jsonb not null default '{}'::jsonb,
+    created_at           timestamptz not null default now(),
+    updated_at           timestamptz not null default now()
+);
+
+-- =============================================================
 -- tenant indexes  (every list view filters by user_id)
 -- =============================================================
 create index idx_creators_user           on creators(user_id);
@@ -199,6 +347,26 @@ create index idx_cc_payment_status        on campaign_creators(payment_status);
 create index idx_cc_next_follow_up        on campaign_creators(next_follow_up_at);
 create index idx_interactions_user        on interactions(user_id);
 create index idx_interactions_creator     on interactions(creator_id);
+create index idx_cwt_user                 on creator_workflow_tasks(user_id);
+create index idx_cwt_campaign_creator     on creator_workflow_tasks(campaign_creator_id);
+create index idx_cwt_status_due           on creator_workflow_tasks(status, due_at);
+create index idx_cwa_user                 on creator_workflow_approvals(user_id);
+create index idx_cwa_campaign_creator     on creator_workflow_approvals(campaign_creator_id);
+create index idx_cwa_submitted_at         on creator_workflow_approvals(submitted_at);
+create index idx_cwp_user                 on creator_workflow_payments(user_id);
+create index idx_cwp_campaign_creator     on creator_workflow_payments(campaign_creator_id);
+create index idx_cwp_status_scheduled     on creator_workflow_payments(status, scheduled_at);
+create index idx_cwe_user                 on creator_workflow_events(user_id);
+create index idx_cwe_campaign_creator     on creator_workflow_events(campaign_creator_id);
+create index idx_cwe_created_at           on creator_workflow_events(created_at);
+create index idx_icc_user                 on influencer_campaign_codes(user_id);
+create index idx_icc_campaign_creator     on influencer_campaign_codes(campaign_id, creator_id);
+create index idx_icc_code                 on influencer_campaign_codes(code);
+create index idx_isa_user                 on influencer_sale_attributions(user_id);
+create index idx_isa_code                 on influencer_sale_attributions(campaign_code_id);
+create index idx_isa_campaign_creator     on influencer_sale_attributions(campaign_creator_id);
+create index idx_isa_platform_status      on influencer_sale_attributions(platform, status);
+create index idx_isa_occurred_at          on influencer_sale_attributions(occurred_at);
 
 -- =============================================================
 -- updated_at auto-touch trigger
@@ -215,3 +383,7 @@ create trigger trg_users_updated       before update on users             for ea
 create trigger trg_creators_updated    before update on creators          for each row execute function set_updated_at();
 create trigger trg_campaigns_updated   before update on campaigns         for each row execute function set_updated_at();
 create trigger trg_cc_updated          before update on campaign_creators for each row execute function set_updated_at();
+create trigger trg_cwt_updated         before update on creator_workflow_tasks    for each row execute function set_updated_at();
+create trigger trg_cwp_updated         before update on creator_workflow_payments for each row execute function set_updated_at();
+create trigger trg_icc_updated         before update on influencer_campaign_codes for each row execute function set_updated_at();
+create trigger trg_isa_updated         before update on influencer_sale_attributions for each row execute function set_updated_at();
