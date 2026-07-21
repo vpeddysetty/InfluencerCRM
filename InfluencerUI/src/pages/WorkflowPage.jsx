@@ -12,6 +12,7 @@ function WorkflowPage({
   campaignById,
   creatorById,
   updateCardStage,
+  onUpdateAssignment,
 }) {
   const [dragOverStage, setDragOverStage] = useState('')
   const [searchText, setSearchText] = useState('')
@@ -25,6 +26,16 @@ function WorkflowPage({
     paid: 10,
   })
   const [boardNotice, setBoardNotice] = useState('')
+  const [editingId, setEditingId] = useState('')
+  const [savingId, setSavingId] = useState('')
+  const [editDraft, setEditDraft] = useState({
+    stage: 'outreach',
+    fee: '',
+    dueDate: '',
+    notes: '',
+    tags: '',
+  })
+  const [cardFeedback, setCardFeedback] = useState({ id: '', type: '', message: '' })
 
   const allTags = Array.from(new Set(assignments.flatMap((item) => item.tags || []))).sort((a, b) => a.localeCompare(b))
 
@@ -98,6 +109,47 @@ function WorkflowPage({
       tryUpdateStage(assignmentId, stage)
     }
     setDragOverStage('')
+  }
+
+  const startCardEdit = (item) => {
+    setCardFeedback({ id: '', type: '', message: '' })
+    setEditingId(item.id)
+    setEditDraft({
+      stage: item.stage || 'outreach',
+      fee: item.fee == null ? '' : String(item.fee),
+      dueDate: item.dueDate || '',
+      notes: item.notes || '',
+      tags: (item.tags || []).join(', '),
+    })
+  }
+
+  const cancelCardEdit = () => {
+    setEditingId('')
+    setSavingId('')
+    setCardFeedback({ id: '', type: '', message: '' })
+  }
+
+  const saveCardEdit = async (itemId) => {
+    try {
+      setSavingId(itemId)
+      await onUpdateAssignment(itemId, {
+        stage: editDraft.stage,
+        fee: editDraft.fee,
+        dueDate: editDraft.dueDate,
+        notes: editDraft.notes.trim(),
+        tags: editDraft.tags,
+      })
+      setCardFeedback({ id: itemId, type: 'success', message: 'Workflow record updated.' })
+      setEditingId('')
+    } catch (error) {
+      setCardFeedback({
+        id: itemId,
+        type: 'error',
+        message: error instanceof Error ? error.message : 'Unable to update workflow record.',
+      })
+    } finally {
+      setSavingId('')
+    }
   }
 
   return (
@@ -242,50 +294,115 @@ function WorkflowPage({
                 {filteredByStage[stage].map((item) => {
                   const campaign = campaignById[item.campaignId]
                   const creator = creatorById[item.creatorId]
+                  const isEditing = editingId === item.id
                   return (
                     <div
                       key={item.id}
                       className="kanban-card"
-                      draggable
+                      draggable={!isEditing}
                       onDragStart={(event) => onCardDragStart(event, item.id)}
                     >
                       <p className="card-campaign">{campaign?.name || 'Unknown campaign'}</p>
                       <p className="card-creator">{creator?.name || 'Unknown creator'}</p>
                       <p className="card-handle">{creator?.handle || 'No handle'}</p>
-                      <p className="card-meta">Fee: {item.fee ? `$${item.fee}` : 'TBD'}</p>
-                      <p className="card-meta">Due: {item.dueDate || 'No due date'}</p>
-                      <p className="card-meta">{item.notes || 'No notes yet.'}</p>
-                      <div className="tag-row">
-                        {(item.tags || []).length ? (
-                          (item.tags || []).map((tag) => (
-                            <span key={`${item.id}-${tag}`} className="tag-chip">
-                              {tag}
-                            </span>
-                          ))
-                        ) : (
-                          <span className="tag-chip muted">no tags</span>
-                        )}
-                      </div>
+                      {isEditing ? (
+                        <div className="editable-row-form">
+                          <label>
+                            <span className="mapping-row-label">Stage</span>
+                            <select
+                              value={editDraft.stage}
+                              onChange={(event) => setEditDraft((prev) => ({ ...prev, stage: event.target.value }))}
+                            >
+                              {STAGES.map((option) => (
+                                <option key={option} value={option}>
+                                  {stageLabels[option]}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <input
+                            type="number"
+                            value={editDraft.fee}
+                            placeholder="Agreed fee"
+                            onChange={(event) => setEditDraft((prev) => ({ ...prev, fee: event.target.value }))}
+                          />
+                          <input
+                            type="date"
+                            value={editDraft.dueDate}
+                            onChange={(event) => setEditDraft((prev) => ({ ...prev, dueDate: event.target.value }))}
+                          />
+                          <input
+                            type="text"
+                            value={editDraft.tags}
+                            placeholder="Tags (comma separated)"
+                            onChange={(event) => setEditDraft((prev) => ({ ...prev, tags: event.target.value }))}
+                          />
+                          <input
+                            type="text"
+                            value={editDraft.notes}
+                            placeholder="Notes"
+                            onChange={(event) => setEditDraft((prev) => ({ ...prev, notes: event.target.value }))}
+                          />
+                          <div className="row-actions">
+                            <button type="button" className="ghost-btn" onClick={cancelCardEdit} disabled={savingId === item.id}>
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              className="primary-btn"
+                              onClick={() => saveCardEdit(item.id)}
+                              disabled={savingId === item.id}
+                            >
+                              {savingId === item.id ? 'Saving...' : 'Save'}
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <p className="card-meta">Fee: {item.fee ? `$${item.fee}` : 'TBD'}</p>
+                          <p className="card-meta">Due: {item.dueDate || 'No due date'}</p>
+                          <p className="card-meta">{item.notes || 'No notes yet.'}</p>
+                          <div className="tag-row">
+                            {(item.tags || []).length ? (
+                              (item.tags || []).map((tag) => (
+                                <span key={`${item.id}-${tag}`} className="tag-chip">
+                                  {tag}
+                                </span>
+                              ))
+                            ) : (
+                              <span className="tag-chip muted">no tags</span>
+                            )}
+                          </div>
 
-                      <select
-                        value={item.stage}
-                        onChange={(event) => tryUpdateStage(item.id, event.target.value)}
-                      >
-                        {STAGES.map((option) => (
-                          <option key={option} value={option}>
-                            {stageLabels[option]}
-                          </option>
-                        ))}
-                      </select>
+                          <select
+                            value={item.stage}
+                            onChange={(event) => tryUpdateStage(item.id, event.target.value)}
+                          >
+                            {STAGES.map((option) => (
+                              <option key={option} value={option}>
+                                {stageLabels[option]}
+                              </option>
+                            ))}
+                          </select>
+                        </>
+                      )}
 
                       <div className="card-actions">
-                        <button type="button" onClick={() => moveByDirection(item.id, -1)}>
+                        <button type="button" onClick={() => moveByDirection(item.id, -1)} disabled={isEditing}>
                           Back
                         </button>
-                        <button type="button" onClick={() => moveByDirection(item.id, 1)}>
+                        <button type="button" onClick={() => moveByDirection(item.id, 1)} disabled={isEditing}>
                           Forward
                         </button>
+                        <button type="button" onClick={() => startCardEdit(item)} disabled={isEditing}>
+                          Edit
+                        </button>
                       </div>
+                      {cardFeedback.id === item.id && cardFeedback.message ? (
+                        <p className={`row-save-feedback ${cardFeedback.type === 'error' ? 'error' : 'success'}`}>
+                          {cardFeedback.message}
+                        </p>
+                      ) : null}
                     </div>
                   )
                 })}

@@ -21,7 +21,10 @@ import {
   previewImportBatch,
   logout,
   signup,
+  updateCampaign,
+  updateCampaignCreator,
   updateImportColumnMapping,
+  updateCreator,
   updateCampaignCreatorStage,
 } from './api'
 import { createImportMappingJson, createImportMappingJsonFromAgent, parseSpreadsheetFile, STAGES } from './constants'
@@ -511,6 +514,36 @@ function App() {
     }
   }
 
+  const updateCampaignRecord = async (id, payload) => {
+    const existing = campaigns.find((campaign) => campaign.id === id)
+    if (!existing) {
+      return
+    }
+
+    const nextLocal = {
+      ...existing,
+      name: payload.name,
+      budget: payload.budget,
+      status: payload.status,
+    }
+
+    setCampaigns((prev) => prev.map((campaign) => (campaign.id === id ? nextLocal : campaign)))
+
+    try {
+      setWorkspaceError('')
+      const updated = await updateCampaign(authToken, id, {
+        ...existing,
+        ...nextLocal,
+        userId,
+      })
+      setCampaigns((prev) => prev.map((campaign) => (campaign.id === id ? updated : campaign)))
+    } catch (error) {
+      setCampaigns((prev) => prev.map((campaign) => (campaign.id === id ? existing : campaign)))
+      setWorkspaceError(error instanceof Error ? error.message : 'Unable to update campaign.')
+      throw error
+    }
+  }
+
   const createCreatorRecord = async (event) => {
     event.preventDefault()
     if (!creatorForm.name.trim() || !creatorForm.handle.trim()) {
@@ -532,6 +565,37 @@ function App() {
       setCreatorForm({ name: '', handle: '', platform: 'Instagram', email: '' })
     } catch (error) {
       setWorkspaceError(error instanceof Error ? error.message : 'Unable to create creator.')
+    }
+  }
+
+  const updateCreatorRecord = async (id, payload) => {
+    const existing = creators.find((creator) => creator.id === id)
+    if (!existing) {
+      return
+    }
+
+    const nextLocal = {
+      ...existing,
+      name: payload.name,
+      handle: payload.handle,
+      platform: payload.platform,
+      email: payload.email,
+    }
+
+    setCreators((prev) => prev.map((creator) => (creator.id === id ? nextLocal : creator)))
+
+    try {
+      setWorkspaceError('')
+      const updated = await updateCreator(authToken, id, {
+        ...existing,
+        ...nextLocal,
+        userId,
+      })
+      setCreators((prev) => prev.map((creator) => (creator.id === id ? updated : creator)))
+    } catch (error) {
+      setCreators((prev) => prev.map((creator) => (creator.id === id ? existing : creator)))
+      setWorkspaceError(error instanceof Error ? error.message : 'Unable to update creator.')
+      throw error
     }
   }
 
@@ -579,6 +643,48 @@ function App() {
     } catch (error) {
       setAssignments((prev) => prev.map((item) => (item.id === id ? existing : item)))
       setWorkspaceError(error instanceof Error ? error.message : 'Unable to update workflow stage.')
+    }
+  }
+
+  const updateAssignmentRecord = async (id, payload) => {
+    const existing = assignments.find((item) => item.id === id)
+    if (!existing) {
+      return
+    }
+
+    const nextLocal = {
+      ...existing,
+      stage: payload.stage,
+      fee: payload.fee,
+      dueDate: payload.dueDate,
+      notes: payload.notes,
+      tags: payload.tags,
+    }
+
+    setAssignments((prev) => prev.map((item) => (item.id === id ? nextLocal : item)))
+
+    try {
+      setWorkspaceError('')
+      const updated = await updateCampaignCreator(authToken, id, {
+        ...existing,
+        ...nextLocal,
+        userId,
+        campaignId: existing.campaignId,
+        creatorId: existing.creatorId,
+        agreedFee: payload.fee ? String(payload.fee).trim() : null,
+        contentDueAt: payload.dueDate || null,
+        tags: Array.isArray(payload.tags)
+          ? payload.tags
+          : String(payload.tags || '')
+            .split(',')
+            .map((tag) => tag.trim())
+            .filter(Boolean),
+      })
+      setAssignments((prev) => prev.map((item) => (item.id === id ? updated : item)))
+    } catch (error) {
+      setAssignments((prev) => prev.map((item) => (item.id === id ? existing : item)))
+      setWorkspaceError(error instanceof Error ? error.message : 'Unable to update creator-campaign workflow record.')
+      throw error
     }
   }
 
@@ -651,6 +757,7 @@ function App() {
                   campaignForm={campaignForm}
                   setCampaignForm={setCampaignForm}
                   onCreateCampaign={createCampaignRecord}
+                  onUpdateCampaign={updateCampaignRecord}
                 />
               }
             />
@@ -662,6 +769,7 @@ function App() {
                   creatorForm={creatorForm}
                   setCreatorForm={setCreatorForm}
                   onCreateCreator={createCreatorRecord}
+                  onUpdateCreator={updateCreatorRecord}
                 />
               }
             />
@@ -679,6 +787,7 @@ function App() {
                   campaignById={campaignById}
                   creatorById={creatorById}
                   updateCardStage={updateCardStage}
+                  onUpdateAssignment={updateAssignmentRecord}
                 />
               }
             />

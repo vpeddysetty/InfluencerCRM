@@ -68,6 +68,10 @@ export async function createCampaign(token, payload) {
   return request('/api/campaigns', { method: 'POST', token, body: payload })
 }
 
+export async function updateCampaign(token, id, payload) {
+  return request(`/api/campaigns/${id}`, { method: 'PUT', token, body: payload })
+}
+
 export async function listCreators(token) {
   const payload = await request('/api/creators', { token })
   return unwrapList(payload)
@@ -77,6 +81,10 @@ export async function createCreator(token, payload) {
   return request('/api/creators', { method: 'POST', token, body: payload })
 }
 
+export async function updateCreator(token, id, payload) {
+  return request(`/api/creators/${id}`, { method: 'PUT', token, body: payload })
+}
+
 export async function listCampaignCreators(token) {
   const payload = await request('/api/campaign-creators', { token })
   return unwrapList(payload)
@@ -84,6 +92,10 @@ export async function listCampaignCreators(token) {
 
 export async function createCampaignCreator(token, payload) {
   return request('/api/campaign-creators', { method: 'POST', token, body: payload })
+}
+
+export async function updateCampaignCreator(token, id, payload) {
+  return request(`/api/campaign-creators/${id}`, { method: 'PUT', token, body: payload })
 }
 
 export async function updateCampaignCreatorStage(token, id, stage) {

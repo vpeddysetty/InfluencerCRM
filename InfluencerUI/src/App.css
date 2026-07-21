@@ -1003,6 +1003,36 @@ button:focus {
   background: rgba(255, 255, 255, 0.72);
 }
 
+.editable-row-form {
+  display: grid;
+  gap: 8px;
+}
+
+.row-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.row-save-feedback {
+  margin: 0;
+  font-size: 0.8rem;
+  border-radius: 8px;
+  padding: 6px 8px;
+}
+
+.row-save-feedback.success {
+  color: #0f5132;
+  background: rgba(34, 197, 94, 0.14);
+  border: 1px solid rgba(22, 163, 74, 0.3);
+}
+
+.row-save-feedback.error {
+  color: #7f1d1d;
+  background: rgba(248, 113, 113, 0.16);
+  border: 1px solid rgba(239, 68, 68, 0.36);
+}
+
 .mdx-prose .simple-list li {
   border-left: 3px solid rgba(30, 58, 138, 0.2);
 }
@@ -1264,7 +1294,7 @@ button:focus {
 
 .card-actions {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
 }
 
