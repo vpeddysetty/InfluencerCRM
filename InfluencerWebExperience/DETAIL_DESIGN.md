@@ -384,7 +384,7 @@ The service currently provides:
 
 1. Replace in-memory sessions with durable token storage
 2. Add provider refresh-token support
-3. Add automated integration tests with DAO mocked HTTP responses
+3. Add automated integration tests with DAO simulated HTTP responses
 4. Add front-end sign-in screens or a thin UI layer
 5. Move OAuth secrets to a secure secret store
 

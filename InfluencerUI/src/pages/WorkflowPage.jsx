@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { STAGES, stageLabels } from '../constants'
+import { MdsKicker, MdsNote, MdsSectionRule } from '../components/Mds'
 
 function WorkflowPage({
   campaigns,
@@ -154,10 +155,10 @@ function WorkflowPage({
 
   return (
     <section className="page-stack">
-      <article className="card mdx-surface mdx-prose relationship-card">
-        <p className="mdx-kicker">Relationship Mapping</p>
+      <article className="card mds-surface mds-prose relationship-card">
+        <MdsKicker>Relationship Mapping</MdsKicker>
         <h3>4. Tie creators to campaigns</h3>
-        <div className="mdx-section-rule" />
+        <MdsSectionRule />
         <p>Create the active relationship record before managing progression in Kanban.</p>
         <form onSubmit={onTieCreatorToCampaign} className="inline-form assignment-form">
           <select
@@ -222,10 +223,10 @@ function WorkflowPage({
         </form>
       </article>
 
-      <article className="card mdx-surface mdx-prose kanban-board">
-        <p className="mdx-kicker">Workflow Board</p>
+      <article className="card mds-surface mds-prose kanban-board">
+        <MdsKicker>Workflow Board</MdsKicker>
         <h3>5. Creator-campaign relationship Kanban</h3>
-        <div className="mdx-section-rule" />
+        <MdsSectionRule />
         <p className="helper">Drag cards between columns to update stage. WIP limits prevent overloading a stage.</p>
 
         <div className="kanban-toolbar">
@@ -253,7 +254,7 @@ function WorkflowPage({
           </select>
         </div>
 
-        {boardNotice ? <p className="mdx-note board-notice">{boardNotice}</p> : null}
+        {boardNotice ? <MdsNote className="board-notice">{boardNotice}</MdsNote> : null}
 
         <div className="columns">
           {STAGES.map((stage) => (

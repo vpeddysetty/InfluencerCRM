@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { MdsKicker, MdsSectionRule } from '../components/Mds'
 
 function CreatorsPage({ creators, creatorForm, setCreatorForm, onCreateCreator, onUpdateCreator }) {
   const [editingId, setEditingId] = useState('')
@@ -50,10 +51,10 @@ function CreatorsPage({ creators, creatorForm, setCreatorForm, onCreateCreator, 
   }
 
   return (
-    <article className="card mdx-surface mdx-prose form-card page-stack">
-      <p className="mdx-kicker">Creator Directory</p>
+    <article className="card mds-surface mds-prose form-card page-stack">
+      <MdsKicker>Creator Directory</MdsKicker>
       <h3>3. Add creator</h3>
-      <div className="mdx-section-rule" />
+      <MdsSectionRule />
       <p>Store creator profile details so assignments can be tied and tracked accurately.</p>
       <form onSubmit={onCreateCreator} className="inline-form page-form-grid">
         <input

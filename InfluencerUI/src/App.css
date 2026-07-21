@@ -590,27 +590,27 @@ button:focus {
   font-size: 0.9rem;
 }
 
-.mdx-surface {
+.mds-surface {
   border: 1px solid rgba(132, 146, 173, 0.45);
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.92) 0%, rgba(246, 250, 255, 0.9) 100%);
 }
 
-.mdx-prose h3,
-.mdx-prose h4 {
+.mds-prose h3,
+.mds-prose h4 {
   letter-spacing: 0.01em;
 }
 
-.mdx-prose h3 {
+.mds-prose h3 {
   margin-bottom: 10px;
 }
 
-.mdx-prose p {
+.mds-prose p {
   color: var(--ink-2);
   max-width: 72ch;
 }
 
-.mdx-kicker {
+.mds-kicker {
   margin: 0;
   font-size: 0.76rem;
   font-weight: 700;
@@ -619,7 +619,7 @@ button:focus {
   color: #1e40af;
 }
 
-.mdx-inline-code {
+.mds-inline-code {
   display: inline-flex;
   align-items: center;
   border: 1px solid rgba(30, 64, 175, 0.22);
@@ -631,7 +631,7 @@ button:focus {
   color: #1e3a8a;
 }
 
-.mdx-note {
+.mds-note {
   margin: 0;
   border-left: 4px solid #0f766e;
   border-radius: 8px;
@@ -641,7 +641,7 @@ button:focus {
   font-size: 0.89rem;
 }
 
-.mdx-section-rule {
+.mds-section-rule {
   height: 1px;
   margin: 2px 0 4px;
   background: linear-gradient(90deg, rgba(30, 58, 138, 0.24), rgba(30, 58, 138, 0));
@@ -845,8 +845,8 @@ button:focus {
   background: linear-gradient(180deg, #10b981 0%, #0f766e 100%);
 }
 
-.import-result-card .mdx-kicker,
-.import-diagnostic-card .mdx-kicker {
+.import-result-card .mds-kicker,
+.import-diagnostic-card .mds-kicker {
   margin: 0 0 4px;
 }
 
@@ -1033,11 +1033,11 @@ button:focus {
   border: 1px solid rgba(239, 68, 68, 0.36);
 }
 
-.mdx-prose .simple-list li {
+.mds-prose .simple-list li {
   border-left: 3px solid rgba(30, 58, 138, 0.2);
 }
 
-.mdx-theme table {
+.mds-theme table {
   width: 100%;
   border-collapse: collapse;
   border: 1px solid rgba(129, 140, 161, 0.35);
@@ -1046,7 +1046,7 @@ button:focus {
   background: rgba(255, 255, 255, 0.9);
 }
 
-.mdx-theme thead th {
+.mds-theme thead th {
   text-align: left;
   font-size: 0.82rem;
   letter-spacing: 0.04em;
@@ -1055,17 +1055,17 @@ button:focus {
   background: rgba(30, 58, 138, 0.08);
 }
 
-.mdx-theme th,
-.mdx-theme td {
+.mds-theme th,
+.mds-theme td {
   padding: 10px 12px;
   border-bottom: 1px solid rgba(148, 163, 184, 0.34);
 }
 
-.mdx-theme tbody tr:last-child td {
+.mds-theme tbody tr:last-child td {
   border-bottom: 0;
 }
 
-.mdx-theme blockquote {
+.mds-theme blockquote {
   margin: 8px 0;
   border-left: 4px solid #2563eb;
   border-radius: 8px;
@@ -1075,7 +1075,7 @@ button:focus {
   font-style: italic;
 }
 
-.mdx-theme pre {
+.mds-theme pre {
   margin: 8px 0;
   border: 1px solid rgba(51, 65, 85, 0.45);
   border-radius: 12px;
@@ -1085,34 +1085,34 @@ button:focus {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
-.mdx-theme pre code {
+.mds-theme pre code {
   color: #dbeafe;
   font-family: 'Cascadia Code', 'Consolas', monospace;
   font-size: 0.84rem;
   line-height: 1.45;
 }
 
-.mdx-theme :is(h1, h2, h3, h4, h5, h6) {
+.mds-theme :is(h1, h2, h3, h4, h5, h6) {
   scroll-margin-top: 14px;
 }
 
-.mdx-theme h1 {
+.mds-theme h1 {
   font-size: clamp(1.9rem, 3.5vw, 2.5rem);
 }
 
-.mdx-theme h2 {
+.mds-theme h2 {
   font-size: clamp(1.45rem, 2.8vw, 1.95rem);
 }
 
-.mdx-theme h3 {
+.mds-theme h3 {
   font-size: clamp(1.1rem, 2.2vw, 1.35rem);
 }
 
-.mdx-theme :is(h2, h3, h4) {
+.mds-theme :is(h2, h3, h4) {
   margin-top: 12px;
 }
 
-.mdx-theme a {
+.mds-theme a {
   color: #1d4ed8;
   text-decoration: underline;
   text-decoration-color: rgba(37, 99, 235, 0.45);
@@ -1120,12 +1120,12 @@ button:focus {
   transition: color 120ms ease, text-decoration-color 120ms ease;
 }
 
-.mdx-theme a:hover {
+.mds-theme a:hover {
   color: #1e40af;
   text-decoration-color: rgba(30, 64, 175, 0.85);
 }
 
-.mdx-theme :not(pre) > code {
+.mds-theme :not(pre) > code {
   border: 1px solid rgba(30, 64, 175, 0.22);
   border-radius: 7px;
   padding: 1px 6px;
@@ -1135,28 +1135,28 @@ button:focus {
   font-size: 0.83rem;
 }
 
-.mdx-theme :is(ul, ol) {
+.mds-theme :is(ul, ol) {
   margin: 6px 0 10px;
   padding-left: 20px;
   color: var(--ink-2);
 }
 
-.mdx-theme li + li {
+.mds-theme li + li {
   margin-top: 4px;
 }
 
-.mdx-theme hr {
+.mds-theme hr {
   border: 0;
   height: 1px;
   margin: 12px 0;
   background: linear-gradient(90deg, rgba(30, 58, 138, 0.35), rgba(30, 58, 138, 0));
 }
 
-.mdx-theme strong {
+.mds-theme strong {
   color: #0f172a;
 }
 
-.mdx-theme em {
+.mds-theme em {
   color: #334155;
 }
 

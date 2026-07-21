@@ -1,14 +1,15 @@
 import { NavLink, Outlet } from 'react-router-dom'
+import { MdsKicker, MdsNote } from './Mds'
 
 function WorkspaceLayout({ brandName, userName, onLogout, workspaceError = '' }) {
   return (
     <main className="workspace-shell">
       <header className="workspace-header">
-        <div className="mdx-prose">
-          <p className="mdx-kicker">Workspace</p>
+        <div className="mds-prose">
+          <MdsKicker>Workspace</MdsKicker>
           <p className="eyebrow">{brandName}</p>
           <h2>Welcome back, {userName}</h2>
-          <p className="subcopy">Mock dashboard for campaign execution and creator relationship management.</p>
+          <p className="subcopy">Campaign execution and creator relationship management dashboard.</p>
         </div>
         <button type="button" className="ghost-btn" onClick={onLogout}>
           Log out
@@ -22,9 +23,9 @@ function WorkspaceLayout({ brandName, userName, onLogout, workspaceError = '' })
         <NavLink to="/workflow">Workflow</NavLink>
       </nav>
 
-      {workspaceError ? <p className="mdx-note workspace-error-banner">{workspaceError}</p> : null}
+      {workspaceError ? <MdsNote className="workspace-error-banner">{workspaceError}</MdsNote> : null}
 
-      <section className="workspace-content mdx-theme">
+      <section className="workspace-content mds-theme">
         <Outlet />
       </section>
     </main>

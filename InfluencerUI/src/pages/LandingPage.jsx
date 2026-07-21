@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { MdsNote } from '../components/Mds'
 
 function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit, authError = '' }) {
   const navigate = useNavigate()
@@ -161,7 +162,7 @@ function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit, authError = '' }) {
             </button>
           </form>
 
-          {authError ? <p className="mdx-note auth-error-note">{authError}</p> : null}
+          {authError ? <MdsNote className="auth-error-note">{authError}</MdsNote> : null}
 
           <div className="auth-divider" aria-hidden="true">
             <span>or continue with</span>
@@ -174,7 +175,7 @@ function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit, authError = '' }) {
         </div>
 
         <p className="landing-footnote">
-          By continuing you agree to mock platform terms and preview-only data handling.
+          By continuing you agree to platform terms and data handling policies.
         </p>
       </section>
     </main>

@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { MdsInlineCode, MdsKicker, MdsNote, MdsSectionRule } from '../components/Mds'
 
 const ENTITY_ATTRIBUTE_OPTIONS = {
   campaign: [
@@ -92,19 +93,19 @@ function ImportPage({
   }
 
   return (
-    <article className="card mdx-surface mdx-prose import-card page-stack">
-      <p className="mdx-kicker">Import Flow</p>
+    <article className="card mds-surface mds-prose import-card page-stack">
+      <MdsKicker>Import Flow</MdsKicker>
       <h3>1. Import spreadsheet</h3>
-      <div className="mdx-section-rule" />
+      <MdsSectionRule />
       <p>
-        Upload <span className="mdx-inline-code">CSV</span>, <span className="mdx-inline-code">XLS</span>, or{' '}
-        <span className="mdx-inline-code">XLSX</span> and preview import columns before mapping to CRM entities.
+        Upload <MdsInlineCode>CSV</MdsInlineCode>, <MdsInlineCode>XLS</MdsInlineCode>, or{' '}
+        <MdsInlineCode>XLSX</MdsInlineCode> and preview import columns before mapping to CRM entities.
       </p>
       <label className="file-drop">
         <span>Drop file or click to browse</span>
         <input type="file" accept=".csv,.xls,.xlsx" onChange={onImport} />
       </label>
-      <p className="mdx-note">{importSummary.message}</p>
+      <MdsNote>{importSummary.message}</MdsNote>
       {importSummary.filename ? (
         <>
           <div className="preview-table-wrap">
@@ -213,7 +214,7 @@ function ImportPage({
               {importSummary.previewResult ? (
                 <article className="import-result-card">
                   <div className="panel-heading-row">
-                    <p className="mdx-kicker">Preview</p>
+                    <MdsKicker>Preview</MdsKicker>
                     <span className="status-chip info">eye Dry run</span>
                   </div>
                   <strong>{importSummary.previewResult.plannedOperationCount || 0} planned ops</strong>
@@ -226,7 +227,7 @@ function ImportPage({
               {importSummary.hydrateResult ? (
                 <article className="import-result-card success">
                   <div className="panel-heading-row">
-                    <p className="mdx-kicker">Hydration</p>
+                    <MdsKicker>Hydration</MdsKicker>
                     <span className="status-chip success">check Persisted</span>
                   </div>
                   <strong>{importSummary.hydrateResult.plannedOperationCount || 0} processed ops</strong>
@@ -247,7 +248,7 @@ function ImportPage({
                 <div className="import-diagnostics-grid">
                   <article className="import-diagnostic-card">
                     <div className="panel-heading-row">
-                      <p className="mdx-kicker">Batch</p>
+                      <MdsKicker>Batch</MdsKicker>
                       <span className="diag-icon-badge">tray</span>
                     </div>
                     <div className="status-chip-row">
@@ -266,7 +267,7 @@ function ImportPage({
 
                   <article className="import-diagnostic-card">
                     <div className="panel-heading-row">
-                      <p className="mdx-kicker">Mapping</p>
+                      <MdsKicker>Mapping</MdsKicker>
                       <span className="diag-icon-badge">map</span>
                     </div>
                     <div className="status-chip-row">
@@ -283,7 +284,7 @@ function ImportPage({
 
                   <article className="import-diagnostic-card">
                     <div className="panel-heading-row">
-                      <p className="mdx-kicker">Agent debug</p>
+                      <MdsKicker>Agent debug</MdsKicker>
                       <span className="diag-icon-badge">wave</span>
                     </div>
                     <div className="status-chip-row">
@@ -302,7 +303,7 @@ function ImportPage({
 
                   <article className="import-diagnostic-card">
                     <div className="panel-heading-row">
-                      <p className="mdx-kicker">Execution</p>
+                      <MdsKicker>Execution</MdsKicker>
                       <span className="diag-icon-badge">bolt</span>
                     </div>
                     <div className="status-chip-row">

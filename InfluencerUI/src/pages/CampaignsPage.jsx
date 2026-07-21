@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { MdsKicker, MdsSectionRule } from '../components/Mds'
 
 function CampaignsPage({ campaigns, campaignForm, setCampaignForm, onCreateCampaign, onUpdateCampaign }) {
   const [editingId, setEditingId] = useState('')
@@ -48,10 +49,10 @@ function CampaignsPage({ campaigns, campaignForm, setCampaignForm, onCreateCampa
   }
 
   return (
-    <article className="card mdx-surface mdx-prose form-card page-stack">
-      <p className="mdx-kicker">Campaign Editor</p>
+    <article className="card mds-surface mds-prose form-card page-stack">
+      <MdsKicker>Campaign Editor</MdsKicker>
       <h3>2. Create campaign</h3>
-      <div className="mdx-section-rule" />
+      <MdsSectionRule />
       <p>Define campaign basics first, then move creators through workflow stages.</p>
       <form onSubmit={onCreateCampaign} className="inline-form page-form-grid">
         <input

@@ -4,8 +4,8 @@ Build order for the influencer CRM. The organizing bet: prove small brands will 
 See CLAUDE.md for product context and influencer_crm_schema.sql for the data model.
 
 
-Current UI implementation milestone (mock, no backend integration)
-Status: completed as a React mock in InfluencerUI, branded for tejdux.io.
+Current UI implementation milestone (integrated workflow foundation)
+Status: completed in InfluencerUI with core workspace flows and service integration.
 
 What is included:
 - Home/auth entry view for brands and solo startup owners (sign up / login UX)
@@ -16,7 +16,7 @@ What is included:
 - Kanban-style campaign_creator relationship board (outreach -> agreed -> shipped -> posted -> paid)
 
 Scope note:
-- This milestone is intentionally mock-only and does not integrate with agent_service or DAO APIs yet.
+- This milestone focuses on spreadsheet import, campaign/creator CRUD, and workflow progression via integrated APIs.
 
 
 Phase 1 — MVP: the spreadsheet replacement
