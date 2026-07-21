@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
-function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit }) {
+function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit, authError = '' }) {
   const navigate = useNavigate()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const submitTimerRef = useRef(null)
@@ -14,17 +14,21 @@ function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit }) {
     }
   }, [])
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault()
     if (isSubmitting) {
       return
     }
 
     setIsSubmitting(true)
-    onAuthSubmit(event)
-    submitTimerRef.current = window.setTimeout(() => {
-      navigate('/import')
-    }, 340)
+      try {
+        await onAuthSubmit(event)
+        submitTimerRef.current = window.setTimeout(() => {
+          navigate('/import')
+        }, 340)
+      } catch {
+        setIsSubmitting(false)
+      }
   }
 
   return (
@@ -143,6 +147,8 @@ function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit }) {
               <span className="cta-shine" aria-hidden="true" />
             </button>
           </form>
+
+          {authError ? <p className="mdx-note auth-error-note">{authError}</p> : null}
 
           <div className="auth-divider" aria-hidden="true">
             <span>or continue with</span>

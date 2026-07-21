@@ -13,6 +13,7 @@ import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -41,6 +42,31 @@ public class SpreadsheetDiscoveryService {
             }
             if (lowerFilename.endsWith(".xlsx")) {
                 return discoverXlsx(filename, file.getInputStream());
+            }
+            if (lowerFilename.endsWith(".xls")) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ".xls files are not supported; please convert to .xlsx");
+            }
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Only CSV/XLSX/XLS files are supported");
+        } catch (IOException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unable to read spreadsheet file", exception);
+        }
+    }
+
+    public DiscoveredSpreadsheet discover(String filename, byte[] contents) {
+        if (contents == null || contents.length == 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "file cannot be empty");
+        }
+        if (filename == null || filename.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "file must have a filename");
+        }
+
+        String lowerFilename = filename.toLowerCase();
+        try {
+            if (lowerFilename.endsWith(".csv")) {
+                return discoverCsv(filename, new ByteArrayInputStream(contents));
+            }
+            if (lowerFilename.endsWith(".xlsx")) {
+                return discoverXlsx(filename, new ByteArrayInputStream(contents));
             }
             if (lowerFilename.endsWith(".xls")) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ".xls files are not supported; please convert to .xlsx");

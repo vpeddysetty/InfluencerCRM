@@ -596,6 +596,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/GenericJson'
+  /api/import-batches/{id}/agent-column-mapping:
+    post:
+      summary: Read persisted file headers by import batch id and generate agent mapping recommendations
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: Stored headers plus mapping agent response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericJson'
   /api/import-batches/{id}/hydrate:
     post:
       summary: Hydrate import data into domain records

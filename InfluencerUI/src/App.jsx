@@ -7,9 +7,40 @@ import CampaignsPage from './pages/CampaignsPage'
 import CreatorsPage from './pages/CreatorsPage'
 import WorkflowPage from './pages/WorkflowPage'
 import WorkspaceLayout from './components/WorkspaceLayout'
-import { STAGES, starterAssignments, starterCampaigns, starterCreators, parseCsv } from './constants'
+import {
+  createCampaign,
+  createCampaignCreator,
+  createCreator,
+  discoverImport,
+  generateAgentColumnMapping,
+  hydrateImportBatch,
+  listCampaignCreators,
+  listCampaigns,
+  listCreators,
+  login,
+  previewImportBatch,
+  logout,
+  signup,
+  updateImportColumnMapping,
+  updateCampaignCreatorStage,
+} from './api'
+import { createImportMappingJson, createImportMappingJsonFromAgent, parseSpreadsheetFile, STAGES } from './constants'
 
 const STORAGE_KEY = 'tejdux_ui_state_v1'
+const DEFAULT_IMPORT_SUMMARY = {
+  batchId: '',
+  filename: '',
+  type: '',
+  sourceFileStored: false,
+  headers: [],
+  rows: [],
+  mappingText: '',
+  mappingSaved: false,
+  previewResult: null,
+  hydrateResult: null,
+  diagnostics: null,
+  message: 'Upload CSV, XLS, or XLSX to preview mapped source columns.',
+}
 
 function loadPersistedState() {
   try {
@@ -26,9 +57,9 @@ function loadPersistedState() {
 
 function App() {
   const persistedState = loadPersistedState()
-  const initialCampaigns = persistedState?.campaigns?.length ? persistedState.campaigns : starterCampaigns
-  const initialCreators = persistedState?.creators?.length ? persistedState.creators : starterCreators
-  const initialAssignments = persistedState?.assignments?.length ? persistedState.assignments : starterAssignments
+  const initialCampaigns = persistedState?.campaigns?.length ? persistedState.campaigns : []
+  const initialCreators = persistedState?.creators?.length ? persistedState.creators : []
+  const initialAssignments = persistedState?.assignments?.length ? persistedState.assignments : []
   const defaultCampaignId = initialCampaigns[0]?.id || ''
   const defaultCreatorId = initialCreators[0]?.id || ''
 
@@ -36,6 +67,10 @@ function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(persistedState?.isLoggedIn ?? false)
   const [brandName, setBrandName] = useState(persistedState?.brandName ?? 'tejdux.io')
   const [userName, setUserName] = useState(persistedState?.userName ?? '')
+  const [authToken, setAuthToken] = useState(persistedState?.authToken ?? '')
+  const [userId, setUserId] = useState(persistedState?.userId ?? '')
+  const [authError, setAuthError] = useState('')
+  const [workspaceError, setWorkspaceError] = useState('')
 
   const [campaigns, setCampaigns] = useState(initialCampaigns)
   const [creators, setCreators] = useState(initialCreators)
@@ -56,14 +91,10 @@ function App() {
   })
 
   const [importSummary, setImportSummary] = useState(
-    persistedState?.importSummary ?? {
-      filename: '',
-      type: '',
-      headers: [],
-      rows: [],
-      message: 'Upload CSV, XLS, or XLSX to preview mapped source columns.',
-    },
+    persistedState?.importSummary ?? DEFAULT_IMPORT_SUMMARY,
   )
+  const [importRowsPayload, setImportRowsPayload] = useState([])
+  const [importAction, setImportAction] = useState('idle')
 
   const campaignById = useMemo(() => {
     return campaigns.reduce((acc, campaign) => {
@@ -86,12 +117,32 @@ function App() {
     }, {})
   }, [assignments])
 
+  const refreshWorkspaceData = async () => {
+    setWorkspaceError('')
+    const [campaignPayload, creatorPayload, assignmentPayload] = await Promise.all([
+      listCampaigns(authToken),
+      listCreators(authToken),
+      listCampaignCreators(authToken),
+    ])
+
+    setCampaigns(campaignPayload)
+    setCreators(creatorPayload)
+    setAssignments(assignmentPayload)
+    setAssignmentForm((prev) => ({
+      ...prev,
+      campaignId: prev.campaignId || campaignPayload[0]?.id || '',
+      creatorId: prev.creatorId || creatorPayload[0]?.id || '',
+    }))
+  }
+
   useEffect(() => {
     const snapshot = {
       isSignUp,
       isLoggedIn,
       brandName,
       userName,
+      authToken,
+      userId,
       campaigns,
       creators,
       assignments,
@@ -106,6 +157,8 @@ function App() {
     isLoggedIn,
     brandName,
     userName,
+    authToken,
+    userId,
     campaigns,
     creators,
     assignments,
@@ -115,128 +168,421 @@ function App() {
     importSummary,
   ])
 
-  const handleAuthSubmit = (event) => {
-    event.preventDefault()
+  useEffect(() => {
+    if (!isLoggedIn || !authToken) {
+      return
+    }
+
+    let isActive = true
+
+    const loadWorkspace = async () => {
+      try {
+        await refreshWorkspaceData()
+
+        if (!isActive) {
+          return
+        }
+      } catch (error) {
+        if (isActive) {
+          setWorkspaceError(error instanceof Error ? error.message : 'Unable to load workspace data.')
+        }
+      }
+    }
+
+    loadWorkspace()
+
+    return () => {
+      isActive = false
+    }
+  }, [authToken, isLoggedIn])
+
+  const handleAuthSubmit = async (event) => {
     const form = new FormData(event.currentTarget)
-    const name = form.get('fullName') || 'Brand Operator'
-    const company = form.get('brand') || 'tejdux.io'
-    setUserName(String(name))
-    setBrandName(String(company))
-    setIsLoggedIn(true)
+    const name = String(form.get('fullName') || 'Brand Operator')
+    const company = String(form.get('brand') || 'tejdux.io')
+    const email = String(form.get('email') || '')
+    const password = String(form.get('password') || '')
+
+    try {
+      setAuthError('')
+      setWorkspaceError('')
+
+      const authResponse = isSignUp
+        ? await signup({ email, password, brandName: company })
+        : await login({ email, password })
+
+      setUserName(name)
+      setBrandName(authResponse.brandName || company)
+      setUserId(authResponse.userId || '')
+      setAuthToken(authResponse.accessToken || '')
+      setIsLoggedIn(true)
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : 'Authentication failed.')
+      throw error
+    }
   }
 
-  const handleImport = (event) => {
+  const persistImportMapping = async (mappingTextOverride) => {
+    if (!importSummary.batchId) {
+      throw new Error('Upload a file before saving column mappings.')
+    }
+
+    const resolvedMapping = mappingTextOverride ?? importSummary.mappingText ?? '[]'
+    JSON.parse(resolvedMapping)
+    await updateImportColumnMapping(authToken, importSummary.batchId, resolvedMapping)
+    return resolvedMapping
+  }
+
+  const handleImport = async (event) => {
     const file = event.target.files?.[0]
     if (!file) {
       return
     }
 
-    const extension = file.name.split('.').pop()?.toLowerCase()
-
-    if (extension === 'csv') {
-      const reader = new FileReader()
-      reader.onload = () => {
-        const text = typeof reader.result === 'string' ? reader.result : ''
-        const parsed = parseCsv(text)
-        setImportSummary({
-          filename: file.name,
-          type: 'CSV',
-          headers: parsed.headers,
-          rows: parsed.rows.slice(0, 5),
-          message: `Parsed ${parsed.rows.length} data rows from ${file.name}.`,
-        })
+    try {
+      setWorkspaceError('')
+      setImportAction('upload')
+      const parsedFile = await parseSpreadsheetFile(file)
+      const response = await discoverImport(authToken, file)
+      const columns = Array.isArray(response.columns) ? response.columns : []
+      const batch = response.importBatch || response.batch || response
+      const resolvedHeaders = parsedFile.headers.length ? parsedFile.headers : columns
+      let mappingText = createImportMappingJson(resolvedHeaders)
+      let diagnostics = {
+        batchId: batch?.id || '',
+        headerCount: resolvedHeaders.length,
+        rowPayloadCount: parsedFile.rowObjects.length,
+        mappingMode: 'local_fallback',
+        sourceFileStored: Boolean(batch?.sourceFileStored),
+        agentDebug: null,
+        lastAction: 'upload',
       }
-      reader.readAsText(file)
-      return
-    }
+      let mappingMessage = resolvedHeaders.length
+        ? `Persisted source file, retrieved ${resolvedHeaders.length} headers from batch ${batch?.id || ''}, and prepared ${parsedFile.rowObjects.length} rows from ${batch?.sourceFilename || file.name}.`
+        : `Import batch created for ${batch?.sourceFilename || file.name}.`
 
-    if (extension === 'xls' || extension === 'xlsx') {
+      try {
+        const mappingResponse = batch?.id ? await generateAgentColumnMapping(authToken, batch.id) : null
+        mappingText = createImportMappingJsonFromAgent(
+          resolvedHeaders,
+          mappingResponse?.mapping?.recommendations || [],
+        )
+        diagnostics = {
+          ...diagnostics,
+          mappingMode: 'agent_assisted',
+          agentDebug: mappingResponse?.mapping?.debug || null,
+          recommendationCount: mappingResponse?.mapping?.recommendations?.length || 0,
+        }
+        mappingMessage = `Persisted source file, retrieved ${resolvedHeaders.length} headers from batch ${batch?.id || ''}, and generated agent-assisted column mappings.`
+      } catch (error) {
+        mappingMessage = `Source file was persisted for batch ${batch?.id || ''}, but agent mapping is unavailable. A local fallback mapping has been prepared and can still be saved, previewed, or hydrated.`
+        diagnostics = {
+          ...diagnostics,
+          agentError: error instanceof Error ? error.message : 'Agent mapping unavailable.',
+        }
+      }
+
+      let mappingSaved = false
+      try {
+        await updateImportColumnMapping(authToken, batch?.id || '', mappingText)
+        mappingSaved = true
+      } catch {
+        mappingMessage = `${mappingMessage} Saving the mapping back to the import batch failed, so use Save mapping before preview or hydrate.`
+      }
+
+      setImportRowsPayload(parsedFile.rowObjects)
+
       setImportSummary({
-        filename: file.name,
-        type: extension.toUpperCase(),
-        headers: ['Campaign Name', 'Creator Handle', 'Platform', 'Stage', 'Agreed Fee'],
-        rows: [
-          ['Holiday Spark', '@brightriver', 'Instagram', 'outreach', '1200'],
-          ['Holiday Spark', '@alexocean', 'TikTok', 'agreed', '900'],
-        ],
-        message:
-          'Spreadsheet binary parsing is mocked in this version. Import mapping preview is represented with sample columns for UI validation.',
+        batchId: batch?.id || '',
+        filename: batch?.sourceFilename || file.name,
+        type: parsedFile.type,
+        sourceFileStored: Boolean(batch?.sourceFileStored),
+        headers: resolvedHeaders,
+        rows: parsedFile.rows.slice(0, 5),
+        mappingText,
+        mappingSaved,
+        previewResult: null,
+        hydrateResult: null,
+        diagnostics,
+        message: mappingMessage,
       })
-      return
+    } catch (error) {
+      setImportRowsPayload([])
+      setImportSummary({
+        ...DEFAULT_IMPORT_SUMMARY,
+        filename: file.name,
+        type: 'Error',
+        sourceFileStored: false,
+        mappingSaved: false,
+        diagnostics: null,
+        message: error instanceof Error ? error.message : 'Unable to discover import schema.',
+      })
+    } finally {
+      setImportAction('idle')
     }
-
-    setImportSummary({
-      filename: file.name,
-      type: 'Unsupported',
-      headers: [],
-      rows: [],
-      message: 'Unsupported file type. Please upload CSV, XLS, or XLSX.',
-    })
   }
 
-  const createCampaign = (event) => {
+  const handleImportMappingChange = (value) => {
+    setImportSummary((prev) => ({ ...prev, mappingText: value, mappingSaved: false }))
+  }
+
+  const syncImportMapping = async () => {
+    const resolvedMapping = await persistImportMapping()
+    setImportSummary((prev) => ({ ...prev, mappingText: resolvedMapping, mappingSaved: true }))
+  }
+
+  const handleSaveImportMapping = async () => {
+    try {
+      setImportAction('save-mapping')
+      const resolvedMapping = await persistImportMapping()
+      setImportSummary((prev) => ({
+        ...prev,
+        mappingText: resolvedMapping,
+        mappingSaved: true,
+        diagnostics: prev.diagnostics ? { ...prev.diagnostics, lastAction: 'save-mapping' } : prev.diagnostics,
+        message: `Saved column mappings back to import batch ${prev.batchId}.`,
+      }))
+    } catch (error) {
+      setImportSummary((prev) => ({
+        ...prev,
+        mappingSaved: false,
+        diagnostics: prev.diagnostics ? { ...prev.diagnostics, lastAction: 'save-mapping-failed' } : prev.diagnostics,
+        message: error instanceof Error ? error.message : 'Unable to save import column mapping.',
+      }))
+    } finally {
+      setImportAction('idle')
+    }
+  }
+
+  const handleRegenerateImportMapping = async () => {
+    if (!importSummary.batchId) {
+      setImportSummary((prev) => ({
+        ...prev,
+        message: 'Upload a file before regenerating column mappings.',
+      }))
+      return
+    }
+
+    try {
+      setImportAction('regenerate-mapping')
+      const mappingResponse = await generateAgentColumnMapping(authToken, importSummary.batchId)
+      const nextMappingText = createImportMappingJsonFromAgent(
+        importSummary.headers,
+        mappingResponse?.mapping?.recommendations || [],
+      )
+      await persistImportMapping(nextMappingText)
+      setImportSummary((prev) => ({
+        ...prev,
+        mappingText: nextMappingText,
+        mappingSaved: true,
+        diagnostics: prev.diagnostics ? {
+          ...prev.diagnostics,
+          mappingMode: 'agent_assisted',
+          agentDebug: mappingResponse?.mapping?.debug || null,
+          recommendationCount: mappingResponse?.mapping?.recommendations?.length || 0,
+          lastAction: 'regenerate-mapping',
+        } : prev.diagnostics,
+        message: `Regenerated and saved agent column mappings for import batch ${prev.batchId}.`,
+      }))
+    } catch (error) {
+      setImportSummary((prev) => ({
+        ...prev,
+        mappingSaved: prev.mappingSaved,
+        diagnostics: prev.diagnostics ? { ...prev.diagnostics, lastAction: 'regenerate-mapping-failed' } : prev.diagnostics,
+        message: error instanceof Error
+          ? `${error.message} The persisted batch is still available, and the current mapping has been preserved.`
+          : 'Unable to regenerate column mapping from the persisted batch.',
+      }))
+    } finally {
+      setImportAction('idle')
+    }
+  }
+
+  const handlePreviewImport = async () => {
+    if (!importSummary.batchId || !importRowsPayload.length) {
+      setImportSummary((prev) => ({
+        ...prev,
+        message: 'Upload a supported spreadsheet with rows before running preview.',
+      }))
+      return
+    }
+
+    try {
+      setWorkspaceError('')
+      setImportAction('preview')
+      await syncImportMapping()
+      const previewResult = await previewImportBatch(authToken, importSummary.batchId, importRowsPayload)
+      setImportSummary((prev) => ({
+        ...prev,
+        previewResult,
+        diagnostics: prev.diagnostics ? {
+          ...prev.diagnostics,
+          lastAction: 'preview',
+          previewPlannedOperationCount: previewResult.plannedOperationCount || 0,
+          previewCreatedCount: previewResult.createdCount || 0,
+          previewUpdatedCount: previewResult.updatedCount || 0,
+          previewSkippedCount: previewResult.skippedCount || 0,
+        } : prev.diagnostics,
+        message: `Preview calculated for ${prev.filename}. ${previewResult.plannedOperationCount || 0} planned operations.`,
+      }))
+    } catch (error) {
+      setImportSummary((prev) => ({
+        ...prev,
+        diagnostics: prev.diagnostics ? { ...prev.diagnostics, lastAction: 'preview-failed' } : prev.diagnostics,
+        message: error instanceof Error ? error.message : 'Unable to preview import batch.',
+      }))
+    } finally {
+      setImportAction('idle')
+    }
+  }
+
+  const handleHydrateImport = async () => {
+    if (!importSummary.batchId || !importRowsPayload.length) {
+      setImportSummary((prev) => ({
+        ...prev,
+        message: 'Upload a supported spreadsheet with rows before hydrating.',
+      }))
+      return
+    }
+
+    try {
+      setWorkspaceError('')
+      setImportAction('hydrate')
+      await syncImportMapping()
+      const hydrateResult = await hydrateImportBatch(authToken, importSummary.batchId, importRowsPayload)
+      setImportSummary((prev) => ({
+        ...prev,
+        hydrateResult,
+        diagnostics: prev.diagnostics ? {
+          ...prev.diagnostics,
+          lastAction: 'hydrate',
+          hydratePlannedOperationCount: hydrateResult.plannedOperationCount || 0,
+          hydrateCreatedCount: hydrateResult.createdCount || 0,
+          hydrateUpdatedCount: hydrateResult.updatedCount || 0,
+          hydrateSkippedCount: hydrateResult.skippedCount || 0,
+        } : prev.diagnostics,
+        message: `Hydration completed for ${prev.filename}. Created ${hydrateResult.createdCount || 0}, updated ${hydrateResult.updatedCount || 0}.`,
+      }))
+      await refreshWorkspaceData()
+    } catch (error) {
+      setImportSummary((prev) => ({
+        ...prev,
+        diagnostics: prev.diagnostics ? { ...prev.diagnostics, lastAction: 'hydrate-failed' } : prev.diagnostics,
+        message: error instanceof Error ? error.message : 'Unable to hydrate import batch.',
+      }))
+    } finally {
+      setImportAction('idle')
+    }
+  }
+
+  const createCampaignRecord = async (event) => {
     event.preventDefault()
     if (!campaignForm.name.trim()) {
       return
     }
 
-    const nextCampaign = {
-      id: `c-${Date.now()}`,
-      name: campaignForm.name.trim(),
-      budget: campaignForm.budget.trim(),
-      status: campaignForm.status,
-    }
+    try {
+      setWorkspaceError('')
+      const nextCampaign = await createCampaign(authToken, {
+        userId,
+        name: campaignForm.name.trim(),
+        budget: campaignForm.budget.trim(),
+        status: campaignForm.status,
+      })
 
-    setCampaigns((prev) => [nextCampaign, ...prev])
-    setAssignmentForm((prev) => ({ ...prev, campaignId: nextCampaign.id || defaultCampaignId }))
-    setCampaignForm({ name: '', budget: '', status: 'draft' })
+      setCampaigns((prev) => [nextCampaign, ...prev])
+      setAssignmentForm((prev) => ({ ...prev, campaignId: nextCampaign.id || prev.campaignId }))
+      setCampaignForm({ name: '', budget: '', status: 'draft' })
+    } catch (error) {
+      setWorkspaceError(error instanceof Error ? error.message : 'Unable to create campaign.')
+    }
   }
 
-  const createCreator = (event) => {
+  const createCreatorRecord = async (event) => {
     event.preventDefault()
     if (!creatorForm.name.trim() || !creatorForm.handle.trim()) {
       return
     }
 
-    const nextCreator = {
-      id: `r-${Date.now()}`,
-      name: creatorForm.name.trim(),
-      handle: creatorForm.handle.trim(),
-      platform: creatorForm.platform,
-      email: creatorForm.email.trim(),
-    }
+    try {
+      setWorkspaceError('')
+      const nextCreator = await createCreator(authToken, {
+        userId,
+        name: creatorForm.name.trim(),
+        handle: creatorForm.handle.trim(),
+        platform: creatorForm.platform,
+        email: creatorForm.email.trim(),
+      })
 
-    setCreators((prev) => [nextCreator, ...prev])
-    setAssignmentForm((prev) => ({ ...prev, creatorId: nextCreator.id || defaultCreatorId }))
-    setCreatorForm({ name: '', handle: '', platform: 'Instagram', email: '' })
+      setCreators((prev) => [nextCreator, ...prev])
+      setAssignmentForm((prev) => ({ ...prev, creatorId: nextCreator.id || prev.creatorId }))
+      setCreatorForm({ name: '', handle: '', platform: 'Instagram', email: '' })
+    } catch (error) {
+      setWorkspaceError(error instanceof Error ? error.message : 'Unable to create creator.')
+    }
   }
 
-  const tieCreatorToCampaign = (event) => {
+  const tieCreatorToCampaign = async (event) => {
     event.preventDefault()
     if (!assignmentForm.campaignId || !assignmentForm.creatorId) {
       return
     }
 
-    const nextAssignment = {
-      id: `a-${Date.now()}`,
-      campaignId: assignmentForm.campaignId,
-      creatorId: assignmentForm.creatorId,
-      stage: assignmentForm.stage,
-      fee: assignmentForm.fee.trim(),
-      notes: assignmentForm.notes.trim(),
-      dueDate: assignmentForm.dueDate,
-      tags: assignmentForm.tags
-        .split(',')
-        .map((tag) => tag.trim())
-        .filter(Boolean),
-    }
+    try {
+      setWorkspaceError('')
+      const nextAssignment = await createCampaignCreator(authToken, {
+        userId,
+        campaignId: assignmentForm.campaignId,
+        creatorId: assignmentForm.creatorId,
+        stage: assignmentForm.stage,
+        agreedFee: assignmentForm.fee.trim() || null,
+        notes: assignmentForm.notes.trim(),
+        contentDueAt: assignmentForm.dueDate || null,
+        tags: assignmentForm.tags
+          .split(',')
+          .map((tag) => tag.trim())
+          .filter(Boolean),
+      })
 
-    setAssignments((prev) => [nextAssignment, ...prev])
-    setAssignmentForm((prev) => ({ ...prev, fee: '', notes: '', stage: 'outreach', dueDate: '', tags: '' }))
+      setAssignments((prev) => [nextAssignment, ...prev])
+      setAssignmentForm((prev) => ({ ...prev, fee: '', notes: '', stage: 'outreach', dueDate: '', tags: '' }))
+    } catch (error) {
+      setWorkspaceError(error instanceof Error ? error.message : 'Unable to tie creator to campaign.')
+    }
   }
 
-  const updateCardStage = (id, nextStage) => {
+  const updateCardStage = async (id, nextStage) => {
+    const existing = assignments.find((item) => item.id === id)
+    if (!existing) {
+      return
+    }
+
     setAssignments((prev) => prev.map((item) => (item.id === id ? { ...item, stage: nextStage } : item)))
+
+    try {
+      setWorkspaceError('')
+      const updated = await updateCampaignCreatorStage(authToken, id, nextStage)
+      setAssignments((prev) => prev.map((item) => (item.id === id ? updated : item)))
+    } catch (error) {
+      setAssignments((prev) => prev.map((item) => (item.id === id ? existing : item)))
+      setWorkspaceError(error instanceof Error ? error.message : 'Unable to update workflow stage.')
+    }
+  }
+
+  const handleLogout = async () => {
+    try {
+      if (authToken) {
+        await logout(authToken)
+      }
+    } catch {
+      // Ignore logout API failures and clear local session state anyway.
+    }
+
+    setIsLoggedIn(false)
+    setAuthToken('')
+    setUserId('')
+    setWorkspaceError('')
+    setAuthError('')
   }
 
   return (
@@ -250,6 +596,7 @@ function App() {
                 isSignUp={isSignUp}
                 setIsSignUp={setIsSignUp}
                 onAuthSubmit={handleAuthSubmit}
+                authError={authError}
               />
             }
           />
@@ -258,7 +605,14 @@ function App() {
         <>
           <Route
             path="/"
-            element={<WorkspaceLayout brandName={brandName} userName={userName} onLogout={() => setIsLoggedIn(false)} />}
+            element={
+              <WorkspaceLayout
+                brandName={brandName}
+                userName={userName}
+                onLogout={handleLogout}
+                workspaceError={workspaceError}
+              />
+            }
           >
             <Route index element={<Navigate to="/import" replace />} />
             <Route
@@ -267,6 +621,12 @@ function App() {
                 <ImportPage
                   importSummary={importSummary}
                   onImport={handleImport}
+                  onImportMappingChange={handleImportMappingChange}
+                  onSaveImportMapping={handleSaveImportMapping}
+                  onRegenerateImportMapping={handleRegenerateImportMapping}
+                  onPreviewImport={handlePreviewImport}
+                  onHydrateImport={handleHydrateImport}
+                  importAction={importAction}
                 />
               }
             />
@@ -277,7 +637,7 @@ function App() {
                   campaigns={campaigns}
                   campaignForm={campaignForm}
                   setCampaignForm={setCampaignForm}
-                  onCreateCampaign={createCampaign}
+                  onCreateCampaign={createCampaignRecord}
                 />
               }
             />
@@ -288,7 +648,7 @@ function App() {
                   creators={creators}
                   creatorForm={creatorForm}
                   setCreatorForm={setCreatorForm}
-                  onCreateCreator={createCreator}
+                  onCreateCreator={createCreatorRecord}
                 />
               }
             />

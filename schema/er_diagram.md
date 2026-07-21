@@ -74,6 +74,7 @@ erDiagram
         uuid id PK
         uuid user_id FK
         text source_filename
+        bytea source_file
         jsonb column_mapping
         integer row_count
         timestamptz created_at

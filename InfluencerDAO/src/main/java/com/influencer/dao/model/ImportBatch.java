@@ -1,5 +1,6 @@
 package com.influencer.dao.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import java.time.Instant;
 import java.util.UUID;
@@ -16,6 +17,11 @@ public class ImportBatch {
 
     @Column(name = "source_filename", nullable = false)
     private String sourceFilename;
+
+    @JsonIgnore
+    @Lob
+    @Column(name = "source_file")
+    private byte[] sourceFile;
 
     @Column(name = "column_mapping", columnDefinition = "jsonb")
     private String columnMapping;
@@ -58,6 +64,19 @@ public class ImportBatch {
 
     public void setSourceFilename(String sourceFilename) {
         this.sourceFilename = sourceFilename;
+    }
+
+    public byte[] getSourceFile() {
+        return sourceFile;
+    }
+
+    public void setSourceFile(byte[] sourceFile) {
+        this.sourceFile = sourceFile;
+    }
+
+    @Transient
+    public boolean isSourceFileStored() {
+        return sourceFile != null && sourceFile.length > 0;
     }
 
     public String getColumnMapping() {

@@ -7,6 +7,8 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.stereotype.Service;
 
 import java.util.Map;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
 
 @Service
@@ -73,7 +75,7 @@ public class ResponseShapeService {
     }
 
     public JsonNode importBatch(JsonNode source) {
-        return pick(source, "id", "userId", "status", "sourceFilename", "columnMapping", "createdAt", "updatedAt");
+        return pick(source, "id", "userId", "status", "sourceFilename", "sourceFileStored", "columnMapping", "createdAt", "updatedAt");
     }
 
     public JsonNode importDiscoverResult(JsonNode source) {
@@ -174,6 +176,26 @@ public class ResponseShapeService {
         out.put("platform", platform);
         out.put("status", status);
         return out;
+    }
+
+    public ObjectMapper objectMapper() {
+        return objectMapper;
+    }
+
+    public List<String> asStringList(JsonNode source) {
+        List<String> values = new ArrayList<>();
+        if (source == null || !source.isArray()) {
+            return values;
+        }
+        for (JsonNode item : source) {
+            if (item != null && !item.isNull()) {
+                String value = item.asText();
+                if (value != null && !value.isBlank()) {
+                    values.add(value);
+                }
+            }
+        }
+        return values;
     }
 
     private ArrayNode asArray(JsonNode source) {

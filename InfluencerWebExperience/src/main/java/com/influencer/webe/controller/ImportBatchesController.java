@@ -1,6 +1,9 @@
 package com.influencer.webe.controller;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.influencer.webe.client.AgentMappingClient;
 import com.influencer.webe.client.DaoGatewayClient;
 import com.influencer.webe.service.RequestUserResolver;
 import com.influencer.webe.service.ResponseShapeService;
@@ -16,13 +19,16 @@ import java.util.UUID;
 @RequestMapping("/api/import-batches")
 public class ImportBatchesController {
     private final DaoGatewayClient daoGatewayClient;
+    private final AgentMappingClient agentMappingClient;
     private final RequestUserResolver requestUserResolver;
     private final ResponseShapeService responseShapeService;
 
     public ImportBatchesController(DaoGatewayClient daoGatewayClient,
+                                   AgentMappingClient agentMappingClient,
                                    RequestUserResolver requestUserResolver,
                                    ResponseShapeService responseShapeService) {
         this.daoGatewayClient = daoGatewayClient;
+        this.agentMappingClient = agentMappingClient;
         this.requestUserResolver = requestUserResolver;
         this.responseShapeService = responseShapeService;
     }
@@ -41,6 +47,23 @@ public class ImportBatchesController {
     @GetMapping("/{id}")
     public JsonNode findById(@PathVariable UUID id) {
         return responseShapeService.importBatch(daoGatewayClient.get("/import-batches/" + id, null));
+    }
+
+    @PostMapping("/{id}/agent-column-mapping")
+    public JsonNode generateAgentColumnMapping(@PathVariable UUID id) {
+        JsonNode storedColumnsResult = daoGatewayClient.get("/import-batches/" + id + "/columns", null);
+        ArrayNode columnsNode = storedColumnsResult != null && storedColumnsResult.has("columns") && storedColumnsResult.get("columns").isArray()
+                ? (ArrayNode) storedColumnsResult.get("columns")
+                : responseShapeService.objectMapper().createArrayNode();
+
+        ObjectNode response = responseShapeService.objectMapper().createObjectNode();
+        response.put("importBatchId", id.toString());
+        if (storedColumnsResult != null && storedColumnsResult.hasNonNull("sourceFilename")) {
+            response.set("sourceFilename", storedColumnsResult.get("sourceFilename"));
+        }
+        response.set("columns", columnsNode);
+        response.set("mapping", agentMappingClient.mapColumns(responseShapeService.asStringList(columnsNode)));
+        return response;
     }
 
     @PostMapping("/discover")

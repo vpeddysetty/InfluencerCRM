@@ -9,8 +9,19 @@ Map marketer spreadsheets in arbitrary formats to the InfluencerCRM data model w
 - GET /health
 - POST /map-columns
 - POST /map-upload
+- GET /mappings/examples
+- POST /mappings/review
+- POST /mappings/approve
 
 Service entrypoint: agent_service/app.py
+
+## Endpoint Design
+
+- All endpoints are synchronous and stateless.
+- `/map-columns` is the core contract; `/map-upload` is a convenience wrapper that extracts the first-row headers and delegates to it.
+- Retrieval and LLM enrichment are optional. The heuristic path is the baseline contract and remains available when those dependencies are missing.
+- `/mappings/examples` and `/mappings/review` are designed to degrade gracefully with structured `status: error` payloads instead of always surfacing hard transport failures.
+- The current service has no auth boundary and should be treated as an internal API until authentication and tenant scoping are added.
 
 ## Core Pipeline
 
@@ -89,10 +100,11 @@ Environment variables:
 - Strict LLM payload validation
 - Robust fallback behavior
 - Good observability for manual review
+- Clear split between inference endpoints and review/persistence endpoints
 
 ## Next Priorities
 
 1. Persist approved mappings back to mapping_examples automatically
-2. Add endpoint to review/approve mapping outcomes
+2. Add endpoint authentication and tenant scoping for review/example APIs
 3. Add integration tests for retrieval + LLM merge path
 4. Add tenant-scoped retrieval filtering by user_id

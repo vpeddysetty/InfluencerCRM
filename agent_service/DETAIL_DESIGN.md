@@ -68,9 +68,39 @@ agent_service/
 
 ## 6. API Design
 
-### GET /health
+### 6.1 Endpoint design principles
+
+The agent endpoints are intentionally synchronous and stateless.
+
+Design rules:
+
+- request scope is a single mapping or review action
+- no background jobs or callbacks are required for current flows
+- file upload endpoints extract only header structure and do not persist uploaded files
+- retrieval and LLM enrichment are best-effort enhancements; deterministic heuristic output remains the baseline contract
+- review endpoints are allowed to degrade into a structured error payload instead of raising transport-level failures when persistence is unavailable
+- no authentication or tenant boundary is enforced in the current agent service; callers must treat it as an internal service until auth is added
+
+### 6.2 Endpoint matrix
+
+| Method | Path | Purpose | Primary caller | Notes |
+| --- | --- | --- | --- | --- |
+| GET | /health | Liveness probe | platform/runtime | no dependencies |
+| POST | /map-columns | Map raw column names into CRM attributes | UI/BFF/internal tools | core synchronous mapping endpoint |
+| POST | /map-upload | Accept upload and delegate to /map-columns | UI/internal tools | parses first row only |
+| GET | /mappings/examples | Read prior approved examples | review UI/internal tooling | best-effort DB-backed |
+| POST | /mappings/review | Persist approval or rejection | ops review flow | can return status:error payload |
+| POST | /mappings/approve | Approval convenience wrapper | ops review flow | wraps /mappings/review |
+
+### 6.3 GET /health
 
 Returns service liveness.
+
+Characteristics:
+
+- zero input
+- no database dependency
+- safe for load balancers and container probes
 
 Response:
 
@@ -78,7 +108,7 @@ Response:
 {"status": "ok"}
 ```
 
-### GET /mappings/examples
+### 6.4 GET /mappings/examples
 
 Returns recent mapping examples persisted in PostgreSQL/pgvector-backed table.
 
@@ -94,15 +124,45 @@ Response includes:
 - count
 - items[]
 
+Item fields returned from storage layer typically include:
+
+- id
+- template_name
+- source_signature
+- quality_score
+- usage_count
+- is_active
+- created_at
+- updated_at
+- mappings
+
 Error response includes:
 
 - status: error
 - reason
 - error
 
-### POST /map-columns
+Operational note:
+
+- this endpoint does not raise an HTTP 5xx when the database lookup fails; it returns a structured status:error body with an empty items array so review tooling can degrade gracefully
+
+### 6.5 POST /map-columns
 
 Maps raw spreadsheet columns.
+
+Request validation:
+
+- spreadsheet_columns is required
+- spreadsheet_columns must not be empty
+
+Execution flow:
+
+1. invoke LangGraph heuristic workflow
+2. optionally retrieve similar historical examples
+3. optionally request LLM enrichment
+4. blend confidence by spreadsheet_column key
+5. mark low-confidence recommendations for operator review
+6. return debug/provenance block
 
 Request:
 
@@ -119,13 +179,45 @@ Response includes:
 - metadata_catalog
 - debug
 
+Recommendation object shape:
+
+- spreadsheet_column
+- target_entity
+- target_attribute
+- confidence
+- recommendation_type
+- notes
+- source
+
+Debug object shape:
+
+- llm_available
+- retrieval_available
+- retrieved_examples_count
+- llm_enhanced
+- fallback_used
+- recommendation_count
+- review_candidates
+- review_trace
+
 Error response:
 
 - HTTP 400 when spreadsheet_columns is empty
 
-### POST /map-upload
+### 6.6 POST /map-upload
 
 Accepts CSV/XLSX upload, extracts header columns, then delegates to /map-columns logic.
+
+Upload parsing rules:
+
+- CSV: parsed from first row using Python csv reader
+- XLSX: parsed from first worksheet first row using openpyxl
+- XLS: explicitly rejected with conversion guidance
+
+Implementation notes:
+
+- only header extraction happens here; row data is not returned
+- this endpoint returns the same response contract as /map-columns after extraction
 
 Rules:
 
@@ -140,14 +232,26 @@ Error response:
 - HTTP 400 when no columns extracted
 - HTTP 500 when openpyxl is unavailable for XLSX handling
 
-### POST /mappings/review
+### 6.7 POST /mappings/review
 
 Persists a review decision for a mapping payload.
+
+Request contract:
+
+- spreadsheet_columns
+- recommendations[]
+- approved
+- approved_by
+- template_name
+- source_tab_names[]
+- sample_values_json
+- quality_score
 
 Behavior:
 
 - approved=true writes/updates active mapping example
 - approved=false marks matching example inactive (if found)
+- request with empty spreadsheet_columns returns HTTP 400
 
 Response includes:
 
@@ -155,13 +259,26 @@ Response includes:
 - decision (approved | rejected)
 - persistence object from storage layer
 
-### POST /mappings/approve
+Persistence object may include:
+
+- saved
+- action
+- id
+- reason
+- error
+
+Design note:
+
+- persistence failures are reflected in the JSON body with status:error rather than by converting every storage problem into an HTTP exception
+
+### 6.8 POST /mappings/approve
 
 Convenience endpoint for approved reviews only.
 
 Behavior:
 
 - internally calls /mappings/review flow with approved=true
+- request shape matches /mappings/review except approved is implicit
 
 ## 7. Mapping Workflow
 
@@ -226,6 +343,15 @@ If enriched output unavailable/invalid:
 
 ## 8. Response Contract
 
+### 8.1 Transport behavior
+
+- success mapping calls return HTTP 200
+- successful review persistence returns HTTP 200
+- malformed mapping input returns HTTP 400
+- unsupported upload types return HTTP 400
+- optional dependency failures in XLSX parsing return HTTP 500
+- example/review persistence failures may still return HTTP 200 with status:error body, by design
+
 Core fields:
 
 - recommendations[]
@@ -287,6 +413,8 @@ Required schema artifacts:
 3. Support per-tenant retrieval filtering by user_id
 4. Add endpoint authentication/authorization for review and examples APIs
 5. Add idempotency key support for review submission calls
+6. Add versioned API namespace if external consumers are introduced
+7. Add structured correlation/request ids to endpoint responses and logs
 
 ## 15. Mind Map
 

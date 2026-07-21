@@ -1,6 +1,6 @@
 import { NavLink, Outlet } from 'react-router-dom'
 
-function WorkspaceLayout({ brandName, userName, onLogout }) {
+function WorkspaceLayout({ brandName, userName, onLogout, workspaceError = '' }) {
   return (
     <main className="workspace-shell">
       <header className="workspace-header">
@@ -21,6 +21,8 @@ function WorkspaceLayout({ brandName, userName, onLogout }) {
         <NavLink to="/creators">Creators</NavLink>
         <NavLink to="/workflow">Workflow</NavLink>
       </nav>
+
+      {workspaceError ? <p className="mdx-note workspace-error-banner">{workspaceError}</p> : null}
 
       <section className="workspace-content mdx-theme">
         <Outlet />

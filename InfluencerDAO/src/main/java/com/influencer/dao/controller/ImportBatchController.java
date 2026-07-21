@@ -8,7 +8,10 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.bind.annotation.*;
+import java.io.IOException;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @RestController
@@ -37,6 +40,21 @@ public class ImportBatchController {
         return repository.findById(id).orElseThrow(() -> new RuntimeException("ImportBatch not found"));
     }
 
+    @GetMapping("/{id}/columns")
+    public Map<String, Object> discoverStoredColumns(@PathVariable UUID id) {
+        ImportBatch importBatch = repository.findById(id).orElseThrow(() -> new RuntimeException("ImportBatch not found"));
+        SpreadsheetDiscoveryService.DiscoveredSpreadsheet discovered = discoveryService.discover(
+                importBatch.getSourceFilename(),
+                importBatch.getSourceFile());
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("id", importBatch.getId());
+        response.put("sourceFilename", discovered.getSourceFilename());
+        response.put("columns", discovered.getColumns());
+        response.put("rowCount", discovered.getRowCount());
+        return response;
+    }
+
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public ImportBatch create(@RequestBody ImportBatch importBatch) {
@@ -47,12 +65,13 @@ public class ImportBatchController {
     @ResponseStatus(HttpStatus.CREATED)
     public SpreadsheetDiscoveryService.DiscoverImportBatchResponse discover(
             @RequestParam UUID userId,
-            @RequestPart("file") MultipartFile file) {
+            @RequestPart("file") MultipartFile file) throws IOException {
         SpreadsheetDiscoveryService.DiscoveredSpreadsheet discoveredSpreadsheet = discoveryService.discover(file);
 
         ImportBatch importBatch = new ImportBatch();
         importBatch.setUserId(userId);
         importBatch.setSourceFilename(discoveredSpreadsheet.getSourceFilename());
+        importBatch.setSourceFile(file.getBytes());
         importBatch.setRowCount(discoveredSpreadsheet.getRowCount());
         importBatch.setColumnMapping("{}");
 
@@ -68,6 +87,9 @@ public class ImportBatchController {
         ImportBatch existing = repository.findById(id).orElseThrow(() -> new RuntimeException("ImportBatch not found"));
         existing.setUserId(importBatch.getUserId());
         existing.setSourceFilename(importBatch.getSourceFilename());
+        if (importBatch.getSourceFile() != null && importBatch.getSourceFile().length > 0) {
+            existing.setSourceFile(importBatch.getSourceFile());
+        }
         existing.setColumnMapping(importBatch.getColumnMapping());
         existing.setRowCount(importBatch.getRowCount());
         return repository.save(existing);

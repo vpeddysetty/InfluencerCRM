@@ -117,6 +117,7 @@ create table import_batches (
     id              uuid primary key default gen_random_uuid(),
     user_id         uuid not null references users(id) on delete cascade,
     source_filename text not null,
+    source_file     bytea,
     column_mapping  jsonb not null default '{}',       -- maps sheet columns -> fields
     row_count       integer not null default 0,
     created_at      timestamptz not null default now()
