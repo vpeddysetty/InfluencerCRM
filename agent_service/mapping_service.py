@@ -239,11 +239,23 @@ class MetadataMapper:
                     inferred_entity = keyword_entity
                 else:
                     inferred_entity = best_entity if (best_entity and best_score >= 0.5) else keyword_entity
+                recommendations.append(
+                    asdict(
+                        MappingRecommendation(
+                            spreadsheet_column=column_name,
+                            target_entity=inferred_entity,
+                            target_attribute="custom_attributes",
+                            confidence=round(max(best_score, 0.55), 2),
+                            recommendation_type="custom",
+                            notes="No strong direct schema match. Recommend storing this column under custom attributes for the inferred entity.",
+                        )
+                    )
+                )
                 custom_fields.append(
                     {
                         "spreadsheet_column": column_name,
                         "target_entity": inferred_entity,
-                        "target_attribute": column_name,
+                        "target_attribute": "custom_attributes",
                         "reason": "No strong match found in the known CRM target attributes.",
                         "recommendation_type": "custom",
                         "applies_to": [inferred_entity],

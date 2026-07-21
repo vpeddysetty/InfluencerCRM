@@ -1,6 +1,9 @@
 package com.influencer.dao.model;
 
 import jakarta.persistence.*;
+import org.hibernate.annotations.ColumnTransformer;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
@@ -28,6 +31,7 @@ public class Creator {
     private String email;
 
     @Column(name = "platform", nullable = false)
+    @ColumnTransformer(write = "?::platform_type")
     private String platform;
 
     @Column(name = "follower_count")
@@ -64,6 +68,7 @@ public class Creator {
     private String[] contentCategories;
 
     @Column(name = "audience_demographics", columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
     private String audienceDemographics;
 
     @Column(name = "audience_size_estimate")
@@ -94,6 +99,7 @@ public class Creator {
     private String currency;
 
     @Column(name = "custom_attributes", columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
     private String customAttributes;
 
     @Column(name = "created_at", nullable = false, updatable = false)

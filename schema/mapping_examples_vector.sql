@@ -35,6 +35,11 @@ create index if not exists idx_mapping_examples_embedding_cos
     on mapping_examples using ivfflat (signature_embedding vector_cosine_ops)
     with (lists = 100);
 
-create trigger trg_mapping_examples_updated
-before update on mapping_examples
-for each row execute function set_updated_at();
+do $$
+begin
+    if not exists (select 1 from pg_trigger where tgname = 'trg_mapping_examples_updated') then
+        create trigger trg_mapping_examples_updated
+        before update on mapping_examples
+        for each row execute function set_updated_at();
+    end if;
+end $$;

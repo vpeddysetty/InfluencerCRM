@@ -2,6 +2,8 @@ package com.influencer.dao.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -19,11 +21,11 @@ public class ImportBatch {
     private String sourceFilename;
 
     @JsonIgnore
-    @Lob
     @Column(name = "source_file")
     private byte[] sourceFile;
 
     @Column(name = "column_mapping", columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
     private String columnMapping;
 
     @Column(name = "row_count", nullable = false)

@@ -101,16 +101,19 @@ function inferMappingForHeader(header) {
     { match: ['campaign name', 'campaign'], targetEntity: 'campaign', targetAttribute: 'name' },
     { match: ['campaign budget', 'budget'], targetEntity: 'campaign', targetAttribute: 'budget' },
     { match: ['campaign status'], targetEntity: 'campaign', targetAttribute: 'status' },
+    { match: ['campaign custom attributes', 'campaign customer attributes'], targetEntity: 'campaign', targetAttribute: 'customAttributes' },
     { match: ['creator name'], targetEntity: 'creator', targetAttribute: 'name' },
     { match: ['creator handle', 'handle'], targetEntity: 'creator', targetAttribute: 'handle' },
     { match: ['platform', 'creator platform'], targetEntity: 'creator', targetAttribute: 'platform' },
     { match: ['email', 'creator email'], targetEntity: 'creator', targetAttribute: 'email' },
+    { match: ['creator custom attributes', 'creator customer attributes', 'custom attributes', 'customer attributes'], targetEntity: 'creator', targetAttribute: 'customAttributes' },
     { match: ['stage', 'workflow stage'], targetEntity: 'campaign_creator', targetAttribute: 'stage' },
     { match: ['agreed fee', 'fee', 'rate'], targetEntity: 'campaign_creator', targetAttribute: 'agreedFee' },
     { match: ['content due at', 'content due date', 'due date'], targetEntity: 'campaign_creator', targetAttribute: 'contentDueAt' },
     { match: ['discount code', 'code'], targetEntity: 'campaign_creator', targetAttribute: 'discountCode' },
     { match: ['link', 'landing url'], targetEntity: 'campaign_creator', targetAttribute: 'link' },
     { match: ['post url'], targetEntity: 'campaign_creator', targetAttribute: 'postUrl' },
+    { match: ['campaign relationship custom attributes', 'campaign relationship customer attributes'], targetEntity: 'campaign_creator', targetAttribute: 'customAttributes' },
   ]
 
   const matchedRule = mappingRules.find((rule) => rule.match.includes(normalized))

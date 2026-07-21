@@ -57,7 +57,13 @@ def test_recommend_uses_sheet_context_for_higher_confidence():
 def test_custom_fields_are_entity_scoped_for_unmapped_columns():
     mapper = MetadataMapper()
     result = mapper.recommend(["Influencer Persona", "Contract Clause Notes"])
+    recommendations = {item["spreadsheet_column"]: item for item in result["recommendations"]}
     custom_fields = {item["spreadsheet_column"]: item for item in result["custom_fields"]}
+
+    assert recommendations["Influencer Persona"]["target_attribute"] == "custom_attributes"
+    assert recommendations["Influencer Persona"]["recommendation_type"] == "custom"
+    assert recommendations["Contract Clause Notes"]["target_attribute"] == "custom_attributes"
+    assert recommendations["Contract Clause Notes"]["recommendation_type"] == "custom"
 
     assert custom_fields["Influencer Persona"]["target_entity"] == "creator"
     assert custom_fields["Influencer Persona"]["custom_field_scope"] == "creator"

@@ -55,6 +55,17 @@ function loadPersistedState() {
   }
 }
 
+function normalizeLoginEmail(identifier) {
+  const trimmed = String(identifier || '').trim().toLowerCase()
+  if (!trimmed) {
+    return ''
+  }
+  if (trimmed.includes('@')) {
+    return trimmed
+  }
+  return `${trimmed}@tejdux.io`
+}
+
 function App() {
   const persistedState = loadPersistedState()
   const initialCampaigns = persistedState?.campaigns?.length ? persistedState.campaigns : []
@@ -198,9 +209,11 @@ function App() {
 
   const handleAuthSubmit = async (event) => {
     const form = new FormData(event.currentTarget)
-    const name = String(form.get('fullName') || 'Brand Operator')
+    const rawIdentifier = String(form.get('email') || '')
+    const email = isSignUp ? rawIdentifier : normalizeLoginEmail(rawIdentifier)
+    const inferredName = email.includes('@') ? email.split('@')[0] : email
+    const name = String(form.get('fullName') || inferredName || 'Brand Operator')
     const company = String(form.get('brand') || 'tejdux.io')
-    const email = String(form.get('email') || '')
     const password = String(form.get('password') || '')
 
     try {

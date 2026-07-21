@@ -1,6 +1,9 @@
 package com.influencer.dao.model;
 
 import jakarta.persistence.*;
+import org.hibernate.annotations.ColumnTransformer;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -21,9 +24,11 @@ public class User {
     private String brandName;
 
     @Column(name = "custom_attributes", columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
     private String customAttributes;
 
     @Column(name = "role")
+    @ColumnTransformer(write = "?::user_role")
     private String role;
 
     @Column(name = "plan", nullable = false)

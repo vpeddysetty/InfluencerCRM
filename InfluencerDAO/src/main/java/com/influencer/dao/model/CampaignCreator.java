@@ -1,6 +1,9 @@
 package com.influencer.dao.model;
 
 import jakarta.persistence.*;
+import org.hibernate.annotations.ColumnTransformer;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
@@ -25,6 +28,7 @@ public class CampaignCreator {
     private UUID importBatchId;
 
     @Column(name = "stage", nullable = false)
+    @ColumnTransformer(write = "?::pipeline_stage")
     private String stage;
 
     @Column(name = "discount_code")
@@ -67,6 +71,7 @@ public class CampaignCreator {
     private Instant contentDueAt;
 
     @Column(name = "content_review_status")
+    @ColumnTransformer(write = "?::content_review_status")
     private String contentReviewStatus;
 
     @Column(name = "content_review_requested_at")
@@ -100,9 +105,11 @@ public class CampaignCreator {
     private BigDecimal paymentAmount;
 
     @Column(name = "performance_metrics", columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
     private String performanceMetrics;
 
     @Column(name = "custom_attributes", columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
     private String customAttributes;
 
     @Column(name = "created_at", nullable = false, updatable = false)

@@ -6,6 +6,7 @@ const ENTITY_ATTRIBUTE_OPTIONS = {
     { value: 'name', label: 'Campaign name' },
     { value: 'budget', label: 'Budget' },
     { value: 'status', label: 'Status' },
+    { value: 'customAttributes', label: 'Custom attributes (JSON)' },
   ],
   creator: [
     { value: '', label: 'Skip column' },
@@ -13,6 +14,7 @@ const ENTITY_ATTRIBUTE_OPTIONS = {
     { value: 'handle', label: 'Handle' },
     { value: 'platform', label: 'Platform' },
     { value: 'email', label: 'Email' },
+    { value: 'customAttributes', label: 'Custom attributes (JSON)' },
   ],
   campaign_creator: [
     { value: '', label: 'Skip column' },
@@ -22,6 +24,7 @@ const ENTITY_ATTRIBUTE_OPTIONS = {
     { value: 'discountCode', label: 'Discount code' },
     { value: 'link', label: 'Link' },
     { value: 'postUrl', label: 'Post URL' },
+    { value: 'customAttributes', label: 'Custom attributes (JSON)' },
   ],
 }
 

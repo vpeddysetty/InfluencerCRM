@@ -2,6 +2,7 @@ package com.influencer.dao.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.annotation.JsonAlias;
 import com.influencer.dao.model.Campaign;
 import com.influencer.dao.model.CampaignCreator;
 import com.influencer.dao.model.Creator;
@@ -253,6 +254,21 @@ public class ImportBatchHydrationService {
         if (campaign.getStatus() == null) {
             campaign.setStatus("draft");
         }
+        if (campaign.getCampaignType() == null) {
+            campaign.setCampaignType("paid");
+        }
+        if (campaign.getCurrency() == null) {
+            campaign.setCurrency("USD");
+        }
+        if (campaign.getPriority() == null) {
+            campaign.setPriority("medium");
+        }
+        if (campaign.getDeliverablesRequired() == null) {
+            campaign.setDeliverablesRequired(new String[0]);
+        }
+        if (campaign.getCustomAttributes() == null) {
+            campaign.setCustomAttributes("{}");
+        }
         return new HydratedEntity<>(campaign, !existingCampaign.isPresent());
     }
 
@@ -278,6 +294,27 @@ public class ImportBatchHydrationService {
         creator.setPlatform(platform);
         if (creator.getSource() == null) {
             creator.setSource(importBatch.getSourceFilename());
+        }
+        if (creator.getStatus() == null) {
+            creator.setStatus("active");
+        }
+        if (creator.getTags() == null) {
+            creator.setTags(new String[0]);
+        }
+        if (creator.getLanguages() == null) {
+            creator.setLanguages(new String[0]);
+        }
+        if (creator.getContentCategories() == null) {
+            creator.setContentCategories(new String[0]);
+        }
+        if (creator.getAudienceDemographics() == null) {
+            creator.setAudienceDemographics("{}");
+        }
+        if (creator.getCurrency() == null) {
+            creator.setCurrency("USD");
+        }
+        if (creator.getCustomAttributes() == null) {
+            creator.setCustomAttributes("{}");
         }
         return new HydratedEntity<>(creator, !existingCreator.isPresent());
     }
@@ -306,6 +343,7 @@ public class ImportBatchHydrationService {
         applyValues(campaignCreator, values);
         campaignCreator.setCampaignId(campaignId);
         campaignCreator.setCreatorId(creatorId);
+        campaignCreator.setStage(normalizePipelineStage(campaignCreator.getStage()));
         if (campaignCreator.getStage() == null) {
             campaignCreator.setStage("outreach");
         }
@@ -327,6 +365,12 @@ public class ImportBatchHydrationService {
         if (campaignCreator.getFeeCurrency() == null) {
             campaignCreator.setFeeCurrency("USD");
         }
+        if (campaignCreator.getPerformanceMetrics() == null) {
+            campaignCreator.setPerformanceMetrics("{}");
+        }
+        if (campaignCreator.getCustomAttributes() == null) {
+            campaignCreator.setCustomAttributes("{}");
+        }
         return new HydratedEntity<>(campaignCreator, !existingCampaignCreator.isPresent());
     }
 
@@ -337,6 +381,9 @@ public class ImportBatchHydrationService {
 
         try {
             JsonNode root = objectMapper.readTree(columnMappingJson);
+            if (root.isTextual()) {
+                root = objectMapper.readTree(root.asText());
+            }
             List<ColumnMappingEntry> mappings = new ArrayList<>();
 
             if (root.isArray()) {
@@ -474,6 +521,38 @@ public class ImportBatchHydrationService {
         }
 
         return text;
+    }
+
+    private String normalizePipelineStage(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+
+        String normalized = normalizeKey(value);
+        if (normalized.equals("outreach") || normalized.equals("contacted") || normalized.equals("new")) {
+            return "outreach";
+        }
+        if (normalized.equals("agreed")
+                || normalized.equals("agree")
+                || normalized.equals("negotiation")
+                || normalized.equals("negotiating")
+                || normalized.equals("contractsent")
+                || normalized.equals("booked")) {
+            return "agreed";
+        }
+        if (normalized.equals("shipped") || normalized.equals("productshipped") || normalized.equals("sampledelivered")) {
+            return "shipped";
+        }
+        if (normalized.equals("posted") || normalized.equals("published") || normalized.equals("live")) {
+            return "posted";
+        }
+        if (normalized.equals("paid") || normalized.equals("paymentcomplete") || normalized.equals("paymentcompleted")) {
+            return "paid";
+        }
+
+        throw new ResponseStatusException(
+                HttpStatus.BAD_REQUEST,
+                "Unsupported campaign_creator stage '" + value + "'. Allowed stages: outreach, agreed, shipped, posted, paid");
     }
 
     private String inferDefaultEntity(String sourceFilename) {
@@ -653,10 +732,15 @@ public class ImportBatchHydrationService {
     }
 
     public static class ColumnMappingEntry {
+        @JsonAlias({"spreadsheet_column"})
         private String spreadsheetColumn;
+        @JsonAlias({"source_column"})
         private String sourceColumn;
+        @JsonAlias({"target_entity"})
         private String targetEntity;
+        @JsonAlias({"target_attribute"})
         private String targetAttribute;
+        @JsonAlias({"target_field"})
         private String targetField;
 
         public String getSpreadsheetColumn() {

@@ -4,10 +4,13 @@ import os
 from typing import List, Dict, Any, Optional
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from pydantic import BaseModel
+from dotenv import load_dotenv
 from agent_service.mapping_service import MetadataMapper
 from agent_service.langgraph_workflow import build_graph
 from agent_service.llm_service import OpenAIAdvisor, blend_confidence
 from agent_service.retrieval_service import MappingExampleRetriever
+
+load_dotenv()
 
 app = FastAPI(title="Influencer CRM Metadata Mapping Agent")
 mapper = MetadataMapper()

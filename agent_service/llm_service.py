@@ -83,7 +83,7 @@ class OpenAIAdvisor:
             return (
                 "You are an assistant that maps spreadsheet metadata to an influencer CRM schema. "
                 "Map each spreadsheet column to the closest CRM entity attribute. "
-                "If no strong match exists, label the column as a custom field tied to campaign. "
+                "If no strong match exists, label the column as a custom field on the inferred entity and use target_attribute 'custom_attributes'. "
                 "Return JSON with two arrays: recommendations and custom_fields."
             )
 
@@ -105,7 +105,7 @@ class OpenAIAdvisor:
             "retrieved_examples": retrieved_examples or [],
             "instructions": [
                 "Map each spreadsheet column to the closest CRM entity attribute.",
-                "If no strong match exists, label the column as a custom field tied to campaign.",
+                "If no strong match exists, label the column as a custom field on the inferred entity and use target_attribute 'custom_attributes'.",
                 "Return JSON with two arrays: recommendations and custom_fields.",
                 "Each recommendation should include a numeric confidence value between 0 and 1.",
                 "Use retrieved_examples as high-signal prior examples when they are semantically similar.",

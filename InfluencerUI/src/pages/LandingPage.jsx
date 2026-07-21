@@ -67,7 +67,11 @@ function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit, authError = '' }) {
         <div className="landing-auth-header landing-reveal delay-4">
           <p className="eyebrow">Workspace Access</p>
           <h2>{isSignUp ? 'Create your operator workspace' : 'Welcome back to tejdux.io'}</h2>
-          <p className="helper">Use mock credentials to enter the CRM experience.</p>
+          <p className="helper">
+            {isSignUp
+              ? 'Set up your workspace profile details.'
+              : 'Log in with your user name or email and password.'}
+          </p>
         </div>
 
         <div className="landing-auth-shell landing-reveal delay-5">
@@ -89,31 +93,40 @@ function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit, authError = '' }) {
           </div>
 
           <form className="auth-form" onSubmit={handleSubmit}>
+            {isSignUp ? (
+              <label>
+                <span className="auth-label">Full name</span>
+                <div className="auth-input-wrap">
+                  <span className="auth-input-icon" aria-hidden="true">Aa</span>
+                  <input name="fullName" type="text" placeholder="Ari Rivera" required />
+                </div>
+              </label>
+            ) : null}
+            {isSignUp ? (
+              <label>
+                <span className="auth-label">Brand or startup</span>
+                <div className="auth-input-wrap">
+                  <span className="auth-input-icon" aria-hidden="true">#</span>
+                  <input
+                    name="brand"
+                    type="text"
+                    placeholder="tejdux.io"
+                    defaultValue="tejdux.io"
+                    required
+                  />
+                </div>
+              </label>
+            ) : null}
             <label>
-              <span className="auth-label">Full name</span>
-              <div className="auth-input-wrap">
-                <span className="auth-input-icon" aria-hidden="true">Aa</span>
-                <input name="fullName" type="text" placeholder="Ari Rivera" required />
-              </div>
-            </label>
-            <label>
-              <span className="auth-label">Brand or startup</span>
-              <div className="auth-input-wrap">
-                <span className="auth-input-icon" aria-hidden="true">#</span>
-                <input
-                  name="brand"
-                  type="text"
-                  placeholder="tejdux.io"
-                  defaultValue="tejdux.io"
-                  required
-                />
-              </div>
-            </label>
-            <label>
-              <span className="auth-label">Email</span>
+              <span className="auth-label">{isSignUp ? 'Email' : 'User name'}</span>
               <div className="auth-input-wrap">
                 <span className="auth-input-icon" aria-hidden="true">@</span>
-                <input name="email" type="email" placeholder="owner@tejdux.io" required />
+                <input
+                  name="email"
+                  type={isSignUp ? 'email' : 'text'}
+                  placeholder={isSignUp ? 'owner@tejdux.io' : 'your registered email'}
+                  required
+                />
               </div>
             </label>
             <label>

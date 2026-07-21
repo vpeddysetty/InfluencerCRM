@@ -1,6 +1,9 @@
 package com.influencer.dao.model;
 
 import jakarta.persistence.*;
+import org.hibernate.annotations.ColumnTransformer;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -35,6 +38,7 @@ public class Campaign {
     private LocalDate endDate;
 
     @Column(name = "status", nullable = false)
+    @ColumnTransformer(write = "?::campaign_status")
     private String status;
 
     @Column(name = "campaign_type")
@@ -77,6 +81,7 @@ public class Campaign {
     private String campaignOwner;
 
     @Column(name = "custom_attributes", columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
     private String customAttributes;
 
     @Column(name = "created_at", nullable = false, updatable = false)
