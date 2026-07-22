@@ -11,4 +11,5 @@
 \i /docker-entrypoint-initdb.d/migrations/2026_07_21_campaign_type_and_workflow_setup.sql
 \i /docker-entrypoint-initdb.d/migrations/2026_07_21_campaign_type_presets_seed.sql
 \i /docker-entrypoint-initdb.d/migrations/2026_07_21_workflow_setup_tie_existing_campaigns_work_items.sql
+\i /docker-entrypoint-initdb.d/migrations/2026_07_21_workflow_tasks_drive_stage.sql
 \i /docker-entrypoint-initdb.d/migrations/2026_07_21_mapping_examples_alignment.sql

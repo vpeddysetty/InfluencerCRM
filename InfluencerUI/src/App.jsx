@@ -10,6 +10,7 @@ import WorkspaceLayout from './components/WorkspaceLayout'
 import {
   createCampaign,
   createCampaignCreator,
+  createCreatorWorkflowTask,
   replaceCampaignTypeWorkflowStages,
   createCreator,
   deleteImportBatch,
@@ -22,6 +23,7 @@ import {
   listCampaignCreators,
   listCampaigns,
   listCampaignTypeWorkflowStages,
+  listCreatorWorkflowTasks,
   listCreators,
   login,
   previewImportBatch,
@@ -29,6 +31,7 @@ import {
   signup,
   updateCampaign,
   updateCampaignCreator,
+  updateCreatorWorkflowTask,
   updateImportColumnMapping,
   updateCreator,
 } from './api'
@@ -262,6 +265,7 @@ function App() {
   const initialCampaigns = persistedState?.campaigns?.length ? persistedState.campaigns : []
   const initialCreators = persistedState?.creators?.length ? persistedState.creators : []
   const initialAssignments = persistedState?.assignments?.length ? persistedState.assignments : []
+  const initialWorkflowTasks = persistedState?.workflowTasks?.length ? persistedState.workflowTasks : []
   const initialCampaignTypeWorkflowStages = persistedState?.campaignTypeWorkflowStages?.length ? persistedState.campaignTypeWorkflowStages : []
   const defaultCampaignId = initialCampaigns[0]?.id || ''
   const defaultCreatorId = initialCreators[0]?.id || ''
@@ -278,6 +282,7 @@ function App() {
   const [campaigns, setCampaigns] = useState(initialCampaigns)
   const [creators, setCreators] = useState(initialCreators)
   const [assignments, setAssignments] = useState(initialAssignments)
+  const [workflowTasks, setWorkflowTasks] = useState(initialWorkflowTasks)
   const [campaignTypeWorkflowStages, setCampaignTypeWorkflowStages] = useState(initialCampaignTypeWorkflowStages)
 
   const [campaignForm, setCampaignForm] = useState({
@@ -328,6 +333,38 @@ function App() {
     }, {})
   }, [creators])
 
+  const assignmentById = useMemo(() => {
+    return assignments.reduce((acc, assignment) => {
+      acc[assignment.id] = assignment
+      return acc
+    }, {})
+  }, [assignments])
+
+  const workflowItems = useMemo(() => {
+    return (workflowTasks || [])
+      .filter((task) => String(task?.taskType || '').trim().toLowerCase() === 'workflow_item')
+      .map((task) => {
+        const assignment = assignmentById[task.campaignCreatorId]
+        if (!assignment) {
+          return null
+        }
+        return {
+          id: task.id,
+          campaignCreatorId: assignment.id,
+          campaignId: assignment.campaignId,
+          creatorId: assignment.creatorId,
+          stage: task.stageKey,
+          notes: task.description || '',
+          fee: task.fee == null ? '' : String(task.fee),
+          dueDate: task.dueAt || '',
+          tags: normalizeTagsForState(task.tags),
+          title: task.title || 'Workflow item',
+          status: task.status || 'todo',
+        }
+      })
+      .filter(Boolean)
+  }, [workflowTasks, assignmentById])
+
   const workflowStagesByCampaignType = useMemo(() => {
     return (campaignTypeWorkflowStages || []).reduce((acc, item) => {
       const type = normalizeCampaignTypeForPayload(item?.campaignType)
@@ -364,10 +401,11 @@ function App() {
 
   const refreshWorkspaceData = async () => {
     setWorkspaceError('')
-    const [campaignPayload, creatorPayload, assignmentPayload, importBatchPayload, workflowStagesPayload] = await Promise.all([
+    const [campaignPayload, creatorPayload, assignmentPayload, workflowTaskPayload, importBatchPayload, workflowStagesPayload] = await Promise.all([
       listCampaigns(authToken),
       listCreators(authToken),
       listCampaignCreators(authToken),
+      listCreatorWorkflowTasks(authToken, 'workflow_item'),
       listImportBatches(authToken),
       listCampaignTypeWorkflowStages(authToken),
     ])
@@ -375,6 +413,7 @@ function App() {
     setCampaigns(campaignPayload)
     setCreators(creatorPayload)
     setAssignments(assignmentPayload)
+    setWorkflowTasks(workflowTaskPayload)
     setImportBatches(importBatchPayload)
     setCampaignTypeWorkflowStages(workflowStagesPayload)
     setAssignmentForm((prev) => ({
@@ -395,6 +434,7 @@ function App() {
       campaigns,
       creators,
       assignments,
+      workflowTasks,
       campaignTypeWorkflowStages,
       campaignForm,
       creatorForm,
@@ -414,6 +454,7 @@ function App() {
     campaigns,
     creators,
     assignments,
+    workflowTasks,
     campaignTypeWorkflowStages,
     campaignForm,
     creatorForm,
@@ -958,17 +999,31 @@ function App() {
         userId,
         campaignId: assignmentForm.campaignId,
         creatorId: assignmentForm.creatorId,
-        stage: resolvedStage,
+      })
+
+      const selectedCreator = creatorById[assignmentForm.creatorId]
+      const nextTask = await createCreatorWorkflowTask(authToken, {
+        userId,
+        campaignCreatorId: nextAssignment.id,
+        taskType: 'workflow_item',
+        stageKey: resolvedStage,
+        title: `${selectedCampaign?.name || 'Campaign'} - ${selectedCreator?.name || 'Creator'}`,
+        description: assignmentForm.notes.trim(),
         agreedFee: assignmentForm.fee.trim() || null,
-        notes: assignmentForm.notes.trim(),
-        contentDueAt: normalizeInstantDateForPayload(assignmentForm.dueDate),
+        dueAt: normalizeInstantDateForPayload(assignmentForm.dueDate),
         tags: assignmentForm.tags
           .split(',')
           .map((tag) => tag.trim())
           .filter(Boolean),
+        assigneeActor: 'brand_owner',
+        status: 'todo',
+        priority: 'medium',
+        metadata: '{}',
+        createdByActor: 'brand_owner',
       })
 
       setAssignments((prev) => [nextAssignment, ...prev])
+      setWorkflowTasks((prev) => [nextTask, ...prev])
       setAssignmentForm((prev) => ({ ...prev, fee: '', notes: '', stage: resolvedStage, dueDate: '', tags: '' }))
     } catch (error) {
       setWorkspaceError(error instanceof Error ? error.message : 'Unable to tie creator to campaign.')
@@ -976,44 +1031,34 @@ function App() {
   }
 
   const updateCardStage = async (id, nextStage) => {
-    const existing = assignments.find((item) => item.id === id)
+    const existing = workflowTasks.find((item) => item.id === id)
     if (!existing) {
       return
     }
 
     const optimistic = {
       ...existing,
-      stage: nextStage,
+      stageKey: nextStage,
     }
 
-    setAssignments((prev) => prev.map((item) => (item.id === id ? optimistic : item)))
+    setWorkflowTasks((prev) => prev.map((item) => (item.id === id ? optimistic : item)))
 
     try {
       setWorkspaceError('')
-      const updated = await updateCampaignCreator(authToken, id, {
+      const updated = await updateCreatorWorkflowTask(authToken, id, {
         ...existing,
         ...optimistic,
         userId,
-        campaignId: existing.campaignId,
-        creatorId: existing.creatorId,
-        agreedFee: optimistic.fee ? String(optimistic.fee).trim() : null,
-        contentDueAt: normalizeInstantDateForPayload(optimistic.dueDate),
-        tags: Array.isArray(optimistic.tags)
-          ? optimistic.tags
-          : String(optimistic.tags || '')
-            .split(',')
-            .map((tag) => tag.trim())
-            .filter(Boolean),
       })
-      setAssignments((prev) => prev.map((item) => (item.id === id ? updated : item)))
+      setWorkflowTasks((prev) => prev.map((item) => (item.id === id ? updated : item)))
     } catch (error) {
-      setAssignments((prev) => prev.map((item) => (item.id === id ? existing : item)))
+      setWorkflowTasks((prev) => prev.map((item) => (item.id === id ? existing : item)))
       setWorkspaceError(error instanceof Error ? error.message : 'Unable to update workflow stage.')
     }
   }
 
   const updateAssignmentRecord = async (id, payload) => {
-    const existing = assignments.find((item) => item.id === id)
+    const existing = workflowTasks.find((item) => item.id === id)
     if (!existing) {
       return
     }
@@ -1022,30 +1067,25 @@ function App() {
 
     const nextLocal = {
       ...existing,
-      stage: payload.stage,
-      fee: payload.fee,
-      dueDate: payload.dueDate,
-      notes: payload.notes,
+      stageKey: payload.stage,
+      agreedFee: payload.fee ? String(payload.fee).trim() : null,
+      dueAt: normalizeInstantDateForPayload(payload.dueDate),
+      description: payload.notes,
       tags: normalizedTags,
     }
 
-    setAssignments((prev) => prev.map((item) => (item.id === id ? nextLocal : item)))
+    setWorkflowTasks((prev) => prev.map((item) => (item.id === id ? nextLocal : item)))
 
     try {
       setWorkspaceError('')
-      const updated = await updateCampaignCreator(authToken, id, {
+      const updated = await updateCreatorWorkflowTask(authToken, id, {
         ...existing,
         ...nextLocal,
         userId,
-        campaignId: existing.campaignId,
-        creatorId: existing.creatorId,
-        agreedFee: payload.fee ? String(payload.fee).trim() : null,
-        contentDueAt: normalizeInstantDateForPayload(payload.dueDate),
-        tags: normalizedTags,
       })
-      setAssignments((prev) => prev.map((item) => (item.id === id ? updated : item)))
+      setWorkflowTasks((prev) => prev.map((item) => (item.id === id ? updated : item)))
     } catch (error) {
-      setAssignments((prev) => prev.map((item) => (item.id === id ? existing : item)))
+      setWorkflowTasks((prev) => prev.map((item) => (item.id === id ? existing : item)))
       setWorkspaceError(error instanceof Error ? error.message : 'Unable to update creator-campaign workflow record.')
       throw error
     }
@@ -1175,7 +1215,7 @@ function App() {
                 <WorkflowPage
                   campaigns={campaigns}
                   creators={creators}
-                  assignments={assignments}
+                  assignments={workflowItems}
                   assignmentForm={assignmentForm}
                   setAssignmentForm={setAssignmentForm}
                   onTieCreatorToCampaign={tieCreatorToCampaign}

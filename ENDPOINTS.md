@@ -39,7 +39,6 @@ Base module: InfluencerWebExperience
 - GET /api/campaign-creators/{id}
 - POST /api/campaign-creators
 - PUT /api/campaign-creators/{id}
-- PATCH /api/campaign-creators/{id}/stage
 - DELETE /api/campaign-creators/{id}
 
 ### Import Batches
@@ -122,7 +121,6 @@ Base module: InfluencerDAO
 - GET /campaign-creators/{id}
 - POST /campaign-creators
 - PUT /campaign-creators/{id}
-- PATCH /campaign-creators/{id}/stage
 - DELETE /campaign-creators/{id}
 
 ### Import Batches

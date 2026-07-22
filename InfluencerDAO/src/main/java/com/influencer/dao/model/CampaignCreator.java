@@ -28,10 +28,6 @@ public class CampaignCreator {
     @Column(name = "import_batch_id")
     private UUID importBatchId;
 
-    @Column(name = "stage", nullable = false)
-    @ColumnTransformer(write = "?::pipeline_stage")
-    private String stage;
-
     @Column(name = "notes")
     private String notes;
 
@@ -181,14 +177,6 @@ public class CampaignCreator {
 
     public void setImportBatchId(UUID importBatchId) {
         this.importBatchId = importBatchId;
-    }
-
-    public String getStage() {
-        return stage;
-    }
-
-    public void setStage(String stage) {
-        this.stage = stage;
     }
 
     public String getNotes() {

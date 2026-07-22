@@ -1,7 +1,13 @@
 package com.influencer.dao.model;
 
 import jakarta.persistence.*;
+import org.hibernate.annotations.ColumnTransformer;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
+import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 @Entity
@@ -17,6 +23,13 @@ public class CreatorWorkflowTask {
     @Column(name = "campaign_creator_id", nullable = false)
     private UUID campaignCreatorId;
 
+    @Column(name = "task_type", nullable = false)
+    private String taskType;
+
+    @Column(name = "stage_key")
+    @ColumnTransformer(write = "?::pipeline_stage")
+    private String stageKey;
+
     @Column(name = "title", nullable = false)
     private String title;
 
@@ -28,6 +41,13 @@ public class CreatorWorkflowTask {
 
     @Column(name = "assignee_creator_id")
     private UUID assigneeCreatorId;
+
+    @Column(name = "agreed_fee")
+    private BigDecimal agreedFee;
+
+    @Column(name = "tags", columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
+    private List<String> tags;
 
     @Column(name = "status", nullable = false)
     private String status;
@@ -68,8 +88,14 @@ public class CreatorWorkflowTask {
         if (assigneeActor == null) {
             assigneeActor = "brand_owner";
         }
+        if (taskType == null || taskType.isBlank()) {
+            taskType = "task";
+        }
         if (status == null) {
             status = "todo";
+        }
+        if (tags == null) {
+            tags = List.of();
         }
         if (priority == null) {
             priority = "medium";
@@ -112,6 +138,22 @@ public class CreatorWorkflowTask {
         this.campaignCreatorId = campaignCreatorId;
     }
 
+    public String getTaskType() {
+        return taskType;
+    }
+
+    public void setTaskType(String taskType) {
+        this.taskType = taskType;
+    }
+
+    public String getStageKey() {
+        return stageKey;
+    }
+
+    public void setStageKey(String stageKey) {
+        this.stageKey = stageKey;
+    }
+
     public String getTitle() {
         return title;
     }
@@ -142,6 +184,22 @@ public class CreatorWorkflowTask {
 
     public void setAssigneeCreatorId(UUID assigneeCreatorId) {
         this.assigneeCreatorId = assigneeCreatorId;
+    }
+
+    public BigDecimal getAgreedFee() {
+        return agreedFee;
+    }
+
+    public void setAgreedFee(BigDecimal agreedFee) {
+        this.agreedFee = agreedFee;
+    }
+
+    public List<String> getTags() {
+        return tags;
+    }
+
+    public void setTags(List<String> tags) {
+        this.tags = tags;
     }
 
     public String getStatus() {

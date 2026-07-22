@@ -52,7 +52,7 @@ public class ResponseShapeService {
     }
 
     public JsonNode campaignCreator(JsonNode source) {
-        ObjectNode out = pick(source, "id", "userId", "campaignId", "creatorId", "stage", "notes", "createdAt", "updatedAt");
+        ObjectNode out = pick(source, "id", "userId", "campaignId", "creatorId", "notes", "createdAt", "updatedAt");
         if (source != null && source.hasNonNull("agreedFee")) {
             out.set("fee", source.get("agreedFee"));
         } else if (source != null && source.hasNonNull("fee")) {
@@ -127,7 +127,29 @@ public class ResponseShapeService {
     }
 
     public JsonNode workflowTask(JsonNode source) {
-        return pick(source, "id", "userId", "campaignCreatorId", "title", "assigneeActor", "assigneeCreatorId", "status", "priority", "dueAt", "completedAt", "createdAt", "updatedAt");
+        ObjectNode out = pick(source, "id", "userId", "campaignCreatorId", "taskType", "stageKey", "title", "description", "assigneeActor", "assigneeCreatorId", "status", "priority", "dueAt", "completedAt", "createdAt", "updatedAt");
+        if (source != null && source.hasNonNull("agreedFee")) {
+            out.set("fee", source.get("agreedFee"));
+        } else if (source != null && source.hasNonNull("fee")) {
+            out.set("fee", source.get("fee"));
+        }
+        if (source != null && source.has("tags") && !source.get("tags").isNull()) {
+            JsonNode tagsNode = source.get("tags");
+            if (tagsNode.isTextual()) {
+                try {
+                    JsonNode parsed = objectMapper.readTree(tagsNode.asText());
+                    out.set("tags", parsed.isArray() ? parsed : objectMapper.createArrayNode());
+                } catch (Exception ignored) {
+                    out.set("tags", objectMapper.createArrayNode());
+                }
+            } else if (tagsNode.isArray()) {
+                out.set("tags", tagsNode);
+            }
+        }
+        if (!out.has("tags")) {
+            out.set("tags", objectMapper.createArrayNode());
+        }
+        return out;
     }
 
     public JsonNode workflowApprovalsList(JsonNode source, Integer page, Integer size) {

@@ -12,4 +12,7 @@ public interface CreatorWorkflowTaskRepository extends JpaRepository<CreatorWork
     List<CreatorWorkflowTask> findByUserId(UUID userId);
     List<CreatorWorkflowTask> findByCampaignCreatorId(UUID campaignCreatorId);
     List<CreatorWorkflowTask> findByUserIdAndCampaignCreatorId(UUID userId, UUID campaignCreatorId);
+    List<CreatorWorkflowTask> findByUserIdAndTaskType(UUID userId, String taskType);
+    List<CreatorWorkflowTask> findByCampaignCreatorIdAndTaskType(UUID campaignCreatorId, String taskType);
+    List<CreatorWorkflowTask> findByUserIdAndCampaignCreatorIdAndTaskType(UUID userId, UUID campaignCreatorId, String taskType);
 }

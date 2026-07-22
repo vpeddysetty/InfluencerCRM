@@ -11,5 +11,4 @@ import java.util.UUID;
 public interface CampaignCreatorRepository extends JpaRepository<CampaignCreator, UUID> {
 	Optional<CampaignCreator> findByCampaignIdAndCreatorId(UUID campaignId, UUID creatorId);
 	List<CampaignCreator> findByUserId(UUID userId);
-	List<CampaignCreator> findByUserIdAndStage(UUID userId, String stage);
 }

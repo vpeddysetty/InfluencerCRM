@@ -31,7 +31,6 @@ public class CampaignCreatorsController {
                          @RequestParam(required = false) UUID userId,
                          @RequestParam(required = false) UUID campaignId,
                          @RequestParam(required = false) UUID creatorId,
-                         @RequestParam(required = false) String stage,
                          @RequestParam(required = false) Integer page,
                          @RequestParam(required = false) Integer size) {
         UUID resolvedUserId = requestUserResolver.resolveUserId(authorization, userId);
@@ -39,7 +38,6 @@ public class CampaignCreatorsController {
         query.put("userId", resolvedUserId.toString());
         query.put("campaignId", campaignId == null ? null : campaignId.toString());
         query.put("creatorId", creatorId == null ? null : creatorId.toString());
-        query.put("stage", stage);
         return responseShapeService.campaignCreatorsList(daoGatewayClient.get("/campaign-creators", query), page, size);
     }
 
@@ -63,11 +61,6 @@ public class CampaignCreatorsController {
         UUID resolvedUserId = requestUserResolver.resolveUserId(authorization, getUuid(payload, "userId"));
         payload.put("userId", resolvedUserId.toString());
         return responseShapeService.campaignCreator(daoGatewayClient.put("/campaign-creators/" + id, payload));
-    }
-
-    @PatchMapping("/{id}/stage")
-    public JsonNode updateStage(@PathVariable UUID id, @RequestBody ObjectNode payload) {
-        return responseShapeService.campaignCreator(daoGatewayClient.patch("/campaign-creators/" + id + "/stage", payload));
     }
 
     @DeleteMapping("/{id}")

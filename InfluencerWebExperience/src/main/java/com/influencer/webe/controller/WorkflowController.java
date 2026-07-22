@@ -30,12 +30,14 @@ public class WorkflowController {
     public JsonNode listTasks(@RequestHeader(value = "Authorization", required = false) String authorization,
                               @RequestParam(required = false) UUID userId,
                               @RequestParam(required = false) UUID campaignCreatorId,
+                              @RequestParam(required = false) String taskType,
                               @RequestParam(required = false) Integer page,
                               @RequestParam(required = false) Integer size) {
         UUID resolvedUserId = requestUserResolver.resolveUserId(authorization, userId);
         Map<String, String> query = new LinkedHashMap<>();
         query.put("userId", resolvedUserId.toString());
         query.put("campaignCreatorId", campaignCreatorId == null ? null : campaignCreatorId.toString());
+        query.put("taskType", taskType);
         return responseShapeService.workflowTasksList(daoGatewayClient.get("/creator-workflow-tasks", query), page, size);
     }
 

@@ -4,7 +4,7 @@
 -- Purpose:
 --   1) Normalize campaign_type on campaigns
 --   2) Ensure campaign_type_workflow_stages exist per user+campaign_type
---   3) Reconcile existing campaign_creators.stage to active workflow stages
+--   3) Reconcile workflow-item tasks to active workflow stages
 -- =============================================================
 
 create extension if not exists "pgcrypto";
@@ -72,9 +72,9 @@ join inactive_types it
 where cws.id = fs.id
   and fs.rn = 1;
 
--- 4) Tie existing campaign_creators work items to active configured stages.
---    If a work item's stage is not active for that campaign type, move it
---    to the first active stage by workflow position.
+-- 4) Tie existing workflow-item tasks to active configured stages.
+--    If a workflow item task stage is not active for that campaign type,
+--    move it to the first active stage by workflow position.
 with first_active_stage as (
     select cws.user_id,
            cws.campaign_type,
@@ -84,24 +84,27 @@ with first_active_stage as (
     where cws.is_active = true
 ),
 invalid_work_items as (
-    select cc.id,
+  select cwt.id,
            fa.stage_key as fallback_stage
-    from campaign_creators cc
+  from creator_workflow_tasks cwt
+  join campaign_creators cc
+    on cc.id = cwt.campaign_creator_id
     join campaigns c
       on c.id = cc.campaign_id
     join first_active_stage fa
-      on fa.user_id = cc.user_id
+    on fa.user_id = cwt.user_id
      and fa.campaign_type = c.campaign_type
      and fa.rn = 1
     left join campaign_type_workflow_stages cws
-      on cws.user_id = cc.user_id
+    on cws.user_id = cwt.user_id
      and cws.campaign_type = c.campaign_type
-     and cws.stage_key = cc.stage
+   and cws.stage_key = cwt.stage_key
      and cws.is_active = true
-    where cws.id is null
+  where cwt.task_type = 'workflow_item'
+    and cws.id is null
 )
-update campaign_creators cc
-set stage = iw.fallback_stage,
-    updated_at = now()
+update creator_workflow_tasks cwt
+set stage_key = iw.fallback_stage,
+  updated_at = now()
 from invalid_work_items iw
-where cc.id = iw.id;
+where cwt.id = iw.id;

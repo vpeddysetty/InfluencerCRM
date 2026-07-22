@@ -554,7 +554,7 @@ function WorkflowPage({
         <MdsKicker>Relationship Mapping</MdsKicker>
         <h3>5. Tie creators to campaigns</h3>
         <MdsSectionRule />
-        <p>Create the active relationship record before moving work items through the workflow board.</p>
+        <p>Create the active relationship record, then generate a workflow task that carries the stage on the board.</p>
         <form onSubmit={onTieCreatorToCampaign} className="inline-form assignment-form">
           <select
             value={assignmentForm.campaignId}

@@ -387,14 +387,6 @@ paths:
           schema:
             type: string
             format: uuid
-        - name: stage
-          in: query
-          schema:
-            type: string
-        - name: swimlaneName
-          in: query
-          schema:
-            type: string
         - $ref: '#/components/parameters/PageQuery'
         - $ref: '#/components/parameters/SizeQuery'
       responses:
@@ -411,7 +403,6 @@ paths:
                     - id: "a89d2f61-37a3-4b48-95f8-06da45a0a333"
                       campaignId: "7f6d9c90-8f77-4f73-a8af-c4b5b2e5fabc"
                       creatorId: "d95d57d0-8be3-4a71-8d34-49ab8828a222"
-                      stage: "outreach"
                 paginated:
                   summary: Response when page and/or size is provided
                   value:
@@ -419,7 +410,6 @@ paths:
                       - id: "a89d2f61-37a3-4b48-95f8-06da45a0a333"
                         campaignId: "7f6d9c90-8f77-4f73-a8af-c4b5b2e5fabc"
                         creatorId: "d95d57d0-8be3-4a71-8d34-49ab8828a222"
-                        stage: "outreach"
                     page: 1
                     size: 20
                     total: 1
@@ -477,24 +467,6 @@ paths:
       responses:
         '204':
           description: Deleted
-  /api/campaign-creators/{id}/stage:
-    patch:
-      summary: Update campaign-creator stage
-      parameters:
-        - $ref: '#/components/parameters/IdPath'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/GenericJson'
-      responses:
-        '200':
-          description: Updated assignment
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/GenericJson'
   /api/import-batches:
     get:
       summary: List import batches
@@ -738,6 +710,10 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: taskType
+          in: query
+          schema:
+            type: string
         - $ref: '#/components/parameters/PageQuery'
         - $ref: '#/components/parameters/SizeQuery'
       responses:
@@ -753,6 +729,8 @@ paths:
                   value:
                     - id: "9bf35060-6da7-43de-b38f-3f15dce8f555"
                       campaignCreatorId: "a89d2f61-37a3-4b48-95f8-06da45a0a333"
+                      taskType: "workflow_item"
+                      stageKey: "outreach"
                       title: "Ship product"
                       status: "todo"
                 paginated:
@@ -761,6 +739,8 @@ paths:
                     items:
                       - id: "9bf35060-6da7-43de-b38f-3f15dce8f555"
                         campaignCreatorId: "a89d2f61-37a3-4b48-95f8-06da45a0a333"
+                        taskType: "workflow_item"
+                        stageKey: "outreach"
                         title: "Ship product"
                         status: "todo"
                     page: 1

@@ -98,8 +98,18 @@ export async function updateCampaignCreator(token, id, payload) {
   return request(`/api/campaign-creators/${id}`, { method: 'PUT', token, body: payload })
 }
 
-export async function updateCampaignCreatorStage(token, id, stage) {
-  return request(`/api/campaign-creators/${id}/stage`, { method: 'PATCH', token, body: { stage } })
+export async function listCreatorWorkflowTasks(token, taskType) {
+  const query = taskType ? `?taskType=${encodeURIComponent(taskType)}` : ''
+  const payload = await request(`/api/creator-workflow-tasks${query}`, { token })
+  return unwrapList(payload)
+}
+
+export async function createCreatorWorkflowTask(token, payload) {
+  return request('/api/creator-workflow-tasks', { method: 'POST', token, body: payload })
+}
+
+export async function updateCreatorWorkflowTask(token, id, payload) {
+  return request(`/api/creator-workflow-tasks/${id}`, { method: 'PUT', token, body: payload })
 }
 
 export async function listCampaignTypeWorkflowStages(token, campaignType) {

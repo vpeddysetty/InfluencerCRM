@@ -97,7 +97,6 @@ erDiagram
         uuid campaign_id FK
         uuid creator_id FK
         uuid import_batch_id FK
-        pipeline_stage stage
         text notes
         jsonb tags
         text discount_code
@@ -152,9 +151,14 @@ erDiagram
         uuid id PK
         uuid user_id FK
         uuid campaign_creator_id FK
+        text task_type
+        pipeline_stage stage_key
         text title
+        text description
         workflow_actor assignee_actor
         uuid assignee_creator_id FK
+        numeric agreed_fee
+        jsonb tags
         workflow_task_status status
         timestamptz due_at
         timestamptz completed_at
@@ -244,7 +248,8 @@ erDiagram
 
 - Users are the top-level tenant owner for all records.
 - Creators are owned by a user and may be imported from an import batch.
-- Campaigns and creators are linked through the join table `campaign_creators` to track workflow stage, notes, fees, and links.
+- Campaigns and creators are linked through the join table `campaign_creators` as the parent relationship row.
+- Workflow stage state for board items is stored in `creator_workflow_tasks.stage_key` and validated against `campaign_type_workflow_stages`.
 - Workflow setup is configured by campaign type in `campaign_type_workflow_stages`.
 - Interactions store relationship memory such as notes, emails, or DMs attached to creators.
 - Core entities include `custom_attributes` JSONB for unmapped import fields scoped by entity.

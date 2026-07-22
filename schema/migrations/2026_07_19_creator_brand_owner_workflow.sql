@@ -37,10 +37,14 @@ create table if not exists creator_workflow_tasks (
     id                  uuid primary key default gen_random_uuid(),
     user_id             uuid not null references users(id) on delete cascade,
     campaign_creator_id uuid not null references campaign_creators(id) on delete cascade,
+    task_type           text not null default 'task',
+    stage_key           pipeline_stage,
     title               text not null,
     description         text,
     assignee_actor      workflow_actor not null default 'brand_owner',
     assignee_creator_id uuid references creators(id) on delete set null,
+    agreed_fee          numeric(12,2),
+    tags                jsonb not null default '[]'::jsonb,
     status              workflow_task_status not null default 'todo',
     priority            text not null default 'medium',
     due_at              timestamptz,
@@ -118,6 +122,7 @@ create table if not exists creator_workflow_events (
 -- ---- indexes -----------------------------------------------
 create index if not exists idx_cwt_user on creator_workflow_tasks(user_id);
 create index if not exists idx_cwt_campaign_creator on creator_workflow_tasks(campaign_creator_id);
+create index if not exists idx_cwt_task_type_stage on creator_workflow_tasks(task_type, stage_key, due_at);
 create index if not exists idx_cwt_status_due on creator_workflow_tasks(status, due_at);
 
 create index if not exists idx_cwa_user on creator_workflow_approvals(user_id);
