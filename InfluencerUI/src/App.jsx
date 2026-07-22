@@ -11,6 +11,7 @@ import {
   createCampaign,
   createCampaignCreator,
   createCreator,
+  deleteImportBatch,
   discoverImports,
   generateAgentColumnMapping,
   getImportBatch,
@@ -111,6 +112,7 @@ function App() {
     persistedState?.importSummary ?? DEFAULT_IMPORT_SUMMARY,
   )
   const [importBatches, setImportBatches] = useState(persistedState?.importBatches ?? [])
+  const [importBatchHydrationStatus, setImportBatchHydrationStatus] = useState(persistedState?.importBatchHydrationStatus ?? {})
   const [importRowsByBatchId, setImportRowsByBatchId] = useState({})
   const [importAction, setImportAction] = useState('idle')
 
@@ -171,6 +173,7 @@ function App() {
       assignmentForm,
       importSummary,
       importBatches,
+      importBatchHydrationStatus,
     }
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot))
   }, [
@@ -188,6 +191,7 @@ function App() {
     assignmentForm,
     importSummary,
     importBatches,
+    importBatchHydrationStatus,
   ])
 
   useEffect(() => {
@@ -337,10 +341,18 @@ function App() {
 
       const firstBatch = items[0]?.importBatch || items[0]?.batch || items[0]
       if (firstBatch?.id) {
-        await selectImportBatch(firstBatch.id, {
-          messageOverride: `Uploaded ${items.length} file${items.length === 1 ? '' : 's'}. Select any file in the summary to view mapping and import actions.`,
-          rowsByBatchOverride: { ...importRowsByBatchId, ...nextRowsByBatch },
-        })
+        setImportSummary((prev) => ({
+          ...prev,
+          batchId: '',
+          filename: '',
+          headers: [],
+          rows: [],
+          mappingText: '',
+          previewResult: null,
+          hydrateResult: null,
+          diagnostics: null,
+          message: `Uploaded ${items.length} file${items.length === 1 ? '' : 's'}. Click a file name in the summary to view columns, visual mapper, and advanced JSON mapping editor.`,
+        }))
       } else {
         setImportSummary((prev) => ({
           ...prev,
@@ -500,8 +512,26 @@ function App() {
         } : prev.diagnostics,
         message: `Hydration completed for ${prev.filename}. Created ${hydrateResult.createdCount || 0}, updated ${hydrateResult.updatedCount || 0}.`,
       }))
+      setImportBatchHydrationStatus((prev) => ({
+        ...prev,
+        [importSummary.batchId]: {
+          state: 'hydrated',
+          createdCount: hydrateResult.createdCount || 0,
+          updatedCount: hydrateResult.updatedCount || 0,
+          skippedCount: hydrateResult.skippedCount || 0,
+          at: new Date().toISOString(),
+        },
+      }))
       await refreshWorkspaceData()
     } catch (error) {
+      setImportBatchHydrationStatus((prev) => ({
+        ...prev,
+        [importSummary.batchId]: {
+          state: 'failed',
+          message: error instanceof Error ? error.message : 'Hydration failed',
+          at: new Date().toISOString(),
+        },
+      }))
       setImportSummary((prev) => ({
         ...prev,
         diagnostics: prev.diagnostics ? { ...prev.diagnostics, lastAction: 'hydrate-failed' } : prev.diagnostics,
@@ -509,6 +539,43 @@ function App() {
       }))
     } finally {
       setImportAction('idle')
+    }
+  }
+
+  const removeImportBatchRecord = async (batchId) => {
+    if (!batchId) {
+      return
+    }
+
+    try {
+      setWorkspaceError('')
+      await deleteImportBatch(authToken, batchId)
+      setImportBatches((prev) => prev.filter((batch) => batch.id !== batchId))
+      setImportRowsByBatchId((prev) => {
+        const next = { ...prev }
+        delete next[batchId]
+        return next
+      })
+      setImportBatchHydrationStatus((prev) => {
+        const next = { ...prev }
+        delete next[batchId]
+        return next
+      })
+
+      setImportSummary((prev) => {
+        if (prev.batchId !== batchId) {
+          return {
+            ...prev,
+            message: 'File removed from import history.',
+          }
+        }
+        return {
+          ...DEFAULT_IMPORT_SUMMARY,
+          message: 'File removed. Click another file name to view its columns and mapping.',
+        }
+      })
+    } catch (error) {
+      setWorkspaceError(error instanceof Error ? error.message : 'Unable to remove import file.')
     }
   }
 
@@ -761,8 +828,10 @@ function App() {
                 <ImportPage
                   importSummary={importSummary}
                   importBatches={importBatches}
+                  importBatchHydrationStatus={importBatchHydrationStatus}
                   onImportFiles={handleImportFiles}
                   onSelectImportBatch={selectImportBatch}
+                  onDeleteImportBatch={removeImportBatchRecord}
                   onImportMappingChange={handleImportMappingChange}
                   onSaveImportMapping={handleSaveImportMapping}
                   onRegenerateImportMapping={handleRegenerateImportMapping}

@@ -129,6 +129,10 @@ export async function getImportBatchColumns(token, id) {
   return request(`/api/import-batches/${id}/columns`, { token })
 }
 
+export async function deleteImportBatch(token, id) {
+  return request(`/api/import-batches/${id}`, { method: 'DELETE', token })
+}
+
 export async function updateImportColumnMapping(token, id, columnMapping) {
   return request(`/api/import-batches/${id}/column-mapping`, {
     method: 'PATCH',

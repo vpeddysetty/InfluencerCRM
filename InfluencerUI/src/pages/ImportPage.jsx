@@ -55,8 +55,10 @@ function parseMappingRows(mappingText, headers) {
 function ImportPage({
   importSummary,
   importBatches,
+  importBatchHydrationStatus,
   onImportFiles,
   onSelectImportBatch,
+  onDeleteImportBatch,
   onImportMappingChange,
   onSaveImportMapping,
   onRegenerateImportMapping,
@@ -151,22 +153,42 @@ function ImportPage({
         {importBatches?.length ? (
           <ul className="simple-list import-batch-list">
             {importBatches.map((batch) => (
-              <li
-                key={batch.id}
-                className={batch.id === importSummary.batchId ? 'active' : ''}
-                onClick={() => onSelectImportBatch(batch.id)}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault()
-                    onSelectImportBatch(batch.id)
-                  }
-                }}
-              >
-                <strong>{batch.sourceFilename || 'Unnamed file'}</strong>
+              <li key={batch.id} className={batch.id === importSummary.batchId ? 'active' : ''}>
+                <button
+                  type="button"
+                  className="file-name-link"
+                  onClick={() => onSelectImportBatch(batch.id)}
+                >
+                  {batch.sourceFilename || 'Unnamed file'}
+                </button>
                 <span>Rows: {batch.rowCount || 0}</span>
                 <span>Stored: {batch.sourceFileStored ? 'Yes' : 'No'}</span>
+                <span>
+                  Hydration: {
+                    importBatchHydrationStatus?.[batch.id]?.state === 'hydrated'
+                      ? 'Completed'
+                      : importBatchHydrationStatus?.[batch.id]?.state === 'failed'
+                        ? 'Failed'
+                        : 'Pending'
+                  }
+                </span>
+                {importBatchHydrationStatus?.[batch.id]?.state === 'hydrated' ? (
+                  <span>
+                    Created {importBatchHydrationStatus[batch.id].createdCount || 0}, Updated {importBatchHydrationStatus[batch.id].updatedCount || 0}
+                  </span>
+                ) : null}
+                {importBatchHydrationStatus?.[batch.id]?.state === 'failed' ? (
+                  <span className="mapping-error-text">{importBatchHydrationStatus[batch.id].message || 'Hydration failed'}</span>
+                ) : null}
+                <div className="row-actions">
+                  <button
+                    type="button"
+                    className="ghost-btn"
+                    onClick={() => onDeleteImportBatch(batch.id)}
+                  >
+                    Remove file
+                  </button>
+                </div>
               </li>
             ))}
           </ul>

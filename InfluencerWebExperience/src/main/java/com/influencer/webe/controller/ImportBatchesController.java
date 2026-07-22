@@ -131,4 +131,9 @@ public class ImportBatchesController {
     public JsonNode hydrate(@PathVariable UUID id, @RequestBody JsonNode payload) {
         return responseShapeService.importHydrateResult(daoGatewayClient.post("/import-batches/" + id + "/hydrate", payload));
     }
+
+    @DeleteMapping("/{id}")
+    public void delete(@PathVariable UUID id) {
+        daoGatewayClient.delete("/import-batches/" + id);
+    }
 }

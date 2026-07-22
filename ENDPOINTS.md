@@ -52,6 +52,7 @@ Base module: InfluencerWebExperience
 - POST /api/import-batches/{id}/preview
 - PATCH /api/import-batches/{id}/column-mapping
 - POST /api/import-batches/{id}/hydrate
+- DELETE /api/import-batches/{id}
 
 ### Creator Workflow
 - GET /api/creator-workflow-tasks

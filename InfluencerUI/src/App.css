@@ -677,8 +677,22 @@ button:focus {
 }
 
 .import-batch-list li {
-  cursor: pointer;
   transition: border-color 120ms ease, background-color 120ms ease;
+}
+
+.file-name-link {
+  border: 0;
+  background: transparent;
+  color: #1d4ed8;
+  text-align: left;
+  padding: 0;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.file-name-link:hover {
+  color: #1e40af;
 }
 
 .import-batch-list li.active {

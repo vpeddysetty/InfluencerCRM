@@ -537,6 +537,13 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/GenericJson'
+    delete:
+      summary: Delete import batch by id
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '204':
+          description: Import batch deleted
   /api/import-batches/{id}/columns:
     get:
       summary: Discover columns from stored source file by import batch id
