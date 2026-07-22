@@ -108,6 +108,27 @@ export async function discoverImport(token, file) {
   return request('/api/import-batches/discover', { method: 'POST', token, body: formData, isFormData: true })
 }
 
+export async function discoverImports(token, files) {
+  const formData = new FormData()
+  files.forEach((file) => {
+    formData.append('files', file)
+  })
+  return request('/api/import-batches/discover-multi', { method: 'POST', token, body: formData, isFormData: true })
+}
+
+export async function listImportBatches(token) {
+  const payload = await request('/api/import-batches', { token })
+  return unwrapList(payload)
+}
+
+export async function getImportBatch(token, id) {
+  return request(`/api/import-batches/${id}`, { token })
+}
+
+export async function getImportBatchColumns(token, id) {
+  return request(`/api/import-batches/${id}/columns`, { token })
+}
+
 export async function updateImportColumnMapping(token, id, columnMapping) {
   return request(`/api/import-batches/${id}/column-mapping`, {
     method: 'PATCH',

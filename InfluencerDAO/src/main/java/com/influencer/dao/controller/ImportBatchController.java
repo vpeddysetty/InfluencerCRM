@@ -9,6 +9,7 @@ import org.springframework.http.MediaType;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.bind.annotation.*;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -31,7 +32,10 @@ public class ImportBatchController {
     }
 
     @GetMapping
-    public List<ImportBatch> findAll() {
+    public List<ImportBatch> findAll(@RequestParam(required = false) UUID userId) {
+        if (userId != null) {
+            return repository.findByUserIdOrderByCreatedAtDesc(userId);
+        }
         return repository.findAll();
     }
 
@@ -80,6 +84,37 @@ public class ImportBatchController {
         return new SpreadsheetDiscoveryService.DiscoverImportBatchResponse(
                 saved,
                 discoveredSpreadsheet.getColumns());
+    }
+
+    @PostMapping(value = "/discover-multi", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @ResponseStatus(HttpStatus.CREATED)
+    public DiscoverMultiImportBatchResponse discoverMulti(
+            @RequestParam UUID userId,
+            @RequestPart("files") MultipartFile[] files) throws IOException {
+        if (files == null || files.length == 0) {
+            throw new RuntimeException("At least one file is required");
+        }
+
+        List<SpreadsheetDiscoveryService.DiscoverImportBatchResponse> items = new ArrayList<>();
+        for (MultipartFile file : files) {
+            if (file == null || file.isEmpty()) {
+                continue;
+            }
+
+            SpreadsheetDiscoveryService.DiscoveredSpreadsheet discoveredSpreadsheet = discoveryService.discover(file);
+
+            ImportBatch importBatch = new ImportBatch();
+            importBatch.setUserId(userId);
+            importBatch.setSourceFilename(discoveredSpreadsheet.getSourceFilename());
+            importBatch.setSourceFile(file.getBytes());
+            importBatch.setRowCount(discoveredSpreadsheet.getRowCount());
+            importBatch.setColumnMapping("{}");
+
+            ImportBatch saved = repository.save(importBatch);
+            items.add(new SpreadsheetDiscoveryService.DiscoverImportBatchResponse(saved, discoveredSpreadsheet.getColumns()));
+        }
+
+        return new DiscoverMultiImportBatchResponse(items);
     }
 
     @PutMapping("/{id}")
@@ -131,6 +166,18 @@ public class ImportBatchController {
 
         public void setColumnMapping(String columnMapping) {
             this.columnMapping = columnMapping;
+        }
+    }
+
+    public static class DiscoverMultiImportBatchResponse {
+        private final List<SpreadsheetDiscoveryService.DiscoverImportBatchResponse> items;
+
+        public DiscoverMultiImportBatchResponse(List<SpreadsheetDiscoveryService.DiscoverImportBatchResponse> items) {
+            this.items = items;
+        }
+
+        public List<SpreadsheetDiscoveryService.DiscoverImportBatchResponse> getItems() {
+            return items;
         }
     }
 }

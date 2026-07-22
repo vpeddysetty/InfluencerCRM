@@ -11,6 +11,7 @@ import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
 import java.io.IOException;
+import java.io.ByteArrayOutputStream;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
@@ -20,7 +21,9 @@ import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 @Component
@@ -85,7 +88,8 @@ public class DaoGatewayClient {
 
     public JsonNode postMultipart(String path, Map<String, String> fields, String fileFieldName, String fileName, byte[] bytes, String contentType) {
         String boundary = "----WebExperienceBoundary" + System.currentTimeMillis();
-        byte[] body = MultipartBodyBuilder.build(boundary, fields, fileFieldName, fileName, bytes, contentType);
+        List<MultipartFilePart> files = List.of(new MultipartFilePart(fileFieldName, fileName, bytes, contentType));
+        byte[] body = MultipartBodyBuilder.build(boundary, fields, files);
 
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(buildUri(path, null))
@@ -94,6 +98,49 @@ public class DaoGatewayClient {
                 .POST(HttpRequest.BodyPublishers.ofByteArray(body))
                 .build();
         return send(request, "POST", path);
+    }
+
+    public JsonNode postMultipartFiles(String path, Map<String, String> fields, List<MultipartFilePart> files) {
+        String boundary = "----WebExperienceBoundary" + System.currentTimeMillis();
+        byte[] body = MultipartBodyBuilder.build(boundary, fields, files);
+
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(buildUri(path, null))
+                .timeout(Duration.ofSeconds(30))
+                .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                .POST(HttpRequest.BodyPublishers.ofByteArray(body))
+                .build();
+        return send(request, "POST", path);
+    }
+
+    public static class MultipartFilePart {
+        private final String fieldName;
+        private final String fileName;
+        private final byte[] bytes;
+        private final String contentType;
+
+        public MultipartFilePart(String fieldName, String fileName, byte[] bytes, String contentType) {
+            this.fieldName = fieldName;
+            this.fileName = fileName;
+            this.bytes = bytes;
+            this.contentType = contentType;
+        }
+
+        public String getFieldName() {
+            return fieldName;
+        }
+
+        public String getFileName() {
+            return fileName;
+        }
+
+        public byte[] getBytes() {
+            return bytes;
+        }
+
+        public String getContentType() {
+            return contentType;
+        }
     }
 
     private JsonNode send(HttpRequest request, String method, String path) {
@@ -221,28 +268,39 @@ public class DaoGatewayClient {
     }
 
     private static class MultipartBodyBuilder {
-        static byte[] build(String boundary, Map<String, String> fields, String fileFieldName, String fileName, byte[] bytes, String contentType) {
-            StringBuilder preamble = new StringBuilder();
-            if (fields != null) {
-                for (Map.Entry<String, String> entry : fields.entrySet()) {
-                    preamble.append("--").append(boundary).append("\r\n");
-                    preamble.append("Content-Disposition: form-data; name=\"").append(entry.getKey()).append("\"\r\n\r\n");
-                    preamble.append(entry.getValue()).append("\r\n");
+        static byte[] build(String boundary, Map<String, String> fields, List<MultipartFilePart> files) {
+            try {
+                ByteArrayOutputStream output = new ByteArrayOutputStream();
+
+                if (fields != null) {
+                    for (Map.Entry<String, String> entry : fields.entrySet()) {
+                        output.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
+                        output.write(("Content-Disposition: form-data; name=\"" + entry.getKey() + "\"\r\n\r\n").getBytes(StandardCharsets.UTF_8));
+                        output.write(entry.getValue().getBytes(StandardCharsets.UTF_8));
+                        output.write("\r\n".getBytes(StandardCharsets.UTF_8));
+                    }
                 }
+
+                List<MultipartFilePart> safeFiles = files == null ? new ArrayList<>() : files;
+                for (MultipartFilePart file : safeFiles) {
+                    if (file == null || file.getBytes() == null) {
+                        continue;
+                    }
+                    output.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
+                    output.write(("Content-Disposition: form-data; name=\"" + file.getFieldName() + "\"; filename=\"" + file.getFileName() + "\"\r\n").getBytes(StandardCharsets.UTF_8));
+                    String resolvedContentType = (file.getContentType() == null || file.getContentType().isBlank())
+                            ? "application/octet-stream"
+                            : file.getContentType();
+                    output.write(("Content-Type: " + resolvedContentType + "\r\n\r\n").getBytes(StandardCharsets.UTF_8));
+                    output.write(file.getBytes());
+                    output.write("\r\n".getBytes(StandardCharsets.UTF_8));
+                }
+
+                output.write(("--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
+                return output.toByteArray();
+            } catch (IOException exception) {
+                throw new IllegalStateException("Unable to build multipart body", exception);
             }
-            preamble.append("--").append(boundary).append("\r\n");
-            preamble.append("Content-Disposition: form-data; name=\"").append(fileFieldName).append("\"; filename=\"").append(fileName).append("\"\r\n");
-            preamble.append("Content-Type: ").append(contentType == null || contentType.isBlank() ? "application/octet-stream" : contentType).append("\r\n\r\n");
-
-            String ending = "\r\n--" + boundary + "--\r\n";
-            byte[] pre = preamble.toString().getBytes(StandardCharsets.UTF_8);
-            byte[] post = ending.getBytes(StandardCharsets.UTF_8);
-
-            byte[] out = new byte[pre.length + bytes.length + post.length];
-            System.arraycopy(pre, 0, out, 0, pre.length);
-            System.arraycopy(bytes, 0, out, pre.length, bytes.length);
-            System.arraycopy(post, 0, out, pre.length + bytes.length, post.length);
-            return out;
         }
     }
 }

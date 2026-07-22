@@ -11,9 +11,12 @@ import {
   createCampaign,
   createCampaignCreator,
   createCreator,
-  discoverImport,
+  discoverImports,
   generateAgentColumnMapping,
+  getImportBatch,
+  getImportBatchColumns,
   hydrateImportBatch,
+  listImportBatches,
   listCampaignCreators,
   listCampaigns,
   listCreators,
@@ -107,7 +110,8 @@ function App() {
   const [importSummary, setImportSummary] = useState(
     persistedState?.importSummary ?? DEFAULT_IMPORT_SUMMARY,
   )
-  const [importRowsPayload, setImportRowsPayload] = useState([])
+  const [importBatches, setImportBatches] = useState(persistedState?.importBatches ?? [])
+  const [importRowsByBatchId, setImportRowsByBatchId] = useState({})
   const [importAction, setImportAction] = useState('idle')
 
   const campaignById = useMemo(() => {
@@ -133,15 +137,17 @@ function App() {
 
   const refreshWorkspaceData = async () => {
     setWorkspaceError('')
-    const [campaignPayload, creatorPayload, assignmentPayload] = await Promise.all([
+    const [campaignPayload, creatorPayload, assignmentPayload, importBatchPayload] = await Promise.all([
       listCampaigns(authToken),
       listCreators(authToken),
       listCampaignCreators(authToken),
+      listImportBatches(authToken),
     ])
 
     setCampaigns(campaignPayload)
     setCreators(creatorPayload)
     setAssignments(assignmentPayload)
+    setImportBatches(importBatchPayload)
     setAssignmentForm((prev) => ({
       ...prev,
       campaignId: prev.campaignId || campaignPayload[0]?.id || '',
@@ -164,6 +170,7 @@ function App() {
       creatorForm,
       assignmentForm,
       importSummary,
+      importBatches,
     }
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot))
   }, [
@@ -180,6 +187,7 @@ function App() {
     creatorForm,
     assignmentForm,
     importSummary,
+    importBatches,
   ])
 
   useEffect(() => {
@@ -249,90 +257,101 @@ function App() {
     return resolvedMapping
   }
 
-  const handleImport = async (event) => {
-    const file = event.target.files?.[0]
-    if (!file) {
+  const selectImportBatch = async (batchId, { messageOverride, rowsByBatchOverride } = {}) => {
+    if (!batchId) {
+      return
+    }
+
+    const [batch, columnsPayload] = await Promise.all([
+      getImportBatch(authToken, batchId),
+      getImportBatchColumns(authToken, batchId),
+    ])
+
+    const columns = Array.isArray(columnsPayload?.columns) ? columnsPayload.columns : []
+    const rowLookup = rowsByBatchOverride || importRowsByBatchId
+    const cachedRows = rowLookup[batchId] || []
+    const cachedPreviewRows = cachedRows.slice(0, 5).map((rowObject) => columns.map((column) => rowObject[column] ?? ''))
+
+    let mappingText = typeof batch?.columnMapping === 'string' ? batch.columnMapping : '[]'
+    let mappingSaved = Boolean(mappingText && mappingText.trim() && mappingText.trim() !== '{}' && mappingText.trim() !== '[]')
+
+    if (!mappingSaved && columns.length) {
+      mappingText = createImportMappingJson(columns)
+      mappingSaved = false
+    }
+
+    setImportSummary({
+      batchId,
+      filename: batch?.sourceFilename || columnsPayload?.sourceFilename || 'Unknown file',
+      type: (batch?.sourceFilename || '').split('.').pop()?.toUpperCase() || 'FILE',
+      sourceFileStored: Boolean(batch?.sourceFileStored),
+      headers: columns,
+      rows: cachedPreviewRows,
+      mappingText,
+      mappingSaved,
+      previewResult: null,
+      hydrateResult: null,
+      diagnostics: {
+        batchId,
+        headerCount: columns.length,
+        rowPayloadCount: cachedRows.length,
+        sourceFileStored: Boolean(batch?.sourceFileStored),
+        lastAction: 'select-file',
+      },
+      message: messageOverride
+        || (cachedRows.length
+          ? `Loaded ${batch?.sourceFilename || 'selected file'} for mapping and import actions.`
+          : `Loaded ${batch?.sourceFilename || 'selected file'} from your import history. Re-upload this file to run preview/hydrate rows again.`),
+    })
+  }
+
+  const handleImportFiles = async (fileList) => {
+    const files = Array.from(fileList || [])
+    if (!files.length) {
       return
     }
 
     try {
       setWorkspaceError('')
       setImportAction('upload')
-      const parsedFile = await parseSpreadsheetFile(file)
-      const response = await discoverImport(authToken, file)
-      const columns = Array.isArray(response.columns) ? response.columns : []
-      const batch = response.importBatch || response.batch || response
-      const resolvedHeaders = parsedFile.headers.length ? parsedFile.headers : columns
-      let mappingText = createImportMappingJson(resolvedHeaders)
-      let diagnostics = {
-        batchId: batch?.id || '',
-        headerCount: resolvedHeaders.length,
-        rowPayloadCount: parsedFile.rowObjects.length,
-        mappingMode: 'local_fallback',
-        sourceFileStored: Boolean(batch?.sourceFileStored),
-        agentDebug: null,
-        lastAction: 'upload',
-      }
-      let mappingMessage = resolvedHeaders.length
-        ? `Persisted source file, retrieved ${resolvedHeaders.length} headers from batch ${batch?.id || ''}, and prepared ${parsedFile.rowObjects.length} rows from ${batch?.sourceFilename || file.name}.`
-        : `Import batch created for ${batch?.sourceFilename || file.name}.`
 
-      try {
-        const mappingResponse = batch?.id ? await generateAgentColumnMapping(authToken, batch.id) : null
-        mappingText = createImportMappingJsonFromAgent(
-          resolvedHeaders,
-          mappingResponse?.mapping?.recommendations || [],
-        )
-        diagnostics = {
-          ...diagnostics,
-          mappingMode: 'agent_assisted',
-          agentDebug: mappingResponse?.mapping?.debug || null,
-          recommendationCount: mappingResponse?.mapping?.recommendations?.length || 0,
+      const parsedFiles = await Promise.all(files.map((file) => parseSpreadsheetFile(file)))
+      const response = await discoverImports(authToken, files)
+      const items = Array.isArray(response?.items) ? response.items : []
+
+      const nextRowsByBatch = {}
+      items.forEach((item, index) => {
+        const batch = item?.importBatch || item?.batch || item
+        const parsed = parsedFiles[index]
+        if (batch?.id && parsed?.rowObjects) {
+          nextRowsByBatch[batch.id] = parsed.rowObjects
         }
-        mappingMessage = `Persisted source file, retrieved ${resolvedHeaders.length} headers from batch ${batch?.id || ''}, and generated agent-assisted column mappings.`
-      } catch (error) {
-        mappingMessage = `Source file was persisted for batch ${batch?.id || ''}, but agent mapping is unavailable. A local fallback mapping has been prepared and can still be saved, previewed, or hydrated.`
-        diagnostics = {
-          ...diagnostics,
-          agentError: error instanceof Error ? error.message : 'Agent mapping unavailable.',
-        }
-      }
-
-      let mappingSaved = false
-      try {
-        await updateImportColumnMapping(authToken, batch?.id || '', mappingText)
-        mappingSaved = true
-      } catch {
-        mappingMessage = `${mappingMessage} Saving the mapping back to the import batch failed, so use Save mapping before preview or hydrate.`
-      }
-
-      setImportRowsPayload(parsedFile.rowObjects)
-
-      setImportSummary({
-        batchId: batch?.id || '',
-        filename: batch?.sourceFilename || file.name,
-        type: parsedFile.type,
-        sourceFileStored: Boolean(batch?.sourceFileStored),
-        headers: resolvedHeaders,
-        rows: parsedFile.rows.slice(0, 5),
-        mappingText,
-        mappingSaved,
-        previewResult: null,
-        hydrateResult: null,
-        diagnostics,
-        message: mappingMessage,
       })
+
+      if (Object.keys(nextRowsByBatch).length) {
+        setImportRowsByBatchId((prev) => ({ ...prev, ...nextRowsByBatch }))
+      }
+
+      const refreshed = await listImportBatches(authToken)
+      setImportBatches(refreshed)
+
+      const firstBatch = items[0]?.importBatch || items[0]?.batch || items[0]
+      if (firstBatch?.id) {
+        await selectImportBatch(firstBatch.id, {
+          messageOverride: `Uploaded ${items.length} file${items.length === 1 ? '' : 's'}. Select any file in the summary to view mapping and import actions.`,
+          rowsByBatchOverride: { ...importRowsByBatchId, ...nextRowsByBatch },
+        })
+      } else {
+        setImportSummary((prev) => ({
+          ...prev,
+          message: 'Upload completed, but no import batch was returned by the API.',
+        }))
+      }
     } catch (error) {
-      setImportRowsPayload([])
-      setImportSummary({
-        ...DEFAULT_IMPORT_SUMMARY,
-        filename: file.name,
-        type: 'Error',
-        sourceFileStored: false,
-        mappingSaved: false,
-        diagnostics: null,
-        message: error instanceof Error ? error.message : 'Unable to discover import schema.',
-      })
+      setImportSummary((prev) => ({
+        ...prev,
+        message: error instanceof Error ? error.message : 'Unable to upload files for import.',
+      }))
     } finally {
       setImportAction('idle')
     }
@@ -415,10 +434,11 @@ function App() {
   }
 
   const handlePreviewImport = async () => {
-    if (!importSummary.batchId || !importRowsPayload.length) {
+    const selectedRows = importRowsByBatchId[importSummary.batchId] || []
+    if (!importSummary.batchId || !selectedRows.length) {
       setImportSummary((prev) => ({
         ...prev,
-        message: 'Upload a supported spreadsheet with rows before running preview.',
+        message: 'Upload this file in the current session before running preview. Stored file history does not include row payloads for dry-run.',
       }))
       return
     }
@@ -427,7 +447,7 @@ function App() {
       setWorkspaceError('')
       setImportAction('preview')
       await syncImportMapping()
-      const previewResult = await previewImportBatch(authToken, importSummary.batchId, importRowsPayload)
+      const previewResult = await previewImportBatch(authToken, importSummary.batchId, selectedRows)
       setImportSummary((prev) => ({
         ...prev,
         previewResult,
@@ -453,10 +473,11 @@ function App() {
   }
 
   const handleHydrateImport = async () => {
-    if (!importSummary.batchId || !importRowsPayload.length) {
+    const selectedRows = importRowsByBatchId[importSummary.batchId] || []
+    if (!importSummary.batchId || !selectedRows.length) {
       setImportSummary((prev) => ({
         ...prev,
-        message: 'Upload a supported spreadsheet with rows before hydrating.',
+        message: 'Upload this file in the current session before hydrating. Stored file history does not include row payloads for execution.',
       }))
       return
     }
@@ -465,7 +486,7 @@ function App() {
       setWorkspaceError('')
       setImportAction('hydrate')
       await syncImportMapping()
-      const hydrateResult = await hydrateImportBatch(authToken, importSummary.batchId, importRowsPayload)
+      const hydrateResult = await hydrateImportBatch(authToken, importSummary.batchId, selectedRows)
       setImportSummary((prev) => ({
         ...prev,
         hydrateResult,
@@ -739,7 +760,9 @@ function App() {
               element={
                 <ImportPage
                   importSummary={importSummary}
-                  onImport={handleImport}
+                  importBatches={importBatches}
+                  onImportFiles={handleImportFiles}
+                  onSelectImportBatch={selectImportBatch}
                   onImportMappingChange={handleImportMappingChange}
                   onSaveImportMapping={handleSaveImportMapping}
                   onRegenerateImportMapping={handleRegenerateImportMapping}

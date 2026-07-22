@@ -658,10 +658,32 @@ button:focus {
   cursor: pointer;
 }
 
+.multi-file-drop.active {
+  border-color: #0f766e;
+  background: rgba(220, 252, 231, 0.45);
+  box-shadow: 0 0 0 2px rgba(15, 118, 110, 0.16);
+}
+
 .file-drop input {
   border: 0;
   background: transparent;
   padding: 0;
+}
+
+.import-summary-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.import-batch-list li {
+  cursor: pointer;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+
+.import-batch-list li.active {
+  border-color: rgba(30, 64, 175, 0.35);
+  background: rgba(219, 234, 254, 0.62);
 }
 
 .preview-table-wrap {

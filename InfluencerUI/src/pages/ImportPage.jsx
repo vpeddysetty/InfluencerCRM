@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { MdsInlineCode, MdsKicker, MdsNote, MdsSectionRule } from '../components/Mds'
 
 const ENTITY_ATTRIBUTE_OPTIONS = {
@@ -54,7 +54,9 @@ function parseMappingRows(mappingText, headers) {
 
 function ImportPage({
   importSummary,
-  onImport,
+  importBatches,
+  onImportFiles,
+  onSelectImportBatch,
   onImportMappingChange,
   onSaveImportMapping,
   onRegenerateImportMapping,
@@ -63,6 +65,8 @@ function ImportPage({
   importAction,
 }) {
   const isBusy = importAction !== 'idle'
+  const [isDraggingFiles, setIsDraggingFiles] = useState(false)
+  const fileInputRef = useRef(null)
   const mappingRows = useMemo(
     () => parseMappingRows(importSummary.mappingText || '[]', importSummary.headers || []),
     [importSummary.headers, importSummary.mappingText],
@@ -92,21 +96,86 @@ function ImportPage({
     onImportMappingChange(JSON.stringify(nextRows, null, 2))
   }
 
+  const handleSelectedFiles = (files) => {
+    const items = Array.from(files || []).filter(Boolean)
+    if (!items.length) {
+      return
+    }
+    onImportFiles(items)
+  }
+
   return (
     <article className="card mds-surface mds-prose import-card page-stack">
       <MdsKicker>Import Flow</MdsKicker>
-      <h3>1. Import spreadsheet</h3>
+      <h3>1. Upload one or more spreadsheets</h3>
       <MdsSectionRule />
       <p>
-        Upload <MdsInlineCode>CSV</MdsInlineCode>, <MdsInlineCode>XLS</MdsInlineCode>, or{' '}
-        <MdsInlineCode>XLSX</MdsInlineCode> and preview import columns before mapping to CRM entities.
+        Drop multiple <MdsInlineCode>CSV</MdsInlineCode>, <MdsInlineCode>XLS</MdsInlineCode>, or{' '}
+        <MdsInlineCode>XLSX</MdsInlineCode> files to create import batches for your brand workspace.
       </p>
-      <label className="file-drop">
-        <span>Drop file or click to browse</span>
-        <input type="file" accept=".csv,.xls,.xlsx" onChange={onImport} />
-      </label>
+
+      <div
+        className={`file-drop multi-file-drop${isDraggingFiles ? ' active' : ''}`}
+        onDragOver={(event) => {
+          event.preventDefault()
+          setIsDraggingFiles(true)
+        }}
+        onDragLeave={(event) => {
+          event.preventDefault()
+          setIsDraggingFiles(false)
+        }}
+        onDrop={(event) => {
+          event.preventDefault()
+          setIsDraggingFiles(false)
+          handleSelectedFiles(event.dataTransfer.files)
+        }}
+        onClick={() => fileInputRef.current?.click()}
+      >
+        <span>{isBusy ? 'Uploading files...' : 'Drag and drop files here or click to browse'}</span>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".csv,.xls,.xlsx"
+          multiple
+          onChange={(event) => handleSelectedFiles(event.target.files)}
+        />
+      </div>
+
       <MdsNote>{importSummary.message}</MdsNote>
-      {importSummary.filename ? (
+
+      <section className="import-summary-list">
+        <div className="mapping-visual-header">
+          <span className="auth-label">Uploaded files (brand scoped)</span>
+          <span className="mapping-helper-text">Only files from the authenticated brand workspace are shown.</span>
+        </div>
+        {importBatches?.length ? (
+          <ul className="simple-list import-batch-list">
+            {importBatches.map((batch) => (
+              <li
+                key={batch.id}
+                className={batch.id === importSummary.batchId ? 'active' : ''}
+                onClick={() => onSelectImportBatch(batch.id)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault()
+                    onSelectImportBatch(batch.id)
+                  }
+                }}
+              >
+                <strong>{batch.sourceFilename || 'Unnamed file'}</strong>
+                <span>Rows: {batch.rowCount || 0}</span>
+                <span>Stored: {batch.sourceFileStored ? 'Yes' : 'No'}</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="helper">No files uploaded yet for this brand workspace.</p>
+        )}
+      </section>
+
+      {importSummary.batchId ? (
         <>
           <div className="preview-table-wrap">
             <p className="preview-meta">
@@ -127,13 +196,21 @@ function ImportPage({
                 </tr>
               </thead>
               <tbody>
-                {importSummary.rows.map((row, index) => (
-                  <tr key={`${index}-${row.join('-')}`}>
-                    {importSummary.headers.map((_, cellIndex) => (
-                      <td key={`${index}-${cellIndex}`}>{row[cellIndex] || '-'}</td>
-                    ))}
+                {importSummary.rows.length ? (
+                  importSummary.rows.map((row, index) => (
+                    <tr key={`${index}-${row.join('-')}`}>
+                      {importSummary.headers.map((_, cellIndex) => (
+                        <td key={`${index}-${cellIndex}`}>{row[cellIndex] || '-'}</td>
+                      ))}
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={Math.max(importSummary.headers.length, 1)}>
+                      Row preview is not available for history-only selections.
+                    </td>
                   </tr>
-                ))}
+                )}
               </tbody>
             </table>
           </div>
@@ -237,87 +314,6 @@ function ImportPage({
                 </article>
               ) : null}
             </div>
-
-            {importSummary.diagnostics ? (
-              <section className="import-diagnostics-panel">
-                <div className="mapping-visual-header">
-                  <span className="auth-label">Import diagnostics</span>
-                  <span className="mapping-helper-text">Agent mapping, preview, and hydrate telemetry for this batch.</span>
-                </div>
-
-                <div className="import-diagnostics-grid">
-                  <article className="import-diagnostic-card">
-                    <div className="panel-heading-row">
-                      <MdsKicker>Batch</MdsKicker>
-                      <span className="diag-icon-badge">tray</span>
-                    </div>
-                    <div className="status-chip-row">
-                      <span className={`status-chip ${importSummary.sourceFileStored ? 'success' : 'warning'}`}>
-                        {importSummary.sourceFileStored ? 'check File stored' : 'alert File missing'}
-                      </span>
-                      <span className={`status-chip ${importSummary.mappingSaved ? 'success' : 'warning'}`}>
-                        {importSummary.mappingSaved ? 'check Mapping saved' : 'edit Save needed'}
-                      </span>
-                    </div>
-                    <span>Batch ID: {importSummary.diagnostics.batchId || 'n/a'}</span>
-                    <span>Headers: {importSummary.diagnostics.headerCount || 0}</span>
-                    <span>Rows prepared: {importSummary.diagnostics.rowPayloadCount || 0}</span>
-                    <span>Last action: {importSummary.diagnostics.lastAction || 'n/a'}</span>
-                  </article>
-
-                  <article className="import-diagnostic-card">
-                    <div className="panel-heading-row">
-                      <MdsKicker>Mapping</MdsKicker>
-                      <span className="diag-icon-badge">map</span>
-                    </div>
-                    <div className="status-chip-row">
-                      <span className={`status-chip ${importSummary.diagnostics.mappingMode === 'agent_assisted' ? 'success' : 'warning'}`}>
-                        {importSummary.diagnostics.mappingMode === 'agent_assisted' ? 'spark Agent assisted' : 'tool Local fallback'}
-                      </span>
-                    </div>
-                    <span>Mode: {importSummary.diagnostics.mappingMode || 'n/a'}</span>
-                    <span>Recommendations: {importSummary.diagnostics.recommendationCount || 0}</span>
-                    <span>Agent available: {importSummary.diagnostics.agentDebug?.llm_available === undefined ? 'n/a' : importSummary.diagnostics.agentDebug.llm_available ? 'Yes' : 'No'}</span>
-                    <span>Retrieval available: {importSummary.diagnostics.agentDebug?.retrieval_available === undefined ? 'n/a' : importSummary.diagnostics.agentDebug.retrieval_available ? 'Yes' : 'No'}</span>
-                    {importSummary.diagnostics.agentError ? <span className="mapping-error-text">{importSummary.diagnostics.agentError}</span> : null}
-                  </article>
-
-                  <article className="import-diagnostic-card">
-                    <div className="panel-heading-row">
-                      <MdsKicker>Agent debug</MdsKicker>
-                      <span className="diag-icon-badge">wave</span>
-                    </div>
-                    <div className="status-chip-row">
-                      <span className={`status-chip ${importSummary.diagnostics.agentDebug?.llm_enhanced ? 'success' : 'neutral'}`}>
-                        {importSummary.diagnostics.agentDebug?.llm_enhanced ? 'spark LLM enhanced' : 'dot Heuristic only'}
-                      </span>
-                      <span className={`status-chip ${importSummary.diagnostics.agentDebug?.fallback_used ? 'warning' : 'success'}`}>
-                        {importSummary.diagnostics.agentDebug?.fallback_used ? 'alert Fallback used' : 'check No fallback'}
-                      </span>
-                    </div>
-                    <span>LLM enhanced: {importSummary.diagnostics.agentDebug?.llm_enhanced === undefined ? 'n/a' : importSummary.diagnostics.agentDebug.llm_enhanced ? 'Yes' : 'No'}</span>
-                    <span>Fallback used: {importSummary.diagnostics.agentDebug?.fallback_used === undefined ? 'n/a' : importSummary.diagnostics.agentDebug.fallback_used ? 'Yes' : 'No'}</span>
-                    <span>Retrieved examples: {importSummary.diagnostics.agentDebug?.retrieved_examples_count ?? 0}</span>
-                    <span>Review candidates: {importSummary.diagnostics.agentDebug?.review_candidates?.length ?? 0}</span>
-                  </article>
-
-                  <article className="import-diagnostic-card">
-                    <div className="panel-heading-row">
-                      <MdsKicker>Execution</MdsKicker>
-                      <span className="diag-icon-badge">bolt</span>
-                    </div>
-                    <div className="status-chip-row">
-                      <span className="status-chip info">eye Preview</span>
-                      <span className="status-chip success">check Hydrate</span>
-                    </div>
-                    <span>Preview planned ops: {importSummary.diagnostics.previewPlannedOperationCount ?? 0}</span>
-                    <span>Preview skipped: {importSummary.diagnostics.previewSkippedCount ?? 0}</span>
-                    <span>Hydrate created: {importSummary.diagnostics.hydrateCreatedCount ?? 0}</span>
-                    <span>Hydrate updated: {importSummary.diagnostics.hydrateUpdatedCount ?? 0}</span>
-                  </article>
-                </div>
-              </section>
-            ) : null}
           </div>
         </>
       ) : null}

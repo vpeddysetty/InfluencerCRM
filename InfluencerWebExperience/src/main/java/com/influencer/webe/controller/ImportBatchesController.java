@@ -11,7 +11,9 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -49,6 +51,11 @@ public class ImportBatchesController {
         return responseShapeService.importBatch(daoGatewayClient.get("/import-batches/" + id, null));
     }
 
+    @GetMapping("/{id}/columns")
+    public JsonNode columns(@PathVariable UUID id) {
+        return daoGatewayClient.get("/import-batches/" + id + "/columns", null);
+    }
+
     @PostMapping("/{id}/agent-column-mapping")
     public JsonNode generateAgentColumnMapping(@PathVariable UUID id) {
         JsonNode storedColumnsResult = daoGatewayClient.get("/import-batches/" + id + "/columns", null);
@@ -80,6 +87,34 @@ public class ImportBatchesController {
                 file.getOriginalFilename() == null ? "upload.bin" : file.getOriginalFilename(),
                 file.getBytes(),
             file.getContentType()));
+    }
+
+    @PostMapping("/discover-multi")
+    public JsonNode discoverMulti(@RequestHeader(value = "Authorization", required = false) String authorization,
+                                  @RequestParam(required = false) UUID userId,
+                                  @RequestPart("files") MultipartFile[] files) throws IOException {
+        UUID resolvedUserId = requestUserResolver.resolveUserId(authorization, userId);
+        Map<String, String> fields = new LinkedHashMap<>();
+        fields.put("userId", resolvedUserId.toString());
+
+        List<DaoGatewayClient.MultipartFilePart> fileParts = new ArrayList<>();
+        if (files != null) {
+            for (MultipartFile file : files) {
+                if (file == null || file.isEmpty()) {
+                    continue;
+                }
+                fileParts.add(new DaoGatewayClient.MultipartFilePart(
+                        "files",
+                        file.getOriginalFilename() == null ? "upload.bin" : file.getOriginalFilename(),
+                        file.getBytes(),
+                        file.getContentType()));
+            }
+        }
+
+        return responseShapeService.importDiscoverResult(daoGatewayClient.postMultipartFiles(
+                "/import-batches/discover-multi",
+                fields,
+                fileParts));
     }
 
     @PostMapping("/{id}/preview")

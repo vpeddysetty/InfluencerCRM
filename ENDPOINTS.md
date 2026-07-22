@@ -45,8 +45,10 @@ Base module: InfluencerWebExperience
 ### Import Batches
 - GET /api/import-batches
 - GET /api/import-batches/{id}
+- GET /api/import-batches/{id}/columns
 - POST /api/import-batches/{id}/agent-column-mapping
 - POST /api/import-batches/discover
+- POST /api/import-batches/discover-multi
 - POST /api/import-batches/{id}/preview
 - PATCH /api/import-batches/{id}/column-mapping
 - POST /api/import-batches/{id}/hydrate
@@ -120,10 +122,12 @@ Base module: InfluencerDAO
 
 ### Import Batches
 - GET /import-batches
+- GET /import-batches?userId={userId}
 - GET /import-batches/{id}
 - GET /import-batches/{id}/columns
 - POST /import-batches
 - POST /import-batches/discover
+- POST /import-batches/discover-multi
 - PUT /import-batches/{id}
 - PATCH /import-batches/{id}/column-mapping
 - POST /import-batches/{id}/hydrate

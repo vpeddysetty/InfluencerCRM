@@ -537,6 +537,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/GenericJson'
+  /api/import-batches/{id}/columns:
+    get:
+      summary: Discover columns from stored source file by import batch id
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: Stored file column metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericJson'
   /api/import-batches/discover:
     post:
       summary: Discover import schema from uploaded file
@@ -556,6 +568,31 @@ paths:
       responses:
         '200':
           description: Discovery result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericJson'
+  /api/import-batches/discover-multi:
+    post:
+      summary: Discover import schema from multiple uploaded files
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                userId:
+                  type: string
+                  format: uuid
+                files:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+      responses:
+        '200':
+          description: Discovery result for multiple files
           content:
             application/json:
               schema:

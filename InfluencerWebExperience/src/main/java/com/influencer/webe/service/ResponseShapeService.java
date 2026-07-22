@@ -75,7 +75,7 @@ public class ResponseShapeService {
     }
 
     public JsonNode importBatch(JsonNode source) {
-        return pick(source, "id", "userId", "status", "sourceFilename", "sourceFileStored", "columnMapping", "createdAt", "updatedAt");
+        return pick(source, "id", "userId", "status", "sourceFilename", "sourceFileStored", "columnMapping", "rowCount", "createdAt", "updatedAt");
     }
 
     public JsonNode importDiscoverResult(JsonNode source) {
