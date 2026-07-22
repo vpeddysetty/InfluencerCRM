@@ -102,6 +102,21 @@ export async function updateCampaignCreatorStage(token, id, stage) {
   return request(`/api/campaign-creators/${id}/stage`, { method: 'PATCH', token, body: { stage } })
 }
 
+export async function listCampaignTypeWorkflowStages(token, campaignType) {
+  const query = campaignType ? `?campaignType=${encodeURIComponent(campaignType)}` : ''
+  const payload = await request(`/api/campaign-type-workflow-stages${query}`, { token })
+  return unwrapList(payload)
+}
+
+export async function replaceCampaignTypeWorkflowStages(token, payload) {
+  const response = await request('/api/campaign-type-workflow-stages/replace', {
+    method: 'PUT',
+    token,
+    body: payload,
+  })
+  return unwrapList(response)
+}
+
 export async function discoverImport(token, file) {
   const formData = new FormData()
   formData.append('file', file)
@@ -130,7 +145,7 @@ export async function getImportBatchColumns(token, id) {
 }
 
 export async function deleteImportBatch(token, id) {
-  return request(`/api/import-batches/${id}`, { method: 'DELETE', token })
+  return request(`/api/import-batches/${id}/delete`, { method: 'POST', token })
 }
 
 export async function updateImportColumnMapping(token, id, columnMapping) {

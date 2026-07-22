@@ -24,6 +24,9 @@ public class ImportBatch {
     @Column(name = "source_file")
     private byte[] sourceFile;
 
+    @Column(name = "hydration_status", nullable = false)
+    private String status;
+
     @Column(name = "column_mapping", columnDefinition = "jsonb")
     @JdbcTypeCode(SqlTypes.JSON)
     private String columnMapping;
@@ -87,6 +90,14 @@ public class ImportBatch {
 
     public void setColumnMapping(String columnMapping) {
         this.columnMapping = columnMapping;
+    }
+
+    public String getStatus() {
+        return status;
+    }
+
+    public void setStatus(String status) {
+        this.status = status;
     }
 
     public Integer getRowCount() {

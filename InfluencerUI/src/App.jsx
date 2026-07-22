@@ -10,6 +10,7 @@ import WorkspaceLayout from './components/WorkspaceLayout'
 import {
   createCampaign,
   createCampaignCreator,
+  replaceCampaignTypeWorkflowStages,
   createCreator,
   deleteImportBatch,
   discoverImports,
@@ -20,6 +21,7 @@ import {
   listImportBatches,
   listCampaignCreators,
   listCampaigns,
+  listCampaignTypeWorkflowStages,
   listCreators,
   login,
   previewImportBatch,
@@ -29,11 +31,19 @@ import {
   updateCampaignCreator,
   updateImportColumnMapping,
   updateCreator,
-  updateCampaignCreatorStage,
 } from './api'
-import { createImportMappingJson, createImportMappingJsonFromAgent, parseSpreadsheetFile, STAGES } from './constants'
+import { createImportMappingJson, createImportMappingJsonFromAgent, parseSpreadsheetFile, STAGES, stageLabels } from './constants'
 
 const STORAGE_KEY = 'tejdux_ui_state_v1'
+const CAMPAIGN_TYPE_OPTIONS = [
+  { value: 'product seeding', label: 'Product Seeding' },
+  { value: 'sponsored content', label: 'Sponsored Content' },
+  { value: 'gifting', label: 'Gifting' },
+  { value: 'affiliate campaigns', label: 'Affiliate Campaigns' },
+  { value: 'brand ambassador programs', label: 'Brand Ambassador Programs' },
+  { value: 'paid', label: 'Paid' },
+]
+
 const DEFAULT_IMPORT_SUMMARY = {
   batchId: '',
   filename: '',
@@ -73,11 +83,186 @@ function normalizeLoginEmail(identifier) {
   return `${trimmed}@tejdux.io`
 }
 
+function parseCustomAttributesObject(value) {
+  if (value == null) {
+    return {}
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (!trimmed) {
+      return {}
+    }
+
+    try {
+      const parsed = JSON.parse(trimmed)
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return {}
+      }
+      return parsed
+    } catch {
+      return {}
+    }
+  }
+
+  if (typeof value === 'object' && !Array.isArray(value)) {
+    return value
+  }
+
+  return {}
+}
+
+function customAttributesToPairs(value) {
+  if (Array.isArray(value)) {
+    return value
+      .filter((item) => item && typeof item === 'object')
+      .map((item) => ({
+        key: String(item.key || ''),
+        value: String(item.value || ''),
+        type: item.type || 'text',
+      }))
+  }
+
+  const parsed = parseCustomAttributesObject(value)
+  return Object.entries(parsed).map(([key, rawValue]) => ({
+    key,
+    value: rawValue == null ? '' : String(rawValue),
+    type: typeof rawValue === 'boolean' ? 'boolean' : typeof rawValue === 'number' ? 'number' : 'text',
+  }))
+}
+
+function normalizeCustomAttributesForPayload(rawValue) {
+  if (rawValue == null) {
+    return '{}'
+  }
+
+  if (Array.isArray(rawValue)) {
+    const customAttributes = rawValue.reduce((acc, item) => {
+      if (!item || typeof item !== 'object') {
+        return acc
+      }
+
+      const key = String(item.key || '').trim()
+      if (!key) {
+        return acc
+      }
+
+      const itemType = item.type || 'text'
+      const itemValue = item.value == null ? '' : String(item.value)
+
+      if (itemType === 'boolean') {
+        acc[key] = itemValue === 'true'
+        return acc
+      }
+
+      if (itemType === 'number') {
+        if (!itemValue.trim()) {
+          acc[key] = null
+          return acc
+        }
+
+        const numericValue = Number(itemValue)
+        if (!Number.isFinite(numericValue)) {
+          throw new Error(`Custom attribute "${key}" must be a valid number.`)
+        }
+        acc[key] = numericValue
+        return acc
+      }
+
+      acc[key] = itemValue
+      return acc
+    }, {})
+
+    return JSON.stringify(customAttributes)
+  }
+
+  if (typeof rawValue === 'string') {
+    const trimmed = rawValue.trim()
+    if (!trimmed) {
+      return '{}'
+    }
+
+    let parsed
+    try {
+      parsed = JSON.parse(trimmed)
+    } catch {
+      throw new Error('Custom attributes must be valid JSON.')
+    }
+
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('Custom attributes must be a JSON object.')
+    }
+
+    return JSON.stringify(parsed)
+  }
+
+  if (typeof rawValue === 'object' && !Array.isArray(rawValue)) {
+    return JSON.stringify(rawValue)
+  }
+
+  throw new Error('Custom attributes must be a JSON object.')
+}
+
+function normalizeBudgetForPayload(rawValue) {
+  const text = String(rawValue ?? '').trim()
+  if (!text) {
+    return null
+  }
+
+  const numericValue = Number(text)
+  if (!Number.isFinite(numericValue)) {
+    throw new Error('Budget must be a valid number.')
+  }
+
+  return text
+}
+
+function normalizePlatformForPayload(rawValue) {
+  const normalized = String(rawValue || '').trim().toLowerCase()
+  if (!normalized) {
+    return 'instagram'
+  }
+  return normalized
+}
+
+function normalizeCampaignTypeForPayload(rawValue) {
+  const normalized = String(rawValue || '').trim().toLowerCase()
+  if (!normalized) {
+    return 'paid'
+  }
+  return normalized
+}
+
+function normalizeInstantDateForPayload(rawValue) {
+  const text = String(rawValue || '').trim()
+  if (!text) {
+    return null
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    return `${text}T00:00:00Z`
+  }
+
+  return text
+}
+
+function normalizeTagsForState(rawValue) {
+  if (Array.isArray(rawValue)) {
+    return rawValue.map((tag) => String(tag || '').trim()).filter(Boolean)
+  }
+
+  return String(rawValue || '')
+    .split(',')
+    .map((tag) => tag.trim())
+    .filter(Boolean)
+}
+
 function App() {
   const persistedState = loadPersistedState()
   const initialCampaigns = persistedState?.campaigns?.length ? persistedState.campaigns : []
   const initialCreators = persistedState?.creators?.length ? persistedState.creators : []
   const initialAssignments = persistedState?.assignments?.length ? persistedState.assignments : []
+  const initialCampaignTypeWorkflowStages = persistedState?.campaignTypeWorkflowStages?.length ? persistedState.campaignTypeWorkflowStages : []
   const defaultCampaignId = initialCampaigns[0]?.id || ''
   const defaultCreatorId = initialCreators[0]?.id || ''
 
@@ -93,11 +278,24 @@ function App() {
   const [campaigns, setCampaigns] = useState(initialCampaigns)
   const [creators, setCreators] = useState(initialCreators)
   const [assignments, setAssignments] = useState(initialAssignments)
+  const [campaignTypeWorkflowStages, setCampaignTypeWorkflowStages] = useState(initialCampaignTypeWorkflowStages)
 
-  const [campaignForm, setCampaignForm] = useState(persistedState?.campaignForm ?? { name: '', budget: '', status: 'draft' })
-  const [creatorForm, setCreatorForm] = useState(
-    persistedState?.creatorForm ?? { name: '', handle: '', platform: 'Instagram', email: '' },
-  )
+  const [campaignForm, setCampaignForm] = useState({
+    name: '',
+    budget: '',
+    status: 'draft',
+    campaignType: CAMPAIGN_TYPE_OPTIONS[0].value,
+    ...(persistedState?.campaignForm || {}),
+    customAttributes: customAttributesToPairs(persistedState?.campaignForm?.customAttributes),
+  })
+  const [creatorForm, setCreatorForm] = useState({
+    name: '',
+    handle: '',
+    platform: 'instagram',
+    email: '',
+    ...(persistedState?.creatorForm || {}),
+    customAttributes: customAttributesToPairs(persistedState?.creatorForm?.customAttributes),
+  })
   const [assignmentForm, setAssignmentForm] = useState(persistedState?.assignmentForm ?? {
     campaignId: defaultCampaignId,
     creatorId: defaultCreatorId,
@@ -130,26 +328,55 @@ function App() {
     }, {})
   }, [creators])
 
-  const groupedAssignments = useMemo(() => {
-    return STAGES.reduce((acc, stage) => {
-      acc[stage] = assignments.filter((item) => item.stage === stage)
+  const workflowStagesByCampaignType = useMemo(() => {
+    return (campaignTypeWorkflowStages || []).reduce((acc, item) => {
+      const type = normalizeCampaignTypeForPayload(item?.campaignType)
+      if (!acc[type]) {
+        acc[type] = []
+      }
+      acc[type].push(item)
       return acc
     }, {})
-  }, [assignments])
+  }, [campaignTypeWorkflowStages])
+
+  const getConfiguredStagesForCampaignType = (campaignType) => {
+    const type = normalizeCampaignTypeForPayload(campaignType)
+    const rows = (workflowStagesByCampaignType[type] || [])
+      .filter((item) => item?.isActive !== false)
+      .sort((a, b) => Number(a?.position || 0) - Number(b?.position || 0))
+      .map((item) => String(item?.stageKey || '').trim())
+      .filter(Boolean)
+    return rows
+  }
+
+  useEffect(() => {
+    const selectedCampaign = campaignById[assignmentForm.campaignId]
+    const selectedType = normalizeCampaignTypeForPayload(selectedCampaign?.campaignType)
+    const allowedStages = getConfiguredStagesForCampaignType(selectedType)
+    if (!allowedStages.length) {
+      return
+    }
+    if (allowedStages.includes(assignmentForm.stage)) {
+      return
+    }
+    setAssignmentForm((prev) => ({ ...prev, stage: allowedStages[0] }))
+  }, [assignmentForm.campaignId, assignmentForm.stage, campaignById, workflowStagesByCampaignType])
 
   const refreshWorkspaceData = async () => {
     setWorkspaceError('')
-    const [campaignPayload, creatorPayload, assignmentPayload, importBatchPayload] = await Promise.all([
+    const [campaignPayload, creatorPayload, assignmentPayload, importBatchPayload, workflowStagesPayload] = await Promise.all([
       listCampaigns(authToken),
       listCreators(authToken),
       listCampaignCreators(authToken),
       listImportBatches(authToken),
+      listCampaignTypeWorkflowStages(authToken),
     ])
 
     setCampaigns(campaignPayload)
     setCreators(creatorPayload)
     setAssignments(assignmentPayload)
     setImportBatches(importBatchPayload)
+    setCampaignTypeWorkflowStages(workflowStagesPayload)
     setAssignmentForm((prev) => ({
       ...prev,
       campaignId: prev.campaignId || campaignPayload[0]?.id || '',
@@ -168,6 +395,7 @@ function App() {
       campaigns,
       creators,
       assignments,
+      campaignTypeWorkflowStages,
       campaignForm,
       creatorForm,
       assignmentForm,
@@ -186,6 +414,7 @@ function App() {
     campaigns,
     creators,
     assignments,
+    campaignTypeWorkflowStages,
     campaignForm,
     creatorForm,
     assignmentForm,
@@ -587,16 +816,25 @@ function App() {
 
     try {
       setWorkspaceError('')
+      const customAttributes = normalizeCustomAttributesForPayload(campaignForm.customAttributes)
       const nextCampaign = await createCampaign(authToken, {
         userId,
         name: campaignForm.name.trim(),
-        budget: campaignForm.budget.trim(),
+        budget: normalizeBudgetForPayload(campaignForm.budget),
         status: campaignForm.status,
+        campaignType: normalizeCampaignTypeForPayload(campaignForm.campaignType),
+        customAttributes,
       })
 
       setCampaigns((prev) => [nextCampaign, ...prev])
       setAssignmentForm((prev) => ({ ...prev, campaignId: nextCampaign.id || prev.campaignId }))
-      setCampaignForm({ name: '', budget: '', status: 'draft' })
+      setCampaignForm({
+        name: '',
+        budget: '',
+        status: 'draft',
+        campaignType: CAMPAIGN_TYPE_OPTIONS[0].value,
+        customAttributes: [],
+      })
     } catch (error) {
       setWorkspaceError(error instanceof Error ? error.message : 'Unable to create campaign.')
     }
@@ -608,11 +846,15 @@ function App() {
       return
     }
 
+    const customAttributes = normalizeCustomAttributesForPayload(payload.customAttributes)
+
     const nextLocal = {
       ...existing,
       name: payload.name,
-      budget: payload.budget,
+      budget: normalizeBudgetForPayload(payload.budget),
       status: payload.status,
+      campaignType: normalizeCampaignTypeForPayload(payload.campaignType),
+      customAttributes,
     }
 
     setCampaigns((prev) => prev.map((campaign) => (campaign.id === id ? nextLocal : campaign)))
@@ -640,17 +882,19 @@ function App() {
 
     try {
       setWorkspaceError('')
+      const customAttributes = normalizeCustomAttributesForPayload(creatorForm.customAttributes)
       const nextCreator = await createCreator(authToken, {
         userId,
         name: creatorForm.name.trim(),
         handle: creatorForm.handle.trim(),
-        platform: creatorForm.platform,
+        platform: normalizePlatformForPayload(creatorForm.platform),
         email: creatorForm.email.trim(),
+        customAttributes,
       })
 
       setCreators((prev) => [nextCreator, ...prev])
       setAssignmentForm((prev) => ({ ...prev, creatorId: nextCreator.id || prev.creatorId }))
-      setCreatorForm({ name: '', handle: '', platform: 'Instagram', email: '' })
+      setCreatorForm({ name: '', handle: '', platform: 'instagram', email: '', customAttributes: [] })
     } catch (error) {
       setWorkspaceError(error instanceof Error ? error.message : 'Unable to create creator.')
     }
@@ -662,12 +906,15 @@ function App() {
       return
     }
 
+    const customAttributes = normalizeCustomAttributesForPayload(payload.customAttributes)
+
     const nextLocal = {
       ...existing,
       name: payload.name,
       handle: payload.handle,
-      platform: payload.platform,
+      platform: normalizePlatformForPayload(payload.platform),
       email: payload.email,
+      customAttributes,
     }
 
     setCreators((prev) => prev.map((creator) => (creator.id === id ? nextLocal : creator)))
@@ -693,16 +940,28 @@ function App() {
       return
     }
 
+    const selectedCampaign = campaignById[assignmentForm.campaignId]
+    const selectedCampaignType = normalizeCampaignTypeForPayload(selectedCampaign?.campaignType)
+    const configuredStages = getConfiguredStagesForCampaignType(selectedCampaignType)
+    if (!configuredStages.length) {
+      setWorkspaceError(`Set up workflow stages for campaign type "${selectedCampaignType}" before creating work items.`)
+      return
+    }
+
+    const resolvedStage = configuredStages.includes(assignmentForm.stage)
+      ? assignmentForm.stage
+      : configuredStages[0]
+
     try {
       setWorkspaceError('')
       const nextAssignment = await createCampaignCreator(authToken, {
         userId,
         campaignId: assignmentForm.campaignId,
         creatorId: assignmentForm.creatorId,
-        stage: assignmentForm.stage,
+        stage: resolvedStage,
         agreedFee: assignmentForm.fee.trim() || null,
         notes: assignmentForm.notes.trim(),
-        contentDueAt: assignmentForm.dueDate || null,
+        contentDueAt: normalizeInstantDateForPayload(assignmentForm.dueDate),
         tags: assignmentForm.tags
           .split(',')
           .map((tag) => tag.trim())
@@ -710,7 +969,7 @@ function App() {
       })
 
       setAssignments((prev) => [nextAssignment, ...prev])
-      setAssignmentForm((prev) => ({ ...prev, fee: '', notes: '', stage: 'outreach', dueDate: '', tags: '' }))
+      setAssignmentForm((prev) => ({ ...prev, fee: '', notes: '', stage: resolvedStage, dueDate: '', tags: '' }))
     } catch (error) {
       setWorkspaceError(error instanceof Error ? error.message : 'Unable to tie creator to campaign.')
     }
@@ -722,11 +981,30 @@ function App() {
       return
     }
 
-    setAssignments((prev) => prev.map((item) => (item.id === id ? { ...item, stage: nextStage } : item)))
+    const optimistic = {
+      ...existing,
+      stage: nextStage,
+    }
+
+    setAssignments((prev) => prev.map((item) => (item.id === id ? optimistic : item)))
 
     try {
       setWorkspaceError('')
-      const updated = await updateCampaignCreatorStage(authToken, id, nextStage)
+      const updated = await updateCampaignCreator(authToken, id, {
+        ...existing,
+        ...optimistic,
+        userId,
+        campaignId: existing.campaignId,
+        creatorId: existing.creatorId,
+        agreedFee: optimistic.fee ? String(optimistic.fee).trim() : null,
+        contentDueAt: normalizeInstantDateForPayload(optimistic.dueDate),
+        tags: Array.isArray(optimistic.tags)
+          ? optimistic.tags
+          : String(optimistic.tags || '')
+            .split(',')
+            .map((tag) => tag.trim())
+            .filter(Boolean),
+      })
       setAssignments((prev) => prev.map((item) => (item.id === id ? updated : item)))
     } catch (error) {
       setAssignments((prev) => prev.map((item) => (item.id === id ? existing : item)))
@@ -740,13 +1018,15 @@ function App() {
       return
     }
 
+    const normalizedTags = normalizeTagsForState(payload.tags)
+
     const nextLocal = {
       ...existing,
       stage: payload.stage,
       fee: payload.fee,
       dueDate: payload.dueDate,
       notes: payload.notes,
-      tags: payload.tags,
+      tags: normalizedTags,
     }
 
     setAssignments((prev) => prev.map((item) => (item.id === id ? nextLocal : item)))
@@ -760,13 +1040,8 @@ function App() {
         campaignId: existing.campaignId,
         creatorId: existing.creatorId,
         agreedFee: payload.fee ? String(payload.fee).trim() : null,
-        contentDueAt: payload.dueDate || null,
-        tags: Array.isArray(payload.tags)
-          ? payload.tags
-          : String(payload.tags || '')
-            .split(',')
-            .map((tag) => tag.trim())
-            .filter(Boolean),
+        contentDueAt: normalizeInstantDateForPayload(payload.dueDate),
+        tags: normalizedTags,
       })
       setAssignments((prev) => prev.map((item) => (item.id === id ? updated : item)))
     } catch (error) {
@@ -774,6 +1049,31 @@ function App() {
       setWorkspaceError(error instanceof Error ? error.message : 'Unable to update creator-campaign workflow record.')
       throw error
     }
+  }
+
+  const saveCampaignTypeWorkflowSetup = async (campaignType, stages) => {
+    const normalizedType = normalizeCampaignTypeForPayload(campaignType)
+    const preparedStages = (Array.isArray(stages) ? stages : []).map((stage, index) => ({
+      stageKey: stage.stageKey,
+      stageLabel: stage.stageLabel,
+      position: Number.isFinite(Number(stage.position)) ? Number(stage.position) : index,
+      isActive: stage.isActive !== false,
+    }))
+
+    if (!preparedStages.filter((stage) => stage.isActive).length) {
+      throw new Error('At least one active stage is required for a workflow.')
+    }
+
+    const saved = await replaceCampaignTypeWorkflowStages(authToken, {
+      userId,
+      campaignType: normalizedType,
+      stages: preparedStages,
+    })
+
+    setCampaignTypeWorkflowStages((prev) => {
+      const withoutType = prev.filter((item) => normalizeCampaignTypeForPayload(item.campaignType) !== normalizedType)
+      return [...withoutType, ...saved]
+    })
   }
 
   const handleLogout = async () => {
@@ -848,6 +1148,9 @@ function App() {
                   campaigns={campaigns}
                   campaignForm={campaignForm}
                   setCampaignForm={setCampaignForm}
+                  campaignTypeOptions={CAMPAIGN_TYPE_OPTIONS}
+                  customAttributesToPairs={customAttributesToPairs}
+                  normalizeCampaignTypeForPayload={normalizeCampaignTypeForPayload}
                   onCreateCampaign={createCampaignRecord}
                   onUpdateCampaign={updateCampaignRecord}
                 />
@@ -860,6 +1163,7 @@ function App() {
                   creators={creators}
                   creatorForm={creatorForm}
                   setCreatorForm={setCreatorForm}
+                  customAttributesToPairs={customAttributesToPairs}
                   onCreateCreator={createCreatorRecord}
                   onUpdateCreator={updateCreatorRecord}
                 />
@@ -875,7 +1179,10 @@ function App() {
                   assignmentForm={assignmentForm}
                   setAssignmentForm={setAssignmentForm}
                   onTieCreatorToCampaign={tieCreatorToCampaign}
-                  groupedAssignments={groupedAssignments}
+                  campaignTypeOptions={CAMPAIGN_TYPE_OPTIONS}
+                  campaignTypeWorkflowStages={campaignTypeWorkflowStages}
+                  getConfiguredStagesForCampaignType={getConfiguredStagesForCampaignType}
+                  onSaveCampaignTypeWorkflowSetup={saveCampaignTypeWorkflowSetup}
                   campaignById={campaignById}
                   creatorById={creatorById}
                   updateCardStage={updateCardStage}
@@ -883,8 +1190,8 @@ function App() {
                 />
               }
             />
+            <Route path="*" element={<Navigate to="/import" replace />} />
           </Route>
-          <Route path="*" element={<Navigate to="/import" replace />} />
         </>
       )}
     </Routes>

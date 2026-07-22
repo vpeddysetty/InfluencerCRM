@@ -67,7 +67,7 @@ public class CampaignCreatorsController {
 
     @PatchMapping("/{id}/stage")
     public JsonNode updateStage(@PathVariable UUID id, @RequestBody ObjectNode payload) {
-        return responseShapeService.campaignCreator(daoGatewayClient.patch("/campaign-creators/" + id, payload));
+        return responseShapeService.campaignCreator(daoGatewayClient.patch("/campaign-creators/" + id + "/stage", payload));
     }
 
     @DeleteMapping("/{id}")

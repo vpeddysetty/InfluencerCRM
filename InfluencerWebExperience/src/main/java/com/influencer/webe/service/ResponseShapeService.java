@@ -28,7 +28,7 @@ public class ResponseShapeService {
     }
 
     public JsonNode campaign(JsonNode source) {
-        return pick(source, "id", "userId", "name", "budget", "status", "createdAt", "updatedAt");
+        return pick(source, "id", "userId", "name", "budget", "status", "campaignType", "customAttributes", "createdAt", "updatedAt");
     }
 
     public JsonNode creatorsList(JsonNode source, Integer page, Integer size) {
@@ -40,7 +40,7 @@ public class ResponseShapeService {
     }
 
     public JsonNode creator(JsonNode source) {
-        return pick(source, "id", "userId", "name", "handle", "platform", "email", "createdAt", "updatedAt");
+        return pick(source, "id", "userId", "name", "handle", "platform", "email", "customAttributes", "createdAt", "updatedAt");
     }
 
     public JsonNode campaignCreatorsList(JsonNode source, Integer page, Integer size) {
@@ -52,7 +52,7 @@ public class ResponseShapeService {
     }
 
     public JsonNode campaignCreator(JsonNode source) {
-        ObjectNode out = pick(source, "id", "userId", "campaignId", "creatorId", "stage", "notes", "tags", "createdAt", "updatedAt");
+        ObjectNode out = pick(source, "id", "userId", "campaignId", "creatorId", "stage", "notes", "createdAt", "updatedAt");
         if (source != null && source.hasNonNull("agreedFee")) {
             out.set("fee", source.get("agreedFee"));
         } else if (source != null && source.hasNonNull("fee")) {
@@ -63,7 +63,35 @@ public class ResponseShapeService {
         } else if (source != null && source.hasNonNull("dueDate")) {
             out.set("dueDate", source.get("dueDate"));
         }
+        if (source != null && source.has("tags") && !source.get("tags").isNull()) {
+            JsonNode tagsNode = source.get("tags");
+            if (tagsNode.isTextual()) {
+                try {
+                    JsonNode parsed = objectMapper.readTree(tagsNode.asText());
+                    out.set("tags", parsed.isArray() ? parsed : objectMapper.createArrayNode());
+                } catch (Exception ignored) {
+                    out.set("tags", objectMapper.createArrayNode());
+                }
+            } else if (tagsNode.isArray()) {
+                out.set("tags", tagsNode);
+            }
+        }
+        if (!out.has("tags")) {
+            out.set("tags", objectMapper.createArrayNode());
+        }
         return out;
+    }
+
+    public JsonNode campaignTypeWorkflowStagesList(JsonNode source, Integer page, Integer size) {
+        ArrayNode out = objectMapper.createArrayNode();
+        for (JsonNode item : asArray(source)) {
+            out.add(campaignTypeWorkflowStage(item));
+        }
+        return paginateIfRequested(out, page, size);
+    }
+
+    public JsonNode campaignTypeWorkflowStage(JsonNode source) {
+        return pick(source, "id", "userId", "campaignType", "stageKey", "stageLabel", "position", "isActive", "createdAt", "updatedAt");
     }
 
     public JsonNode importBatchesList(JsonNode source, Integer page, Integer size) {

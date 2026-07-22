@@ -187,6 +187,10 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: campaignType
+          in: query
+          schema:
+            type: string
         - $ref: '#/components/parameters/PageQuery'
         - $ref: '#/components/parameters/SizeQuery'
       responses:
@@ -387,6 +391,10 @@ paths:
           in: query
           schema:
             type: string
+        - name: swimlaneName
+          in: query
+          schema:
+            type: string
         - $ref: '#/components/parameters/PageQuery'
         - $ref: '#/components/parameters/SizeQuery'
       responses:
@@ -544,6 +552,14 @@ paths:
       responses:
         '204':
           description: Import batch deleted
+  /api/import-batches/{id}/delete:
+    post:
+      summary: Delete import batch by id (compatibility endpoint)
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '204':
+          description: Import batch deleted
   /api/import-batches/{id}/columns:
     get:
       summary: Discover columns from stored source file by import batch id
@@ -670,6 +686,44 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/GenericJson'
+  /api/campaign-type-workflow-stages:
+    get:
+      summary: List workflow stage setup by campaign type
+      parameters:
+        - name: userId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: campaignType
+          in: query
+          schema:
+            type: string
+        - $ref: '#/components/parameters/PageQuery'
+        - $ref: '#/components/parameters/SizeQuery'
+      responses:
+        '200':
+          description: Campaign type workflow stages
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListOrPaginatedGenericJson'
+  /api/campaign-type-workflow-stages/replace:
+    put:
+      summary: Replace workflow stage setup for a campaign type
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenericJson'
+      responses:
+        '200':
+          description: Updated campaign type workflow stages
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListOrPaginatedGenericJson'
   /api/creator-workflow-tasks:
     get:
       summary: List creator workflow tasks

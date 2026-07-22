@@ -17,7 +17,14 @@ public class CampaignController {
     }
 
     @GetMapping
-    public List<Campaign> findAll() {
+    public List<Campaign> findAll(@RequestParam(required = false) UUID userId,
+                                  @RequestParam(required = false) String campaignType) {
+        if (userId != null && campaignType != null && !campaignType.isBlank()) {
+            return repository.findByUserIdAndCampaignType(userId, campaignType.trim().toLowerCase());
+        }
+        if (userId != null) {
+            return repository.findByUserId(userId);
+        }
         return repository.findAll();
     }
 
@@ -29,6 +36,7 @@ public class CampaignController {
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public Campaign create(@RequestBody Campaign campaign) {
+        applyDefaults(campaign);
         return repository.save(campaign);
     }
 
@@ -57,7 +65,29 @@ public class CampaignController {
         existing.setContentGuidelines(campaign.getContentGuidelines());
         existing.setCampaignOwner(campaign.getCampaignOwner());
         existing.setCustomAttributes(campaign.getCustomAttributes());
+        applyDefaults(existing);
         return repository.save(existing);
+    }
+
+    private void applyDefaults(Campaign campaign) {
+        if (campaign.getStatus() == null || campaign.getStatus().isBlank()) {
+            campaign.setStatus("draft");
+        }
+        if (campaign.getCampaignType() == null || campaign.getCampaignType().isBlank()) {
+            campaign.setCampaignType("paid");
+        }
+        if (campaign.getCurrency() == null || campaign.getCurrency().isBlank()) {
+            campaign.setCurrency("USD");
+        }
+        if (campaign.getPriority() == null || campaign.getPriority().isBlank()) {
+            campaign.setPriority("medium");
+        }
+        if (campaign.getDeliverablesRequired() == null) {
+            campaign.setDeliverablesRequired(new String[0]);
+        }
+        if (campaign.getCustomAttributes() == null || campaign.getCustomAttributes().isBlank()) {
+            campaign.setCustomAttributes("{}");
+        }
     }
 
     @DeleteMapping("/{id}")

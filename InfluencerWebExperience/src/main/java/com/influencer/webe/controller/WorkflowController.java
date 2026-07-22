@@ -162,6 +162,26 @@ public class WorkflowController {
     @DeleteMapping("/creator-workflow-events/{id}")
     public void deleteEvent(@PathVariable UUID id) { daoGatewayClient.delete("/creator-workflow-events/" + id); }
 
+    @GetMapping("/campaign-type-workflow-stages")
+    public JsonNode listCampaignTypeWorkflowStages(@RequestHeader(value = "Authorization", required = false) String authorization,
+                                                   @RequestParam(required = false) UUID userId,
+                                                   @RequestParam(required = false) String campaignType,
+                                                   @RequestParam(required = false) Integer page,
+                                                   @RequestParam(required = false) Integer size) {
+        UUID resolvedUserId = requestUserResolver.resolveUserId(authorization, userId);
+        Map<String, String> query = new LinkedHashMap<>();
+        query.put("userId", resolvedUserId.toString());
+        query.put("campaignType", campaignType);
+        return responseShapeService.campaignTypeWorkflowStagesList(daoGatewayClient.get("/campaign-type-workflow-stages", query), page, size);
+    }
+
+    @PutMapping("/campaign-type-workflow-stages/replace")
+    public JsonNode replaceCampaignTypeWorkflowStages(@RequestHeader(value = "Authorization", required = false) String authorization,
+                                                      @RequestBody ObjectNode payload) {
+        payload.put("userId", requestUserResolver.resolveUserId(authorization, getUuid(payload, "userId")).toString());
+        return responseShapeService.campaignTypeWorkflowStagesList(daoGatewayClient.put("/campaign-type-workflow-stages/replace", payload), null, null);
+    }
+
     private UUID getUuid(ObjectNode payload, String fieldName) {
         if (payload == null || payload.get(fieldName) == null || payload.get(fieldName).asText().isBlank()) {
             return null;

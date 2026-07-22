@@ -118,6 +118,7 @@ create table import_batches (
     user_id         uuid not null references users(id) on delete cascade,
     source_filename text not null,
     source_file     bytea,
+    hydration_status text not null default 'discovered',
     column_mapping  jsonb not null default '{}',       -- maps sheet columns -> fields
     row_count       integer not null default 0,
     created_at      timestamptz not null default now()
@@ -139,6 +140,8 @@ create table campaign_creators (
     creator_id          uuid not null references creators(id)  on delete cascade,
     import_batch_id     uuid references import_batches(id) on delete set null,  -- null = added manually
     stage               pipeline_stage not null default 'outreach',
+    notes               text,
+    tags                jsonb not null default '[]'::jsonb,
     discount_code       text,
     link                text,
     agreed_fee          numeric(12,2),
@@ -172,6 +175,25 @@ create table campaign_creators (
 );
 
 -- =============================================================
+-- campaign_type_workflow_stages  (workflow definition by campaign type)
+-- =============================================================
+create table campaign_type_workflow_stages (
+    id            uuid primary key default gen_random_uuid(),
+    user_id       uuid not null references users(id) on delete cascade,
+    campaign_type text not null,
+    stage_key     pipeline_stage not null,
+    stage_label   text not null,
+    position      integer not null default 0,
+    is_active     boolean not null default true,
+    created_at    timestamptz not null default now(),
+    updated_at    timestamptz not null default now(),
+    unique (user_id, campaign_type, stage_key)
+);
+
+-- Seed recommendation for campaign types:
+-- product seeding, sponsored content, gifting, affiliate campaigns, brand ambassador programs.
+
+-- =============================================================
 -- interactions  (relationship memory: notes, emails, dms)
 -- =============================================================
 create table interactions (
@@ -181,6 +203,26 @@ create table interactions (
     type       interaction_type not null default 'note',
     body       text not null,
     created_at timestamptz not null default now()
+);
+
+-- =============================================================
+-- mapping_examples  (import mapping memory / retrieval support)
+-- =============================================================
+create table mapping_examples (
+    id                  uuid primary key default gen_random_uuid(),
+    user_id             uuid references users(id) on delete set null,
+    template_name       text,
+    source_signature    text not null,
+    source_tab_names    text[] not null default '{}',
+    source_columns      text[] not null default '{}',
+    sample_values_json  jsonb not null default '{}'::jsonb,
+    mappings_json       jsonb not null default '{}'::jsonb,
+    quality_score       numeric(4,3) not null default 0.700,
+    usage_count         integer not null default 0,
+    is_active           boolean not null default true,
+    signature_embedding vector(1536),
+    created_at          timestamptz not null default now(),
+    updated_at          timestamptz not null default now()
 );
 
 -- =============================================================
@@ -348,6 +390,12 @@ create index idx_cc_payment_status        on campaign_creators(payment_status);
 create index idx_cc_next_follow_up        on campaign_creators(next_follow_up_at);
 create index idx_interactions_user        on interactions(user_id);
 create index idx_interactions_creator     on interactions(creator_id);
+create index idx_mapping_examples_active  on mapping_examples(is_active);
+create index idx_mapping_examples_user    on mapping_examples(user_id);
+create index idx_mapping_examples_quality on mapping_examples(quality_score desc);
+create index idx_mapping_examples_embedding_cos
+    on mapping_examples using ivfflat (signature_embedding vector_cosine_ops)
+    with (lists = 100);
 create index idx_cwt_user                 on creator_workflow_tasks(user_id);
 create index idx_cwt_campaign_creator     on creator_workflow_tasks(campaign_creator_id);
 create index idx_cwt_status_due           on creator_workflow_tasks(status, due_at);
@@ -384,6 +432,7 @@ create trigger trg_users_updated       before update on users             for ea
 create trigger trg_creators_updated    before update on creators          for each row execute function set_updated_at();
 create trigger trg_campaigns_updated   before update on campaigns         for each row execute function set_updated_at();
 create trigger trg_cc_updated          before update on campaign_creators for each row execute function set_updated_at();
+create trigger trg_mapping_examples_updated before update on mapping_examples for each row execute function set_updated_at();
 create trigger trg_cwt_updated         before update on creator_workflow_tasks    for each row execute function set_updated_at();
 create trigger trg_cwp_updated         before update on creator_workflow_payments for each row execute function set_updated_at();
 create trigger trg_icc_updated         before update on influencer_campaign_codes for each row execute function set_updated_at();

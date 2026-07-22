@@ -62,6 +62,9 @@ public class ImportBatchController {
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public ImportBatch create(@RequestBody ImportBatch importBatch) {
+        if (importBatch.getStatus() == null || importBatch.getStatus().isBlank()) {
+            importBatch.setStatus("discovered");
+        }
         return repository.save(importBatch);
     }
 
@@ -76,6 +79,7 @@ public class ImportBatchController {
         importBatch.setUserId(userId);
         importBatch.setSourceFilename(discoveredSpreadsheet.getSourceFilename());
         importBatch.setSourceFile(file.getBytes());
+        importBatch.setStatus("discovered");
         importBatch.setRowCount(discoveredSpreadsheet.getRowCount());
         importBatch.setColumnMapping("{}");
 
@@ -107,6 +111,7 @@ public class ImportBatchController {
             importBatch.setUserId(userId);
             importBatch.setSourceFilename(discoveredSpreadsheet.getSourceFilename());
             importBatch.setSourceFile(file.getBytes());
+            importBatch.setStatus("discovered");
             importBatch.setRowCount(discoveredSpreadsheet.getRowCount());
             importBatch.setColumnMapping("{}");
 
@@ -125,6 +130,9 @@ public class ImportBatchController {
         if (importBatch.getSourceFile() != null && importBatch.getSourceFile().length > 0) {
             existing.setSourceFile(importBatch.getSourceFile());
         }
+        if (importBatch.getStatus() != null && !importBatch.getStatus().isBlank()) {
+            existing.setStatus(importBatch.getStatus());
+        }
         existing.setColumnMapping(importBatch.getColumnMapping());
         existing.setRowCount(importBatch.getRowCount());
         return repository.save(existing);
@@ -141,7 +149,19 @@ public class ImportBatchController {
     public ImportBatchHydrationService.HydrateImportBatchResponse hydrate(
             @PathVariable UUID id,
             @RequestBody ImportBatchHydrationService.HydrateImportBatchRequest request) {
-        return hydrationService.hydrate(id, request);
+        ImportBatch existing = repository.findById(id).orElseThrow(() -> new RuntimeException("ImportBatch not found"));
+        try {
+            ImportBatchHydrationService.HydrateImportBatchResponse response = hydrationService.hydrate(id, request);
+            if (!response.isDryRun()) {
+                existing.setStatus("hydrated");
+                repository.save(existing);
+            }
+            return response;
+        } catch (RuntimeException exception) {
+            existing.setStatus("hydration_failed");
+            repository.save(existing);
+            throw exception;
+        }
     }
 
     @PostMapping("/{id}/preview")

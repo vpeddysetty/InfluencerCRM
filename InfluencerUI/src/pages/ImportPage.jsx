@@ -106,6 +106,19 @@ function ImportPage({
     onImportFiles(items)
   }
 
+  const resolveHydrationState = (batchId, batchStatus) => {
+    if (importBatchHydrationStatus?.[batchId]?.state) {
+      return importBatchHydrationStatus[batchId].state
+    }
+    if (batchStatus === 'hydrated') {
+      return 'hydrated'
+    }
+    if (batchStatus === 'hydration_failed') {
+      return 'failed'
+    }
+    return 'pending'
+  }
+
   return (
     <article className="card mds-surface mds-prose import-card page-stack">
       <MdsKicker>Import Flow</MdsKicker>
@@ -154,6 +167,10 @@ function ImportPage({
           <ul className="simple-list import-batch-list">
             {importBatches.map((batch) => (
               <li key={batch.id} className={batch.id === importSummary.batchId ? 'active' : ''}>
+                {(() => {
+                  const hydrationState = resolveHydrationState(batch.id, batch.status)
+                  return (
+                    <>
                 <button
                   type="button"
                   className="file-name-link"
@@ -165,9 +182,9 @@ function ImportPage({
                 <span>Stored: {batch.sourceFileStored ? 'Yes' : 'No'}</span>
                 <span>
                   Hydration: {
-                    importBatchHydrationStatus?.[batch.id]?.state === 'hydrated'
+                    hydrationState === 'hydrated'
                       ? 'Completed'
-                      : importBatchHydrationStatus?.[batch.id]?.state === 'failed'
+                      : hydrationState === 'failed'
                         ? 'Failed'
                         : 'Pending'
                   }
@@ -189,6 +206,9 @@ function ImportPage({
                     Remove file
                   </button>
                 </div>
+                    </>
+                  )
+                })()}
               </li>
             ))}
           </ul>

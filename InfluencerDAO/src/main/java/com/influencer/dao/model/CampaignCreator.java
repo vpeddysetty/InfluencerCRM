@@ -6,6 +6,7 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 @Entity
@@ -30,6 +31,13 @@ public class CampaignCreator {
     @Column(name = "stage", nullable = false)
     @ColumnTransformer(write = "?::pipeline_stage")
     private String stage;
+
+    @Column(name = "notes")
+    private String notes;
+
+    @Column(name = "tags", columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
+    private List<String> tags;
 
     @Column(name = "discount_code")
     private String discountCode;
@@ -181,6 +189,22 @@ public class CampaignCreator {
 
     public void setStage(String stage) {
         this.stage = stage;
+    }
+
+    public String getNotes() {
+        return notes;
+    }
+
+    public void setNotes(String notes) {
+        this.notes = notes;
+    }
+
+    public List<String> getTags() {
+        return tags;
+    }
+
+    public void setTags(List<String> tags) {
+        this.tags = tags;
     }
 
     public String getDiscountCode() {

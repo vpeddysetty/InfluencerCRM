@@ -8,23 +8,32 @@ erDiagram
     USERS ||--o{ CAMPAIGNS : owns
     USERS ||--o{ IMPORT_BATCHES : uploads
     USERS ||--o{ CAMPAIGN_CREATORS : manages
+    USERS ||--o{ CAMPAIGN_TYPE_WORKFLOW_STAGES : defines
     USERS ||--o{ INTERACTIONS : records
-    USERS ||--o{ MAPPING_EXAMPLES : approves
+    USERS ||--o{ MAPPING_EXAMPLES : curates
     USERS ||--o{ CREATOR_WORKFLOW_TASKS : assigns
     USERS ||--o{ CREATOR_WORKFLOW_APPROVALS : reviews
     USERS ||--o{ CREATOR_WORKFLOW_PAYMENTS : pays
     USERS ||--o{ CREATOR_WORKFLOW_EVENTS : audits
+    USERS ||--o{ INFLUENCER_CAMPAIGN_CODES : issues
+    USERS ||--o{ INFLUENCER_SALE_ATTRIBUTIONS : tracks
 
     IMPORT_BATCHES ||--o{ CREATORS : imported_from
     IMPORT_BATCHES ||--o{ CAMPAIGN_CREATORS : source_import
 
     CAMPAIGNS ||--o{ CAMPAIGN_CREATORS : includes
+    CAMPAIGNS ||--o{ INFLUENCER_CAMPAIGN_CODES : configured_for
     CREATORS ||--o{ CAMPAIGN_CREATORS : participates_in
     CREATORS ||--o{ INTERACTIONS : has
+    CREATORS ||--o{ INFLUENCER_CAMPAIGN_CODES : receives
+    CREATORS ||--o{ INFLUENCER_SALE_ATTRIBUTIONS : attributed_to
     CAMPAIGN_CREATORS ||--o{ CREATOR_WORKFLOW_TASKS : executes
     CAMPAIGN_CREATORS ||--o{ CREATOR_WORKFLOW_APPROVALS : reviews
     CAMPAIGN_CREATORS ||--o{ CREATOR_WORKFLOW_PAYMENTS : settles
     CAMPAIGN_CREATORS ||--o{ CREATOR_WORKFLOW_EVENTS : logs
+    CAMPAIGN_CREATORS ||--o{ INFLUENCER_CAMPAIGN_CODES : links
+    CAMPAIGN_CREATORS ||--o{ INFLUENCER_SALE_ATTRIBUTIONS : links
+    INFLUENCER_CAMPAIGN_CODES ||--o{ INFLUENCER_SALE_ATTRIBUTIONS : attributes
 
     USERS {
         uuid id PK
@@ -65,6 +74,7 @@ erDiagram
         date start_date
         date end_date
         campaign_status status
+        text campaign_type
         jsonb custom_attributes
         timestamptz created_at
         timestamptz updated_at
@@ -75,6 +85,7 @@ erDiagram
         uuid user_id FK
         text source_filename
         bytea source_file
+        text hydration_status
         jsonb column_mapping
         integer row_count
         timestamptz created_at
@@ -87,12 +98,26 @@ erDiagram
         uuid creator_id FK
         uuid import_batch_id FK
         pipeline_stage stage
+        text notes
+        jsonb tags
         text discount_code
         text link
         numeric agreed_fee
         text post_url
         content_review_status content_review_status
         jsonb custom_attributes
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    CAMPAIGN_TYPE_WORKFLOW_STAGES {
+        uuid id PK
+        uuid user_id FK
+        text campaign_type
+        pipeline_stage stage_key
+        text stage_label
+        integer position
+        boolean is_active
         timestamptz created_at
         timestamptz updated_at
     }
@@ -104,8 +129,10 @@ erDiagram
         text source_signature
         text[] source_tab_names
         text[] source_columns
+        jsonb sample_values_json
         jsonb mappings_json
         numeric quality_score
+        integer usage_count
         boolean is_active
         vector signature_embedding
         timestamptz created_at
@@ -173,13 +200,53 @@ erDiagram
         jsonb event_data
         timestamptz created_at
     }
+
+    INFLUENCER_CAMPAIGN_CODES {
+        uuid id PK
+        uuid user_id FK
+        uuid campaign_id FK
+        uuid creator_id FK
+        uuid campaign_creator_id FK
+        text code
+        text code_type
+        text landing_url
+        boolean is_active
+        timestamptz starts_at
+        timestamptz ends_at
+        jsonb metadata
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    INFLUENCER_SALE_ATTRIBUTIONS {
+        uuid id PK
+        uuid user_id FK
+        uuid campaign_code_id FK
+        uuid campaign_id FK
+        uuid creator_id FK
+        uuid campaign_creator_id FK
+        attribution_platform platform
+        attribution_status status
+        text order_id
+        numeric sale_amount
+        numeric net_amount
+        numeric commission_amount
+        text currency
+        timestamptz occurred_at
+        timestamptz tracked_at
+        jsonb raw_payload
+        timestamptz created_at
+        timestamptz updated_at
+    }
 ```
 
 ## Notes
 
 - Users are the top-level tenant owner for all records.
 - Creators are owned by a user and may be imported from an import batch.
-- Campaigns and creators are linked through the join table `campaign_creators` to track pipeline status, fees, and links.
+- Campaigns and creators are linked through the join table `campaign_creators` to track workflow stage, notes, fees, and links.
+- Workflow setup is configured by campaign type in `campaign_type_workflow_stages`.
 - Interactions store relationship memory such as notes, emails, or DMs attached to creators.
 - Core entities include `custom_attributes` JSONB for unmapped import fields scoped by entity.
 - Mapping examples are persisted for retrieval-augmented mapping reuse via pgvector similarity search.
+- Attribution data ties influencer codes to tracked sales in `influencer_sale_attributions`.

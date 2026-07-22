@@ -7,8 +7,10 @@ import com.influencer.webe.client.AgentMappingClient;
 import com.influencer.webe.client.DaoGatewayClient;
 import com.influencer.webe.service.RequestUserResolver;
 import com.influencer.webe.service.ResponseShapeService;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -133,7 +135,26 @@ public class ImportBatchesController {
     }
 
     @DeleteMapping("/{id}")
-    public void delete(@PathVariable UUID id) {
+    public void delete(@RequestHeader(value = "Authorization", required = false) String authorization,
+                       @RequestParam(required = false) UUID userId,
+                       @PathVariable UUID id) {
+        deleteOwnedImportBatch(authorization, userId, id);
+    }
+
+    @PostMapping("/{id}/delete")
+    public void deleteViaPost(@RequestHeader(value = "Authorization", required = false) String authorization,
+                              @RequestParam(required = false) UUID userId,
+                              @PathVariable UUID id) {
+        deleteOwnedImportBatch(authorization, userId, id);
+    }
+
+    private void deleteOwnedImportBatch(String authorization, UUID userId, UUID id) {
+        UUID resolvedUserId = requestUserResolver.resolveUserId(authorization, userId);
+        JsonNode existing = daoGatewayClient.get("/import-batches/" + id, null);
+        String ownerId = existing != null && existing.hasNonNull("userId") ? existing.get("userId").asText() : null;
+        if (ownerId == null || !resolvedUserId.toString().equals(ownerId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Import batch does not belong to authenticated user");
+        }
         daoGatewayClient.delete("/import-batches/" + id);
     }
 }

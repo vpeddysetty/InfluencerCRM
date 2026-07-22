@@ -29,11 +29,13 @@ public class CampaignsController {
     @GetMapping
     public JsonNode list(@RequestHeader(value = "Authorization", required = false) String authorization,
                          @RequestParam(required = false) UUID userId,
+                         @RequestParam(required = false) String campaignType,
                          @RequestParam(required = false) Integer page,
                          @RequestParam(required = false) Integer size) {
         UUID resolvedUserId = requestUserResolver.resolveUserId(authorization, userId);
         Map<String, String> query = new LinkedHashMap<>();
         query.put("userId", resolvedUserId.toString());
+        query.put("campaignType", campaignType);
         return responseShapeService.campaignsList(daoGatewayClient.get("/campaigns", query), page, size);
     }
 

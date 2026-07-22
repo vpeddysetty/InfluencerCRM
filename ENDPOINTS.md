@@ -53,8 +53,11 @@ Base module: InfluencerWebExperience
 - PATCH /api/import-batches/{id}/column-mapping
 - POST /api/import-batches/{id}/hydrate
 - DELETE /api/import-batches/{id}
+- POST /api/import-batches/{id}/delete
 
 ### Creator Workflow
+- GET /api/campaign-type-workflow-stages
+- PUT /api/campaign-type-workflow-stages/replace
 - GET /api/creator-workflow-tasks
 - GET /api/creator-workflow-tasks/{id}
 - POST /api/creator-workflow-tasks
@@ -119,6 +122,7 @@ Base module: InfluencerDAO
 - GET /campaign-creators/{id}
 - POST /campaign-creators
 - PUT /campaign-creators/{id}
+- PATCH /campaign-creators/{id}/stage
 - DELETE /campaign-creators/{id}
 
 ### Import Batches
@@ -150,6 +154,11 @@ Base module: InfluencerDAO
 - DELETE /interactions/{id}
 
 ### Creator Workflow
+- GET /campaign-type-workflow-stages
+- POST /campaign-type-workflow-stages
+- PUT /campaign-type-workflow-stages/{id}
+- PUT /campaign-type-workflow-stages/replace
+- DELETE /campaign-type-workflow-stages/{id}
 - GET /creator-workflow-tasks
 - GET /creator-workflow-tasks/{id}
 - POST /creator-workflow-tasks
