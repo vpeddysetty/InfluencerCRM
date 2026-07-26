@@ -1,0 +1,22 @@
+# Local dev secrets for the Web Experience BFF.
+#
+# HOW TO USE:
+#   1. Copy this file to `application-local.properties` (same directory).
+#      That filename is git-ignored, so your real secrets are never committed.
+#   2. Fill in the real client id/secret from Google Cloud Console and Meta for Developers.
+#   3. Run the BFF with the `local` profile active, e.g.:
+#        mvn spring-boot:run -Dspring-boot.run.profiles=local
+#      or set:  SPRING_PROFILES_ACTIVE=local
+#
+# Alternatively, skip this file and export env vars instead:
+#   GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET,
+#   FACEBOOK_OAUTH_CLIENT_ID, FACEBOOK_OAUTH_CLIENT_SECRET
+
+web-experience.oauth.google.client-id=your-google-client-id.apps.googleusercontent.com
+web-experience.oauth.google.client-secret=your-google-client-secret
+
+web-experience.oauth.facebook.client-id=your-facebook-app-id
+web-experience.oauth.facebook.client-secret=your-facebook-app-secret
+
+# Override the UI origin here if you don't run the UI on http://localhost:5173
+# web-experience.ui-base-url=http://localhost:5173

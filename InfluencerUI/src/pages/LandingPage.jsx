@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { MdsNote } from '../components/Mds'
 
-function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit, authError = '' }) {
+function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit, onSocialLogin, authError = '' }) {
   const navigate = useNavigate()
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [socialProvider, setSocialProvider] = useState('')
   const submitTimerRef = useRef(null)
 
   useEffect(() => {
@@ -30,6 +31,25 @@ function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit, authError = '' }) {
       } catch {
         setIsSubmitting(false)
       }
+  }
+
+  const handleSocialLogin = async (provider) => {
+    if (socialProvider || !onSocialLogin) {
+      return
+    }
+    // On sign-up, forward the brand field so a new social account gets a workspace name.
+    const brandInput = document.querySelector('input[name="brand"]')
+    const brandName = isSignUp ? String(brandInput?.value || '').trim() : ''
+
+    setSocialProvider(provider)
+    try {
+      await onSocialLogin(provider, { brandName })
+      submitTimerRef.current = window.setTimeout(() => {
+        navigate('/import')
+      }, 340)
+    } catch {
+      setSocialProvider('')
+    }
   }
 
   return (
@@ -169,8 +189,24 @@ function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit, authError = '' }) {
           </div>
 
           <div className="auth-alt-actions">
-            <button type="button" className="ghost-btn auth-alt-btn">Google</button>
-            <button type="button" className="ghost-btn auth-alt-btn">Facebook</button>
+            <button
+              type="button"
+              className="ghost-btn auth-alt-btn"
+              onClick={() => handleSocialLogin('google')}
+              disabled={Boolean(socialProvider)}
+              aria-busy={socialProvider === 'google'}
+            >
+              {socialProvider === 'google' ? 'Connecting…' : 'Google'}
+            </button>
+            <button
+              type="button"
+              className="ghost-btn auth-alt-btn"
+              onClick={() => handleSocialLogin('facebook')}
+              disabled={Boolean(socialProvider)}
+              aria-busy={socialProvider === 'facebook'}
+            >
+              {socialProvider === 'facebook' ? 'Connecting…' : 'Facebook'}
+            </button>
           </div>
         </div>
 

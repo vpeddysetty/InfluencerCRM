@@ -445,6 +445,80 @@ function App() {
     }
   }
 
+  const establishSession = (authResponse) => {
+    const email = authResponse.email || ''
+    const inferredName = email.includes('@') ? email.split('@')[0] : email
+    setUserName(inferredName || 'Brand Operator')
+    setBrandName(authResponse.brandName || '')
+    setUserId(authResponse.userId || '')
+    setAuthToken(authResponse.accessToken || '')
+    setIsLoggedIn(true)
+  }
+
+  const handleSocialLogin = (provider, { brandName: socialBrandName = '' } = {}) => {
+    return new Promise((resolve, reject) => {
+      setAuthError('')
+      setWorkspaceError('')
+
+      const query = socialBrandName ? `?brandName=${encodeURIComponent(socialBrandName)}` : ''
+      const startUrl = `/api/auth/oauth/${provider}/start${query}`
+
+      const width = 520
+      const height = 640
+      const left = window.screenX + Math.max(0, (window.outerWidth - width) / 2)
+      const top = window.screenY + Math.max(0, (window.outerHeight - height) / 2)
+      const popup = window.open(
+        startUrl,
+        'oauth-signin',
+        `width=${width},height=${height},left=${left},top=${top}`,
+      )
+
+      if (!popup) {
+        const message = 'Popup blocked. Allow popups for this site to sign in with ' + provider + '.'
+        setAuthError(message)
+        reject(new Error(message))
+        return
+      }
+
+      let settled = false
+
+      const cleanup = () => {
+        window.removeEventListener('message', onMessage)
+        window.clearInterval(closedTimer)
+      }
+
+      const onMessage = (event) => {
+        if (event.origin !== window.location.origin) {
+          return
+        }
+        const data = event.data
+        if (!data || data.type !== 'oauth-result') {
+          return
+        }
+        settled = true
+        cleanup()
+        if (data.ok && data.auth) {
+          establishSession(data.auth)
+          resolve(data.auth)
+        } else {
+          const message = data.error || 'Social sign-in failed.'
+          setAuthError(message)
+          reject(new Error(message))
+        }
+      }
+
+      window.addEventListener('message', onMessage)
+
+      // If the user closes the popup without completing, stop waiting.
+      const closedTimer = window.setInterval(() => {
+        if (popup.closed && !settled) {
+          cleanup()
+          reject(new Error('Sign-in window was closed.'))
+        }
+      }, 500)
+    })
+  }
+
   const persistImportMapping = async (mappingTextOverride) => {
     if (!importSummary.batchId) {
       throw new Error('Upload a file before saving column mappings.')
@@ -1124,6 +1198,7 @@ function App() {
                 isSignUp={isSignUp}
                 setIsSignUp={setIsSignUp}
                 onAuthSubmit={handleAuthSubmit}
+                onSocialLogin={handleSocialLogin}
                 authError={authError}
               />
             }

@@ -6,6 +6,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class WebExperienceProperties {
     private String daoBaseUrl;
     private String agentBaseUrl;
+    private String uiBaseUrl;
     private long sessionTtlMinutes = 720;
     private final Provider oauth = new Provider();
 
@@ -15,6 +16,14 @@ public class WebExperienceProperties {
 
     public void setDaoBaseUrl(String daoBaseUrl) {
         this.daoBaseUrl = daoBaseUrl;
+    }
+
+    public String getUiBaseUrl() {
+        return uiBaseUrl;
+    }
+
+    public void setUiBaseUrl(String uiBaseUrl) {
+        this.uiBaseUrl = uiBaseUrl;
     }
 
     public String getAgentBaseUrl() {

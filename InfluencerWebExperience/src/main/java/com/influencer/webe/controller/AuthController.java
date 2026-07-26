@@ -59,7 +59,7 @@ public class AuthController {
     }
 
     @GetMapping("/oauth/google/callback")
-    public AuthService.AuthResponse googleOAuthCallback(
+    public ResponseEntity<Void> googleOAuthCallback(
             @RequestParam String code,
             @RequestParam String state) {
         return oauthFlowService.completeGoogle(code, state);
@@ -73,7 +73,7 @@ public class AuthController {
     }
 
     @GetMapping("/oauth/facebook/callback")
-    public AuthService.AuthResponse facebookOAuthCallback(
+    public ResponseEntity<Void> facebookOAuthCallback(
             @RequestParam String code,
             @RequestParam String state) {
         return oauthFlowService.completeFacebook(code, state);

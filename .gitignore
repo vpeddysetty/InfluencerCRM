@@ -9,6 +9,10 @@ __pycache__/
 # Environment files
 .env
 
+# Local Spring config holding real secrets (OAuth client id/secret, etc.)
+application-local.properties
+**/src/main/resources/application-local.properties
+
 # VS Code
 .vscode/
 
