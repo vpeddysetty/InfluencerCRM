@@ -190,6 +190,17 @@ def map_columns(request: MappingRequest) -> Dict[str, Any]:
                             item["recommendation_type"] = "mapped"
                             item["notes"] = f"{item.get('notes', '')} LLM confidence blended with heuristic score.".strip()
                             item["source"] = "llm_enhanced"
+                            # Adopt the LLM's target when the heuristic only reached a
+                            # custom_attributes fallback and the LLM points at a real
+                            # attribute that exists in the metadata catalog.
+                            if item.get("target_attribute") == "custom_attributes":
+                                llm_entity = llm_item.get("target_entity")
+                                llm_attribute = llm_item.get("target_attribute")
+                                catalog_attrs = mapper.metadata_catalog.get(llm_entity, [])
+                                if llm_attribute and llm_attribute != "custom_attributes" and llm_attribute in catalog_attrs:
+                                    item["target_entity"] = llm_entity
+                                    item["target_attribute"] = llm_attribute
+                                    item["notes"] = f"{item.get('notes', '')} Adopted LLM target attribute over custom-attribute fallback.".strip()
                         else:
                             item = dict(item)
                             item["source"] = "heuristic"
