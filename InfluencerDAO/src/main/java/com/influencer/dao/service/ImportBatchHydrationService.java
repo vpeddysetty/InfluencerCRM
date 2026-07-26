@@ -157,6 +157,19 @@ public class ImportBatchHydrationService {
                 case "campaign_creator" -> campaignCreatorValues;
                 default -> campaignValues;
             };
+
+            // custom_attributes is a jsonb column: a raw scalar (e.g. a date like
+            // "2026-08-05") is not valid JSON and Postgres rejects it. Accumulate
+            // such values into a nested map keyed by the source column so they
+            // serialize to a JSON object like {"Preferred Publish Date":"2026-08-05"}.
+            if ("customAttributes".equals(targetAttribute)) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> customAttributes = (Map<String, Object>) targetValues
+                        .computeIfAbsent("customAttributes", key -> new LinkedHashMap<String, Object>());
+                customAttributes.put(sourceColumn, rawValue);
+                continue;
+            }
+
             targetValues.put(targetAttribute, rawValue);
         }
 
@@ -343,6 +356,9 @@ public class ImportBatchHydrationService {
         applyValues(campaignCreator, values);
         campaignCreator.setCampaignId(campaignId);
         campaignCreator.setCreatorId(creatorId);
+        if (campaignCreator.getTags() == null) {
+            campaignCreator.setTags(new ArrayList<>());
+        }
         if (campaignCreator.getOutreachStatus() == null) {
             campaignCreator.setOutreachStatus("new");
         }
