@@ -1,5 +1,18 @@
 export const STAGES = ['outreach', 'agreed', 'shipped', 'posted', 'paid']
 
+// Proposed default stages for a brand-owner -> creator relationship board.
+export const DEFAULT_BOARD_STAGES = [
+  'Prospect',
+  'Outreach',
+  'Negotiation',
+  'Contracted',
+  'In Production',
+  'Published',
+  'Paid',
+]
+
+export const MAX_WORKFLOW_BOARDS = 10
+
 export const stageLabels = {
   outreach: 'Outreach',
   agreed: 'Agreed',

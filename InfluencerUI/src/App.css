@@ -1563,6 +1563,221 @@ button:focus {
   font-size: 0.84rem;
 }
 
+/* Workflow blueprints, items, associations + drag-and-drop board */
+.blueprint-builder {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.blueprint-stage-editor {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  background: rgba(246, 249, 255, 0.6);
+}
+
+.blueprint-stage-draft-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.blueprint-stage-draft-row input {
+  flex: 1;
+}
+
+.blueprint-stage-index {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  display: inline-grid;
+  place-items: center;
+  background: rgba(12, 74, 110, 0.12);
+  color: var(--ink-3);
+  font-weight: 700;
+  font-size: 0.78rem;
+}
+
+.blueprint-list,
+.workflow-item-list,
+.association-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.blueprint-row,
+.workflow-item-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.75);
+  flex-wrap: wrap;
+}
+
+.blueprint-row.selected {
+  border-color: #0f766e;
+  box-shadow: 0 0 0 2px rgba(15, 118, 110, 0.15);
+}
+
+.blueprint-select {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.blueprint-stage-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.association-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.75);
+  flex-wrap: wrap;
+}
+
+.association-plus {
+  color: var(--ink-2);
+  font-weight: 700;
+}
+
+.association-linked {
+  margin-left: auto;
+  font-size: 0.8rem;
+  color: #0f766e;
+  font-weight: 600;
+}
+
+.association-linked.muted {
+  color: var(--ink-2);
+  font-weight: 400;
+}
+
+.workflow-setup-item-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.workflow-setup-item-type {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-2);
+  background: rgba(12, 74, 110, 0.1);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.workflow-setup-item-name {
+  font-weight: 700;
+  color: var(--ink-4);
+}
+
+.workflow-setup-item-desc {
+  color: var(--ink-2);
+  font-size: 0.84rem;
+}
+
+.workflow-setup-item-count {
+  color: var(--ink-3);
+  font-size: 0.78rem;
+}
+
+.assign-board {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(220px, 1fr);
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.assign-lane {
+  background: rgba(255, 255, 255, 0.75);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px;
+  min-height: 260px;
+}
+
+.assign-lane-backlog {
+  background: rgba(246, 249, 255, 0.9);
+}
+
+.assign-lane.inactive {
+  opacity: 0.65;
+}
+
+.assign-lane header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.assign-lane h4 {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--ink-4);
+}
+
+.assign-lane header span {
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  display: inline-grid;
+  place-items: center;
+  background: rgba(12, 74, 110, 0.12);
+  color: var(--ink-3);
+  font-weight: 700;
+}
+
+.assign-lane-type {
+  margin: 0 0 10px;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-2);
+}
+
+.assign-lane.drop-target {
+  border-color: #0f766e;
+  box-shadow: 0 0 0 2px rgba(15, 118, 110, 0.15);
+}
+
+.assign-card {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.95) 0%, rgba(246, 249, 255, 0.95) 100%);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+  display: grid;
+  gap: 4px;
+  cursor: grab;
+}
+
+.assign-card:active {
+  cursor: grabbing;
+}
+
 .card-actions {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1797,4 +2012,165 @@ button:focus {
   .custom-attribute-remove {
     justify-self: start;
   }
+}
+
+/* Workflow boards */
+.field-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
+  color: var(--ink-2);
+}
+
+.board-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.board-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.75);
+  flex-wrap: wrap;
+}
+
+.board-row.selected {
+  border-color: #0f766e;
+  box-shadow: 0 0 0 2px rgba(15, 118, 110, 0.15);
+}
+
+.board-select {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  cursor: pointer;
+  flex-wrap: wrap;
+}
+
+.board-name {
+  font-weight: 700;
+  color: var(--ink-4);
+}
+
+.board-dates {
+  font-size: 0.8rem;
+  color: var(--ink-2);
+}
+
+.board-stage-count {
+  font-size: 0.78rem;
+  color: var(--ink-3);
+}
+
+/* Stacked label+field used inside the workflow board slider */
+.field-block {
+  display: grid;
+  gap: 5px;
+  font-size: 0.82rem;
+  color: var(--ink-2);
+}
+
+.field-block > span {
+  font-weight: 600;
+}
+
+/* Workflow relationship cards (thumbnails + search pool) */
+.card-pool-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0 10px;
+}
+
+.card-pool-toolbar input[type="search"] {
+  flex: 1;
+}
+
+.card-pool-count {
+  font-size: 0.78rem;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+.card-thumb-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 10px;
+}
+
+.card-thumb {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(246, 249, 255, 0.96) 100%);
+  display: grid;
+  gap: 6px;
+  cursor: grab;
+}
+
+.card-thumb:active {
+  cursor: grabbing;
+}
+
+.card-thumb-name {
+  margin: 0;
+  font-weight: 700;
+  color: var(--ink-4);
+}
+
+.card-thumb-assoc {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--ink-2);
+}
+
+.card-thumb-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.card-thumb-fee {
+  font-size: 0.78rem;
+  color: var(--ink-3);
+}
+
+.card-thumb-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.status-chip {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  border-radius: 999px;
+  padding: 2px 8px;
+  background: rgba(12, 74, 110, 0.1);
+  color: var(--ink-3);
+}
+
+.status-chip.status-in_progress {
+  background: rgba(202, 138, 4, 0.16);
+  color: #854d0e;
+}
+
+.status-chip.status-blocked {
+  background: rgba(225, 29, 72, 0.14);
+  color: #9f1239;
+}
+
+.status-chip.status-done {
+  background: rgba(15, 118, 110, 0.16);
+  color: #0f766e;
 }

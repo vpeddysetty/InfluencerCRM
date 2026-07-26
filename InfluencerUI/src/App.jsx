@@ -1,5 +1,5 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import './App.css'
 import LandingPage from './pages/LandingPage'
 import ImportPage from './pages/ImportPage'
@@ -9,10 +9,17 @@ import WorkflowPage from './pages/WorkflowPage'
 import WorkspaceLayout from './components/WorkspaceLayout'
 import {
   createCampaign,
-  createCampaignCreator,
-  createCreatorWorkflowTask,
-  replaceCampaignTypeWorkflowStages,
   createCreator,
+  listWorkflowBoards,
+  createWorkflowBoard,
+  updateWorkflowBoard,
+  deleteWorkflowBoard,
+  listWorkflowBoardStages,
+  replaceWorkflowBoardStages,
+  listWorkflowCards,
+  createWorkflowCard,
+  placeWorkflowCard,
+  deleteWorkflowCard,
   deleteImportBatch,
   discoverImports,
   generateAgentColumnMapping,
@@ -20,22 +27,17 @@ import {
   getImportBatchColumns,
   hydrateImportBatch,
   listImportBatches,
-  listCampaignCreators,
   listCampaigns,
-  listCampaignTypeWorkflowStages,
-  listCreatorWorkflowTasks,
   listCreators,
   login,
   previewImportBatch,
   logout,
   signup,
   updateCampaign,
-  updateCampaignCreator,
-  updateCreatorWorkflowTask,
   updateImportColumnMapping,
   updateCreator,
 } from './api'
-import { createImportMappingJson, createImportMappingJsonFromAgent, parseSpreadsheetFile, STAGES, stageLabels } from './constants'
+import { createImportMappingJson, createImportMappingJsonFromAgent, parseSpreadsheetFile, DEFAULT_BOARD_STAGES } from './constants'
 
 const STORAGE_KEY = 'tejdux_ui_state_v1'
 const CAMPAIGN_TYPE_OPTIONS = [
@@ -236,37 +238,10 @@ function normalizeCampaignTypeForPayload(rawValue) {
   return normalized
 }
 
-function normalizeInstantDateForPayload(rawValue) {
-  const text = String(rawValue || '').trim()
-  if (!text) {
-    return null
-  }
-
-  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
-    return `${text}T00:00:00Z`
-  }
-
-  return text
-}
-
-function normalizeTagsForState(rawValue) {
-  if (Array.isArray(rawValue)) {
-    return rawValue.map((tag) => String(tag || '').trim()).filter(Boolean)
-  }
-
-  return String(rawValue || '')
-    .split(',')
-    .map((tag) => tag.trim())
-    .filter(Boolean)
-}
-
 function App() {
   const persistedState = loadPersistedState()
   const initialCampaigns = persistedState?.campaigns?.length ? persistedState.campaigns : []
   const initialCreators = persistedState?.creators?.length ? persistedState.creators : []
-  const initialAssignments = persistedState?.assignments?.length ? persistedState.assignments : []
-  const initialWorkflowTasks = persistedState?.workflowTasks?.length ? persistedState.workflowTasks : []
-  const initialCampaignTypeWorkflowStages = persistedState?.campaignTypeWorkflowStages?.length ? persistedState.campaignTypeWorkflowStages : []
   const defaultCampaignId = initialCampaigns[0]?.id || ''
   const defaultCreatorId = initialCreators[0]?.id || ''
 
@@ -281,9 +256,6 @@ function App() {
 
   const [campaigns, setCampaigns] = useState(initialCampaigns)
   const [creators, setCreators] = useState(initialCreators)
-  const [assignments, setAssignments] = useState(initialAssignments)
-  const [workflowTasks, setWorkflowTasks] = useState(initialWorkflowTasks)
-  const [campaignTypeWorkflowStages, setCampaignTypeWorkflowStages] = useState(initialCampaignTypeWorkflowStages)
 
   const [campaignForm, setCampaignForm] = useState({
     name: '',
@@ -319,108 +291,59 @@ function App() {
   const [importRowsByBatchId, setImportRowsByBatchId] = useState({})
   const [importAction, setImportAction] = useState('idle')
 
-  const campaignById = useMemo(() => {
-    return campaigns.reduce((acc, campaign) => {
-      acc[campaign.id] = campaign
-      return acc
-    }, {})
-  }, [campaigns])
-
-  const creatorById = useMemo(() => {
-    return creators.reduce((acc, creator) => {
-      acc[creator.id] = creator
-      return acc
-    }, {})
-  }, [creators])
-
-  const assignmentById = useMemo(() => {
-    return assignments.reduce((acc, assignment) => {
-      acc[assignment.id] = assignment
-      return acc
-    }, {})
-  }, [assignments])
-
-  const workflowItems = useMemo(() => {
-    return (workflowTasks || [])
-      .filter((task) => String(task?.taskType || '').trim().toLowerCase() === 'workflow_item')
-      .map((task) => {
-        const assignment = assignmentById[task.campaignCreatorId]
-        if (!assignment) {
-          return null
-        }
-        return {
-          id: task.id,
-          campaignCreatorId: assignment.id,
-          campaignId: assignment.campaignId,
-          creatorId: assignment.creatorId,
-          stage: task.stageKey,
-          notes: task.description || '',
-          fee: task.fee == null ? '' : String(task.fee),
-          dueDate: task.dueAt || '',
-          tags: normalizeTagsForState(task.tags),
-          title: task.title || 'Workflow item',
-          status: task.status || 'todo',
-        }
-      })
-      .filter(Boolean)
-  }, [workflowTasks, assignmentById])
-
-  const workflowStagesByCampaignType = useMemo(() => {
-    return (campaignTypeWorkflowStages || []).reduce((acc, item) => {
-      const type = normalizeCampaignTypeForPayload(item?.campaignType)
-      if (!acc[type]) {
-        acc[type] = []
-      }
-      acc[type].push(item)
-      return acc
-    }, {})
-  }, [campaignTypeWorkflowStages])
-
-  const getConfiguredStagesForCampaignType = (campaignType) => {
-    const type = normalizeCampaignTypeForPayload(campaignType)
-    const rows = (workflowStagesByCampaignType[type] || [])
-      .filter((item) => item?.isActive !== false)
-      .sort((a, b) => Number(a?.position || 0) - Number(b?.position || 0))
-      .map((item) => String(item?.stageKey || '').trim())
-      .filter(Boolean)
-    return rows
-  }
-
-  useEffect(() => {
-    const selectedCampaign = campaignById[assignmentForm.campaignId]
-    const selectedType = normalizeCampaignTypeForPayload(selectedCampaign?.campaignType)
-    const allowedStages = getConfiguredStagesForCampaignType(selectedType)
-    if (!allowedStages.length) {
-      return
-    }
-    if (allowedStages.includes(assignmentForm.stage)) {
-      return
-    }
-    setAssignmentForm((prev) => ({ ...prev, stage: allowedStages[0] }))
-  }, [assignmentForm.campaignId, assignmentForm.stage, campaignById, workflowStagesByCampaignType])
+  const [workflowBoards, setWorkflowBoards] = useState(persistedState?.workflowBoards ?? [])
+  const [workflowBoardStages, setWorkflowBoardStages] = useState(persistedState?.workflowBoardStages ?? [])
+  const [workflowCards, setWorkflowCards] = useState(persistedState?.workflowCards ?? [])
+  const [activeBoardId, setActiveBoardId] = useState(persistedState?.activeBoardId ?? '')
 
   const refreshWorkspaceData = async () => {
     setWorkspaceError('')
-    const [campaignPayload, creatorPayload, assignmentPayload, workflowTaskPayload, importBatchPayload, workflowStagesPayload] = await Promise.all([
+    const [
+      campaignPayload,
+      creatorPayload,
+      importBatchPayload,
+      boardPayload,
+      boardStagePayload,
+      cardPayload,
+    ] = await Promise.all([
       listCampaigns(authToken),
       listCreators(authToken),
-      listCampaignCreators(authToken),
-      listCreatorWorkflowTasks(authToken, 'workflow_item'),
       listImportBatches(authToken),
-      listCampaignTypeWorkflowStages(authToken),
+      listWorkflowBoards(authToken),
+      listWorkflowBoardStages(authToken),
+      listWorkflowCards(authToken),
     ])
 
     setCampaigns(campaignPayload)
     setCreators(creatorPayload)
-    setAssignments(assignmentPayload)
-    setWorkflowTasks(workflowTaskPayload)
     setImportBatches(importBatchPayload)
-    setCampaignTypeWorkflowStages(workflowStagesPayload)
+    setWorkflowCards(cardPayload)
     setAssignmentForm((prev) => ({
       ...prev,
       campaignId: prev.campaignId || campaignPayload[0]?.id || '',
       creatorId: prev.creatorId || creatorPayload[0]?.id || '',
     }))
+
+    // Auto-create a default template board for brand users with no boards yet.
+    if (!boardPayload.length) {
+      try {
+        const { board, stages } = await createDefaultBoard()
+        setWorkflowBoards([board])
+        setWorkflowBoardStages(stages)
+        setActiveBoardId(board.id)
+        return
+      } catch {
+        // Fall through to empty state if seeding fails; user can add manually.
+      }
+    }
+
+    setWorkflowBoards(boardPayload)
+    setWorkflowBoardStages(boardStagePayload)
+    setActiveBoardId((prev) => {
+      if (prev && boardPayload.some((b) => b.id === prev)) return prev
+      const active = boardPayload.find((b) => b.isActive)
+      return active?.id || boardPayload[0]?.id || ''
+    })
   }
 
   useEffect(() => {
@@ -433,15 +356,16 @@ function App() {
       userId,
       campaigns,
       creators,
-      assignments,
-      workflowTasks,
-      campaignTypeWorkflowStages,
       campaignForm,
       creatorForm,
       assignmentForm,
       importSummary,
       importBatches,
       importBatchHydrationStatus,
+      workflowBoards,
+      workflowBoardStages,
+      workflowCards,
+      activeBoardId,
     }
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot))
   }, [
@@ -453,15 +377,16 @@ function App() {
     userId,
     campaigns,
     creators,
-    assignments,
-    workflowTasks,
-    campaignTypeWorkflowStages,
     campaignForm,
     creatorForm,
     assignmentForm,
     importSummary,
     importBatches,
     importBatchHydrationStatus,
+    workflowBoards,
+    workflowBoardStages,
+    workflowCards,
+    activeBoardId,
   ])
 
   useEffect(() => {
@@ -975,145 +900,201 @@ function App() {
     }
   }
 
-  const tieCreatorToCampaign = async (event) => {
-    event.preventDefault()
-    if (!assignmentForm.campaignId || !assignmentForm.creatorId) {
-      return
+  // ---- workflow boards ----
+  const createBoardRecord = async ({ name, startDate, endDate, stages }) => {
+    const trimmed = String(name || '').trim()
+    if (!trimmed) {
+      throw new Error('A board name is required.')
+    }
+    const nextPosition = workflowBoards.reduce((max, b) => Math.max(max, Number(b.position || 0) + 1), 0)
+    // First board (or an explicitly-first one) becomes the active selection.
+    const makeActive = workflowBoards.length === 0
+    const board = await createWorkflowBoard(authToken, {
+      userId,
+      name: trimmed,
+      startDate: startDate || null,
+      endDate: endDate || null,
+      isActive: makeActive,
+      position: nextPosition,
+    })
+
+    let savedStages = []
+    const stageNames = (Array.isArray(stages) ? stages : [])
+      .map((s) => String(s?.stageName ?? s ?? '').trim())
+      .filter(Boolean)
+    if (stageNames.length) {
+      savedStages = await replaceWorkflowBoardStages(authToken, {
+        userId,
+        boardId: board.id,
+        stages: stageNames.map((stageName, index) => ({ stageName, position: index })),
+      })
     }
 
-    const selectedCampaign = campaignById[assignmentForm.campaignId]
-    const selectedCampaignType = normalizeCampaignTypeForPayload(selectedCampaign?.campaignType)
-    const configuredStages = getConfiguredStagesForCampaignType(selectedCampaignType)
-    if (!configuredStages.length) {
-      setWorkspaceError(`Set up workflow stages for campaign type "${selectedCampaignType}" before creating work items.`)
+    setWorkflowBoards((prev) => [...prev, board])
+    setWorkflowBoardStages((prev) => [...prev, ...savedStages])
+    if (makeActive) {
+      setActiveBoardId(board.id)
+    }
+    return { board, stages: savedStages }
+  }
+
+  // Returns { board, stages } without touching state (caller updates state).
+  const createDefaultBoard = async () => {
+    const board = await createWorkflowBoard(authToken, {
+      userId,
+      name: 'Default Board',
+      isActive: true,
+      position: 0,
+    })
+    const stages = await replaceWorkflowBoardStages(authToken, {
+      userId,
+      boardId: board.id,
+      stages: DEFAULT_BOARD_STAGES.map((stageName, index) => ({ stageName, position: index })),
+    })
+    return { board, stages }
+  }
+
+  const createDefaultBoardRecord = async () => {
+    const { board, stages } = await createDefaultBoard()
+    setWorkflowBoards((prev) => [...prev, board])
+    setWorkflowBoardStages((prev) => [...prev, ...stages])
+    setActiveBoardId(board.id)
+    // Creating an active board deactivates the others server-side; mirror locally.
+    setWorkflowBoards((prev) => prev.map((b) => (b.id === board.id ? b : { ...b, isActive: false })))
+    return board
+  }
+
+  const selectBoard = async (boardId) => {
+    const existing = workflowBoards.find((b) => b.id === boardId)
+    if (!existing || boardId === activeBoardId) {
+      setActiveBoardId(boardId)
       return
     }
-
-    const resolvedStage = configuredStages.includes(assignmentForm.stage)
-      ? assignmentForm.stage
-      : configuredStages[0]
-
+    // Optimistic: mark this board active, others inactive.
+    setActiveBoardId(boardId)
+    setWorkflowBoards((prev) => prev.map((b) => ({ ...b, isActive: b.id === boardId })))
     try {
-      setWorkspaceError('')
-      const nextAssignment = await createCampaignCreator(authToken, {
+      const updated = await updateWorkflowBoard(authToken, boardId, {
         userId,
-        campaignId: assignmentForm.campaignId,
-        creatorId: assignmentForm.creatorId,
+        name: existing.name,
+        startDate: existing.startDate || null,
+        endDate: existing.endDate || null,
+        isActive: true,
+        position: existing.position ?? 0,
       })
-
-      const selectedCreator = creatorById[assignmentForm.creatorId]
-      const nextTask = await createCreatorWorkflowTask(authToken, {
-        userId,
-        campaignCreatorId: nextAssignment.id,
-        taskType: 'workflow_item',
-        stageKey: resolvedStage,
-        title: `${selectedCampaign?.name || 'Campaign'} - ${selectedCreator?.name || 'Creator'}`,
-        description: assignmentForm.notes.trim(),
-        agreedFee: assignmentForm.fee.trim() || null,
-        dueAt: normalizeInstantDateForPayload(assignmentForm.dueDate),
-        tags: assignmentForm.tags
-          .split(',')
-          .map((tag) => tag.trim())
-          .filter(Boolean),
-        assigneeActor: 'brand_owner',
-        status: 'todo',
-        priority: 'medium',
-        metadata: '{}',
-        createdByActor: 'brand_owner',
-      })
-
-      setAssignments((prev) => [nextAssignment, ...prev])
-      setWorkflowTasks((prev) => [nextTask, ...prev])
-      setAssignmentForm((prev) => ({ ...prev, fee: '', notes: '', stage: resolvedStage, dueDate: '', tags: '' }))
+      setWorkflowBoards((prev) => prev.map((b) => (b.id === boardId ? updated : b)))
     } catch (error) {
-      setWorkspaceError(error instanceof Error ? error.message : 'Unable to tie creator to campaign.')
+      setWorkspaceError(error instanceof Error ? error.message : 'Unable to select board.')
     }
   }
 
-  const updateCardStage = async (id, nextStage) => {
-    const existing = workflowTasks.find((item) => item.id === id)
-    if (!existing) {
-      return
-    }
-
-    const optimistic = {
+  const updateBoardRecord = async (id, patch) => {
+    const existing = workflowBoards.find((b) => b.id === id)
+    if (!existing) return
+    const merged = {
       ...existing,
-      stageKey: nextStage,
+      ...patch,
+      userId,
+      isActive: patch?.isActive ?? existing.isActive ?? false,
+      position: existing.position ?? 0,
     }
-
-    setWorkflowTasks((prev) => prev.map((item) => (item.id === id ? optimistic : item)))
-
+    setWorkflowBoards((prev) => prev.map((b) => (b.id === id ? merged : b)))
     try {
       setWorkspaceError('')
-      const updated = await updateCreatorWorkflowTask(authToken, id, {
-        ...existing,
-        ...optimistic,
-        userId,
-      })
-      setWorkflowTasks((prev) => prev.map((item) => (item.id === id ? updated : item)))
+      const updated = await updateWorkflowBoard(authToken, id, merged)
+      setWorkflowBoards((prev) => prev.map((b) => (b.id === id ? updated : b)))
     } catch (error) {
-      setWorkflowTasks((prev) => prev.map((item) => (item.id === id ? existing : item)))
-      setWorkspaceError(error instanceof Error ? error.message : 'Unable to update workflow stage.')
-    }
-  }
-
-  const updateAssignmentRecord = async (id, payload) => {
-    const existing = workflowTasks.find((item) => item.id === id)
-    if (!existing) {
-      return
-    }
-
-    const normalizedTags = normalizeTagsForState(payload.tags)
-
-    const nextLocal = {
-      ...existing,
-      stageKey: payload.stage,
-      agreedFee: payload.fee ? String(payload.fee).trim() : null,
-      dueAt: normalizeInstantDateForPayload(payload.dueDate),
-      description: payload.notes,
-      tags: normalizedTags,
-    }
-
-    setWorkflowTasks((prev) => prev.map((item) => (item.id === id ? nextLocal : item)))
-
-    try {
-      setWorkspaceError('')
-      const updated = await updateCreatorWorkflowTask(authToken, id, {
-        ...existing,
-        ...nextLocal,
-        userId,
-      })
-      setWorkflowTasks((prev) => prev.map((item) => (item.id === id ? updated : item)))
-    } catch (error) {
-      setWorkflowTasks((prev) => prev.map((item) => (item.id === id ? existing : item)))
-      setWorkspaceError(error instanceof Error ? error.message : 'Unable to update creator-campaign workflow record.')
+      setWorkflowBoards((prev) => prev.map((b) => (b.id === id ? existing : b)))
+      setWorkspaceError(error instanceof Error ? error.message : 'Unable to update board.')
       throw error
     }
   }
 
-  const saveCampaignTypeWorkflowSetup = async (campaignType, stages) => {
-    const normalizedType = normalizeCampaignTypeForPayload(campaignType)
-    const preparedStages = (Array.isArray(stages) ? stages : []).map((stage, index) => ({
-      stageKey: stage.stageKey,
-      stageLabel: stage.stageLabel,
-      position: Number.isFinite(Number(stage.position)) ? Number(stage.position) : index,
-      isActive: stage.isActive !== false,
-    }))
-
-    if (!preparedStages.filter((stage) => stage.isActive).length) {
-      throw new Error('At least one active stage is required for a workflow.')
+  const deleteBoardRecord = async (id) => {
+    const existing = workflowBoards.find((b) => b.id === id)
+    if (!existing) return
+    const remaining = workflowBoards.filter((b) => b.id !== id)
+    setWorkflowBoards(remaining)
+    setWorkflowBoardStages((prev) => prev.filter((s) => s.boardId !== id))
+    if (activeBoardId === id) {
+      setActiveBoardId(remaining[0]?.id || '')
     }
+    try {
+      setWorkspaceError('')
+      await deleteWorkflowBoard(authToken, id)
+    } catch (error) {
+      setWorkspaceError(error instanceof Error ? error.message : 'Unable to delete board.')
+      await refreshWorkspaceData()
+      throw error
+    }
+  }
 
-    const saved = await replaceCampaignTypeWorkflowStages(authToken, {
+  const saveBoardStagesRecord = async (boardId, stages) => {
+    const stageNames = (Array.isArray(stages) ? stages : [])
+      .map((s, i) => ({ stageName: String(s?.stageName || '').trim(), position: i }))
+      .filter((s) => s.stageName)
+    const saved = await replaceWorkflowBoardStages(authToken, {
       userId,
-      campaignType: normalizedType,
-      stages: preparedStages,
+      boardId,
+      stages: stageNames,
     })
+    setWorkflowBoardStages((prev) => [...prev.filter((s) => s.boardId !== boardId), ...saved])
+    return saved
+  }
 
-    setCampaignTypeWorkflowStages((prev) => {
-      const withoutType = prev.filter((item) => normalizeCampaignTypeForPayload(item.campaignType) !== normalizedType)
-      return [...withoutType, ...saved]
+  // ---- workflow cards (campaign<->creator relationship tasks) ----
+  const createCardRecord = async ({ campaignId, creatorId, name, status, agreedFee, feeCurrency, notes, tags }) => {
+    if (!campaignId || !creatorId) {
+      throw new Error('Select both a campaign and a creator.')
+    }
+    if (!String(name || '').trim()) {
+      throw new Error('A card name is required.')
+    }
+    const created = await createWorkflowCard(authToken, {
+      userId,
+      campaignId,
+      creatorId,
+      name: String(name).trim(),
+      status: status || 'todo',
+      agreedFee: agreedFee ? String(agreedFee).trim() : null,
+      feeCurrency: feeCurrency || 'USD',
+      notes: String(notes || '').trim() || null,
+      tags: Array.isArray(tags) ? tags : [],
+      boardId: null,
+      stageId: null,
     })
+    setWorkflowCards((prev) => [created, ...prev])
+    return created
+  }
+
+  const placeCardRecord = async (cardId, { boardId, stageId }) => {
+    const existing = workflowCards.find((c) => c.id === cardId)
+    if (!existing) return
+    const optimistic = { ...existing, boardId: boardId || null, stageId: stageId || null }
+    setWorkflowCards((prev) => prev.map((c) => (c.id === cardId ? optimistic : c)))
+    try {
+      setWorkspaceError('')
+      const updated = await placeWorkflowCard(authToken, cardId, { boardId, stageId })
+      setWorkflowCards((prev) => prev.map((c) => (c.id === cardId ? updated : c)))
+    } catch (error) {
+      setWorkflowCards((prev) => prev.map((c) => (c.id === cardId ? existing : c)))
+      setWorkspaceError(error instanceof Error ? error.message : 'Unable to place card.')
+      throw error
+    }
+  }
+
+  const deleteCardRecord = async (cardId) => {
+    const existing = workflowCards.find((c) => c.id === cardId)
+    if (!existing) return
+    setWorkflowCards((prev) => prev.filter((c) => c.id !== cardId))
+    try {
+      setWorkspaceError('')
+      await deleteWorkflowCard(authToken, cardId)
+    } catch (error) {
+      setWorkflowCards((prev) => [existing, ...prev])
+      setWorkspaceError(error instanceof Error ? error.message : 'Unable to delete card.')
+      throw error
+    }
   }
 
   const handleLogout = async () => {
@@ -1213,20 +1194,21 @@ function App() {
               path="workflow"
               element={
                 <WorkflowPage
+                  boards={workflowBoards}
+                  boardStages={workflowBoardStages}
+                  activeBoardId={activeBoardId}
+                  onSelectBoard={selectBoard}
+                  onCreateBoard={createBoardRecord}
+                  onCreateDefaultBoard={createDefaultBoardRecord}
+                  onDeleteBoard={deleteBoardRecord}
+                  onUpdateBoard={updateBoardRecord}
+                  onSaveBoardStages={saveBoardStagesRecord}
                   campaigns={campaigns}
                   creators={creators}
-                  assignments={workflowItems}
-                  assignmentForm={assignmentForm}
-                  setAssignmentForm={setAssignmentForm}
-                  onTieCreatorToCampaign={tieCreatorToCampaign}
-                  campaignTypeOptions={CAMPAIGN_TYPE_OPTIONS}
-                  campaignTypeWorkflowStages={campaignTypeWorkflowStages}
-                  getConfiguredStagesForCampaignType={getConfiguredStagesForCampaignType}
-                  onSaveCampaignTypeWorkflowSetup={saveCampaignTypeWorkflowSetup}
-                  campaignById={campaignById}
-                  creatorById={creatorById}
-                  updateCardStage={updateCardStage}
-                  onUpdateAssignment={updateAssignmentRecord}
+                  cards={workflowCards}
+                  onCreateCard={createCardRecord}
+                  onPlaceCard={placeCardRecord}
+                  onDeleteCard={deleteCardRecord}
                 />
               }
             />

@@ -5,15 +5,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.annotation.JsonAlias;
 import com.influencer.dao.model.Campaign;
 import com.influencer.dao.model.CampaignCreator;
-import com.influencer.dao.model.CampaignTypeWorkflowStage;
 import com.influencer.dao.model.Creator;
-import com.influencer.dao.model.CreatorWorkflowTask;
 import com.influencer.dao.model.ImportBatch;
 import com.influencer.dao.repository.CampaignCreatorRepository;
 import com.influencer.dao.repository.CampaignRepository;
-import com.influencer.dao.repository.CampaignTypeWorkflowStageRepository;
 import com.influencer.dao.repository.CreatorRepository;
-import com.influencer.dao.repository.CreatorWorkflowTaskRepository;
 import com.influencer.dao.repository.ImportBatchRepository;
 import com.influencer.dao.repository.UserRepository;
 import org.springframework.beans.BeanWrapperImpl;
@@ -42,8 +38,6 @@ public class ImportBatchHydrationService {
     private final CampaignRepository campaignRepository;
     private final CreatorRepository creatorRepository;
     private final CampaignCreatorRepository campaignCreatorRepository;
-    private final CreatorWorkflowTaskRepository creatorWorkflowTaskRepository;
-    private final CampaignTypeWorkflowStageRepository workflowStageRepository;
     private final ObjectMapper objectMapper;
 
     public ImportBatchHydrationService(
@@ -52,16 +46,12 @@ public class ImportBatchHydrationService {
             CampaignRepository campaignRepository,
             CreatorRepository creatorRepository,
             CampaignCreatorRepository campaignCreatorRepository,
-            CreatorWorkflowTaskRepository creatorWorkflowTaskRepository,
-            CampaignTypeWorkflowStageRepository workflowStageRepository,
             ObjectMapper objectMapper) {
         this.importBatchRepository = importBatchRepository;
         this.userRepository = userRepository;
         this.campaignRepository = campaignRepository;
         this.creatorRepository = creatorRepository;
         this.campaignCreatorRepository = campaignCreatorRepository;
-        this.creatorWorkflowTaskRepository = creatorWorkflowTaskRepository;
-        this.workflowStageRepository = workflowStageRepository;
         this.objectMapper = objectMapper;
     }
 
@@ -128,8 +118,7 @@ public class ImportBatchHydrationService {
                     plan.campaignCreatorValues.put("campaignId", campaignId);
                     plan.campaignCreatorValues.put("creatorId", creatorId);
                     HydratedEntity<CampaignCreator> campaignCreatorResult = upsertCampaignCreator(importBatch, plan.campaignCreatorValues);
-                    CampaignCreator savedCampaignCreator = campaignCreatorRepository.save(campaignCreatorResult.getEntity());
-                    upsertWorkflowItemTask(savedCampaignCreator, plan.campaignCreatorValues);
+                    campaignCreatorRepository.save(campaignCreatorResult.getEntity());
                     response.incrementUpdatedOrCreated(campaignCreatorResult.isCreated());
                 }
             } else {
@@ -381,63 +370,6 @@ public class ImportBatchHydrationService {
         return new HydratedEntity<>(campaignCreator, !existingCampaignCreator.isPresent());
     }
 
-    private void upsertWorkflowItemTask(CampaignCreator campaignCreator, Map<String, Object> values) {
-        if (campaignCreator == null || campaignCreator.getId() == null) {
-            return;
-        }
-
-        Optional<CreatorWorkflowTask> existingTask = creatorWorkflowTaskRepository
-                .findByCampaignCreatorIdAndTaskType(campaignCreator.getId(), "workflow_item")
-                .stream()
-                .findFirst();
-
-        CreatorWorkflowTask task = existingTask.orElseGet(CreatorWorkflowTask::new);
-        task.setUserId(campaignCreator.getUserId());
-        task.setCampaignCreatorId(campaignCreator.getId());
-        task.setTaskType("workflow_item");
-        task.setTitle("Workflow item");
-        task.setDescription(campaignCreator.getNotes());
-        task.setAgreedFee(campaignCreator.getAgreedFee());
-        task.setTags(campaignCreator.getTags() == null ? new ArrayList<>() : campaignCreator.getTags());
-        task.setDueAt(campaignCreator.getContentDueAt());
-        task.setAssigneeActor("brand_owner");
-        task.setStatus(task.getStatus() == null ? "todo" : task.getStatus());
-        task.setPriority(task.getPriority() == null ? "medium" : task.getPriority());
-        task.setMetadata(task.getMetadata() == null ? "{}" : task.getMetadata());
-        task.setCreatedByActor(task.getCreatedByActor() == null ? "brand_owner" : task.getCreatedByActor());
-        task.setStageKey(resolveWorkflowTaskStage(campaignCreator.getUserId(), campaignCreator.getCampaignId(), stringValue(values.get("stage"))));
-        creatorWorkflowTaskRepository.save(task);
-    }
-
-    private String resolveWorkflowTaskStage(UUID userId, UUID campaignId, String requestedStage) {
-        Campaign campaign = campaignRepository.findById(campaignId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Campaign not found for campaignId: " + campaignId));
-
-        String campaignType = normalizeCampaignType(campaign.getCampaignType());
-        List<CampaignTypeWorkflowStage> activeStages = workflowStageRepository
-                .findByUserIdAndCampaignTypeOrderByPositionAsc(userId, campaignType)
-                .stream()
-                .filter(stage -> stage != null && Boolean.TRUE.equals(stage.getIsActive()))
-                .toList();
-
-        if (activeStages.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "No active workflow stages configured for campaign type \"" + campaignType + "\".");
-        }
-
-        String normalizedRequestedStage = normalizePipelineStage(requestedStage);
-        if (normalizedRequestedStage == null) {
-            return activeStages.get(0).getStageKey();
-        }
-
-        boolean isAllowed = activeStages.stream().anyMatch(stage -> normalizedRequestedStage.equals(stage.getStageKey()));
-        return isAllowed ? normalizedRequestedStage : activeStages.get(0).getStageKey();
-    }
-
-    private String normalizeCampaignType(String campaignType) {
-        String normalized = campaignType == null ? "" : campaignType.trim().toLowerCase(Locale.ROOT);
-        return normalized.isBlank() ? "paid" : normalized;
-    }
 
     private List<ColumnMappingEntry> parseMappings(String columnMappingJson, String sourceFilename) {
         if (columnMappingJson == null || columnMappingJson.isBlank()) {
@@ -586,38 +518,6 @@ public class ImportBatchHydrationService {
         }
 
         return text;
-    }
-
-    private String normalizePipelineStage(String value) {
-        if (value == null || value.isBlank()) {
-            return null;
-        }
-
-        String normalized = normalizeKey(value);
-        if (normalized.equals("outreach") || normalized.equals("contacted") || normalized.equals("new")) {
-            return "outreach";
-        }
-        if (normalized.equals("agreed")
-                || normalized.equals("agree")
-                || normalized.equals("negotiation")
-                || normalized.equals("negotiating")
-                || normalized.equals("contractsent")
-                || normalized.equals("booked")) {
-            return "agreed";
-        }
-        if (normalized.equals("shipped") || normalized.equals("productshipped") || normalized.equals("sampledelivered")) {
-            return "shipped";
-        }
-        if (normalized.equals("posted") || normalized.equals("published") || normalized.equals("live")) {
-            return "posted";
-        }
-        if (normalized.equals("paid") || normalized.equals("paymentcomplete") || normalized.equals("paymentcompleted")) {
-            return "paid";
-        }
-
-        throw new ResponseStatusException(
-                HttpStatus.BAD_REQUEST,
-                "Unsupported campaign_creator stage '" + value + "'. Allowed stages: outreach, agreed, shipped, posted, paid");
     }
 
     private String inferDefaultEntity(String sourceFilename) {

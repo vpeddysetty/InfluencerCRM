@@ -31,6 +31,70 @@ public class ResponseShapeService {
         return pick(source, "id", "userId", "name", "budget", "status", "campaignType", "customAttributes", "createdAt", "updatedAt");
     }
 
+    public JsonNode workflowBoardsList(JsonNode source, Integer page, Integer size) {
+        ArrayNode out = objectMapper.createArrayNode();
+        for (JsonNode item : asArray(source)) {
+            out.add(workflowBoard(item));
+        }
+        return paginateIfRequested(out, page, size);
+    }
+
+    public JsonNode workflowBoard(JsonNode source) {
+        return pick(source, "id", "userId", "name", "startDate", "endDate", "isActive", "position", "createdAt", "updatedAt");
+    }
+
+    public JsonNode workflowBoardStagesList(JsonNode source, Integer page, Integer size) {
+        ArrayNode out = objectMapper.createArrayNode();
+        for (JsonNode item : asArray(source)) {
+            out.add(workflowBoardStage(item));
+        }
+        return paginateIfRequested(out, page, size);
+    }
+
+    public JsonNode workflowBoardStage(JsonNode source) {
+        return pick(source, "id", "userId", "boardId", "stageName", "position", "createdAt", "updatedAt");
+    }
+
+    public JsonNode workflowCardsList(JsonNode source, Integer page, Integer size) {
+        ArrayNode out = objectMapper.createArrayNode();
+        for (JsonNode item : asArray(source)) {
+            out.add(workflowCard(item));
+        }
+        return paginateIfRequested(out, page, size);
+    }
+
+    public JsonNode workflowCard(JsonNode source) {
+        ObjectNode out = pick(source, "id", "userId", "campaignId", "creatorId", "boardId", "stageId",
+                "name", "status", "feeCurrency", "notes", "position", "createdAt", "updatedAt");
+        // Always expose placement keys (null when unassigned) so the UI can rely on them.
+        if (!out.has("boardId")) {
+            out.putNull("boardId");
+        }
+        if (!out.has("stageId")) {
+            out.putNull("stageId");
+        }
+        if (source != null && source.hasNonNull("agreedFee")) {
+            out.set("agreedFee", source.get("agreedFee"));
+        }
+        if (source != null && source.has("tags") && !source.get("tags").isNull()) {
+            JsonNode tagsNode = source.get("tags");
+            if (tagsNode.isTextual()) {
+                try {
+                    JsonNode parsed = objectMapper.readTree(tagsNode.asText());
+                    out.set("tags", parsed.isArray() ? parsed : objectMapper.createArrayNode());
+                } catch (Exception ignored) {
+                    out.set("tags", objectMapper.createArrayNode());
+                }
+            } else if (tagsNode.isArray()) {
+                out.set("tags", tagsNode);
+            }
+        }
+        if (!out.has("tags")) {
+            out.set("tags", objectMapper.createArrayNode());
+        }
+        return out;
+    }
+
     public JsonNode creatorsList(JsonNode source, Integer page, Integer size) {
         ArrayNode out = objectMapper.createArrayNode();
         for (JsonNode item : asArray(source)) {
@@ -82,18 +146,6 @@ public class ResponseShapeService {
         return out;
     }
 
-    public JsonNode campaignTypeWorkflowStagesList(JsonNode source, Integer page, Integer size) {
-        ArrayNode out = objectMapper.createArrayNode();
-        for (JsonNode item : asArray(source)) {
-            out.add(campaignTypeWorkflowStage(item));
-        }
-        return paginateIfRequested(out, page, size);
-    }
-
-    public JsonNode campaignTypeWorkflowStage(JsonNode source) {
-        return pick(source, "id", "userId", "campaignType", "stageKey", "stageLabel", "position", "isActive", "createdAt", "updatedAt");
-    }
-
     public JsonNode importBatchesList(JsonNode source, Integer page, Integer size) {
         ArrayNode out = objectMapper.createArrayNode();
         for (JsonNode item : asArray(source)) {
@@ -116,76 +168,6 @@ public class ResponseShapeService {
 
     public JsonNode importHydrateResult(JsonNode source) {
         return source == null || source.isNull() ? objectMapper.createObjectNode() : source;
-    }
-
-    public JsonNode workflowTasksList(JsonNode source, Integer page, Integer size) {
-        ArrayNode out = objectMapper.createArrayNode();
-        for (JsonNode item : asArray(source)) {
-            out.add(workflowTask(item));
-        }
-        return paginateIfRequested(out, page, size);
-    }
-
-    public JsonNode workflowTask(JsonNode source) {
-        ObjectNode out = pick(source, "id", "userId", "campaignCreatorId", "taskType", "stageKey", "title", "description", "assigneeActor", "assigneeCreatorId", "status", "priority", "dueAt", "completedAt", "createdAt", "updatedAt");
-        if (source != null && source.hasNonNull("agreedFee")) {
-            out.set("fee", source.get("agreedFee"));
-        } else if (source != null && source.hasNonNull("fee")) {
-            out.set("fee", source.get("fee"));
-        }
-        if (source != null && source.has("tags") && !source.get("tags").isNull()) {
-            JsonNode tagsNode = source.get("tags");
-            if (tagsNode.isTextual()) {
-                try {
-                    JsonNode parsed = objectMapper.readTree(tagsNode.asText());
-                    out.set("tags", parsed.isArray() ? parsed : objectMapper.createArrayNode());
-                } catch (Exception ignored) {
-                    out.set("tags", objectMapper.createArrayNode());
-                }
-            } else if (tagsNode.isArray()) {
-                out.set("tags", tagsNode);
-            }
-        }
-        if (!out.has("tags")) {
-            out.set("tags", objectMapper.createArrayNode());
-        }
-        return out;
-    }
-
-    public JsonNode workflowApprovalsList(JsonNode source, Integer page, Integer size) {
-        ArrayNode out = objectMapper.createArrayNode();
-        for (JsonNode item : asArray(source)) {
-            out.add(workflowApproval(item));
-        }
-        return paginateIfRequested(out, page, size);
-    }
-
-    public JsonNode workflowApproval(JsonNode source) {
-        return pick(source, "id", "userId", "campaignCreatorId", "reviewRound", "submissionUrl", "submittedByActor", "submittedAt", "decision", "decidedByActor", "decidedAt", "createdAt");
-    }
-
-    public JsonNode workflowPaymentsList(JsonNode source, Integer page, Integer size) {
-        ArrayNode out = objectMapper.createArrayNode();
-        for (JsonNode item : asArray(source)) {
-            out.add(workflowPayment(item));
-        }
-        return paginateIfRequested(out, page, size);
-    }
-
-    public JsonNode workflowPayment(JsonNode source) {
-        return pick(source, "id", "userId", "campaignCreatorId", "amount", "currency", "status", "scheduledAt", "paidAt", "failedAt", "createdAt", "updatedAt");
-    }
-
-    public JsonNode workflowEventsList(JsonNode source, Integer page, Integer size) {
-        ArrayNode out = objectMapper.createArrayNode();
-        for (JsonNode item : asArray(source)) {
-            out.add(workflowEvent(item));
-        }
-        return paginateIfRequested(out, page, size);
-    }
-
-    public JsonNode workflowEvent(JsonNode source) {
-        return pick(source, "id", "userId", "campaignCreatorId", "actor", "eventType", "eventBody", "eventData", "createdAt");
     }
 
     public JsonNode campaignCodesList(JsonNode source, Integer page, Integer size) {
