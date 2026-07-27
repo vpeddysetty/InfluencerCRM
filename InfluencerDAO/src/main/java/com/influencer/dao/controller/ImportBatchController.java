@@ -174,6 +174,10 @@ public class ImportBatchController {
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(@PathVariable UUID id) {
+        // Deleting the import_batches row removes that file's bytes (source_file) and its
+        // per-file column_mapping JSON, since both live on the row. Saved mapping_examples
+        // (the vector-DB mapping memory) are intentionally left intact so they remain
+        // available for future similar-column matches.
         repository.deleteById(id);
     }
 

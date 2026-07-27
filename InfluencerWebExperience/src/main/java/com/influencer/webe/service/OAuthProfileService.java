@@ -3,6 +3,8 @@ package com.influencer.webe.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.influencer.webe.config.WebExperienceProperties;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -24,6 +26,7 @@ import java.util.Map;
 
 @Service
 public class OAuthProfileService {
+    private static final Logger log = LoggerFactory.getLogger(OAuthProfileService.class);
     private final WebExperienceProperties properties;
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
@@ -43,8 +46,15 @@ public class OAuthProfileService {
                     default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported provider: " + provider);
                 };
             } catch (Exception exception) {
+                log.warn("Failed to resolve {} profile from access token", provider, exception);
                 if (fallbackEmail == null || fallbackEmail.isBlank()) {
-                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unable to resolve social profile and no fallback email was provided", exception);
+                    // Surface the specific reason (e.g. "profile did not include an email address",
+                    // "profile lookup failed with status 401") rather than a generic message.
+                    if (exception instanceof ResponseStatusException rse) {
+                        throw rse;
+                    }
+                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                            "Unable to resolve social profile: " + exception.getMessage(), exception);
                 }
             }
         }
