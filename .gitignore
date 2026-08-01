@@ -12,6 +12,19 @@ __pycache__/
 # Local Spring config holding real secrets (OAuth client id/secret, etc.)
 application-local.properties
 **/src/main/resources/application-local.properties
+# Ad-hoc secrets file (Google/Facebook OAuth client id + secret) — must never be committed
+oauthclient.txt
+**/oauthclient.txt
+
+# Local runtime logs from running the stack
+*.out.log
+*.err.log
+
+# Claude Code local config / session data
+.claude/
+
+# E2E screenshot artifacts
+InfluencerUI/e2e-shots/
 
 # VS Code
 .vscode/

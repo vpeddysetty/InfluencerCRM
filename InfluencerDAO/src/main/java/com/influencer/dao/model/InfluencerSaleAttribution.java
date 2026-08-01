@@ -1,6 +1,8 @@
 package com.influencer.dao.model;
 
 import jakarta.persistence.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
@@ -64,6 +66,7 @@ public class InfluencerSaleAttribution {
     private Instant trackedAt;
 
     @Column(name = "raw_payload", columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
     private String rawPayload;
 
     @Column(name = "created_at", nullable = false, updatable = false)

@@ -2174,3 +2174,78 @@ button:focus {
   background: rgba(15, 118, 110, 0.16);
   color: #0f766e;
 }
+
+/* ---- Revenue dashboard (Phase 4) ---- */
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+.kpi-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.02);
+}
+.kpi-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+}
+.kpi-value {
+  font-size: 1.35rem;
+  font-weight: 650;
+  color: #0f172a;
+}
+.dash-table-wrap {
+  overflow-x: auto;
+}
+.dash-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+.dash-table th,
+.dash-table td {
+  text-align: left;
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+  white-space: nowrap;
+}
+.dash-table th {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #64748b;
+}
+.dash-bar {
+  display: inline-block;
+  height: 8px;
+  min-width: 2px;
+  border-radius: 4px;
+  background: #6366f1;
+}
+
+/* ---- coupon personalization (content Phase 3) ---- */
+.coupon-personalize {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.6rem;
+  padding-top: 0.6rem;
+  border-top: 1px dashed rgba(15, 23, 42, 0.12);
+}
+.perso-status {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #64748b;
+}
+.perso-status.perso-approved { color: #0f766e; }
+.perso-status.perso-pending { color: #b45309; }
+.perso-status.perso-rejected { color: #9f1239; }

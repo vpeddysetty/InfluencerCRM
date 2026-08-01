@@ -1,6 +1,8 @@
 package com.influencer.dao.model;
 
 import jakarta.persistence.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -42,7 +44,47 @@ public class InfluencerCampaignCode {
     private Boolean isActive;
 
     @Column(name = "metadata", columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
     private String metadata;
+
+    @Column(name = "marketplace_connection_id")
+    private UUID marketplaceConnectionId;
+
+    @Column(name = "discount_type")
+    private String discountType;
+
+    @Column(name = "discount_value")
+    private java.math.BigDecimal discountValue;
+
+    @Column(name = "commission_type")
+    private String commissionType;
+
+    @Column(name = "commission_value")
+    private java.math.BigDecimal commissionValue;
+
+    @Column(name = "channel")
+    private String channel;
+
+    @Column(name = "ref_slug")
+    private String refSlug;
+
+    @Column(name = "external_coupon_id")
+    private String externalCouponId;
+
+    @Column(name = "sync_status", nullable = false)
+    private String syncStatus;
+
+    @Column(name = "public_slug")
+    private String publicSlug;
+
+    @Column(name = "personal_blurb")
+    private String personalBlurb;
+
+    @Column(name = "embed_url")
+    private String embedUrl;
+
+    @Column(name = "personalization_status", nullable = false)
+    private String personalizationStatus;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -64,6 +106,12 @@ public class InfluencerCampaignCode {
         }
         if (metadata == null) {
             metadata = "{}";
+        }
+        if (syncStatus == null) {
+            syncStatus = "local";
+        }
+        if (personalizationStatus == null) {
+            personalizationStatus = "none";
         }
         if (createdAt == null) {
             createdAt = now;
@@ -186,5 +234,109 @@ public class InfluencerCampaignCode {
 
     public void setUpdatedAt(Instant updatedAt) {
         this.updatedAt = updatedAt;
+    }
+
+    public UUID getMarketplaceConnectionId() {
+        return marketplaceConnectionId;
+    }
+
+    public void setMarketplaceConnectionId(UUID marketplaceConnectionId) {
+        this.marketplaceConnectionId = marketplaceConnectionId;
+    }
+
+    public String getDiscountType() {
+        return discountType;
+    }
+
+    public void setDiscountType(String discountType) {
+        this.discountType = discountType;
+    }
+
+    public java.math.BigDecimal getDiscountValue() {
+        return discountValue;
+    }
+
+    public void setDiscountValue(java.math.BigDecimal discountValue) {
+        this.discountValue = discountValue;
+    }
+
+    public String getCommissionType() {
+        return commissionType;
+    }
+
+    public void setCommissionType(String commissionType) {
+        this.commissionType = commissionType;
+    }
+
+    public java.math.BigDecimal getCommissionValue() {
+        return commissionValue;
+    }
+
+    public void setCommissionValue(java.math.BigDecimal commissionValue) {
+        this.commissionValue = commissionValue;
+    }
+
+    public String getChannel() {
+        return channel;
+    }
+
+    public void setChannel(String channel) {
+        this.channel = channel;
+    }
+
+    public String getRefSlug() {
+        return refSlug;
+    }
+
+    public void setRefSlug(String refSlug) {
+        this.refSlug = refSlug;
+    }
+
+    public String getExternalCouponId() {
+        return externalCouponId;
+    }
+
+    public void setExternalCouponId(String externalCouponId) {
+        this.externalCouponId = externalCouponId;
+    }
+
+    public String getSyncStatus() {
+        return syncStatus;
+    }
+
+    public void setSyncStatus(String syncStatus) {
+        this.syncStatus = syncStatus;
+    }
+
+    public String getPublicSlug() {
+        return publicSlug;
+    }
+
+    public void setPublicSlug(String publicSlug) {
+        this.publicSlug = publicSlug;
+    }
+
+    public String getPersonalBlurb() {
+        return personalBlurb;
+    }
+
+    public void setPersonalBlurb(String personalBlurb) {
+        this.personalBlurb = personalBlurb;
+    }
+
+    public String getEmbedUrl() {
+        return embedUrl;
+    }
+
+    public void setEmbedUrl(String embedUrl) {
+        this.embedUrl = embedUrl;
+    }
+
+    public String getPersonalizationStatus() {
+        return personalizationStatus;
+    }
+
+    public void setPersonalizationStatus(String personalizationStatus) {
+        this.personalizationStatus = personalizationStatus;
     }
 }

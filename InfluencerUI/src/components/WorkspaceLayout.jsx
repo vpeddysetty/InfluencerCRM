@@ -20,7 +20,12 @@ function WorkspaceLayout({ brandName, userName, onLogout, workspaceError = '' })
         <NavLink to="/import">Import</NavLink>
         <NavLink to="/campaigns">Campaigns</NavLink>
         <NavLink to="/creators">Creators</NavLink>
+        <NavLink to="/content">Content</NavLink>
         <NavLink to="/workflow">Workflow</NavLink>
+        <NavLink to="/coupons">Coupons</NavLink>
+        <NavLink to="/marketplace">Marketplace</NavLink>
+        <NavLink to="/dashboard">Dashboard</NavLink>
+        <NavLink to="/payouts">Payouts</NavLink>
       </nav>
 
       {workspaceError ? <MdsNote className="workspace-error-banner">{workspaceError}</MdsNote> : null}

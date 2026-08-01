@@ -179,7 +179,21 @@ public class ResponseShapeService {
     }
 
     public JsonNode campaignCode(JsonNode source) {
-        return pick(source, "id", "userId", "campaignId", "creatorId", "campaignCreatorId", "code", "codeType", "landingUrl", "startsAt", "endsAt", "isActive", "createdAt", "updatedAt");
+        ObjectNode out = pick(source, "id", "userId", "campaignId", "creatorId", "campaignCreatorId",
+                "code", "codeType", "landingUrl", "startsAt", "endsAt", "isActive",
+                "marketplaceConnectionId", "discountType", "discountValue",
+                "commissionType", "commissionValue", "channel", "refSlug",
+                "externalCouponId", "syncStatus",
+                "publicSlug", "personalBlurb", "embedUrl", "personalizationStatus",
+                "createdAt", "updatedAt");
+        if (!out.has("personalizationStatus")) {
+            out.put("personalizationStatus", "none");
+        }
+        // syncStatus is always meaningful for the UI (defaults to "local" server-side).
+        if (!out.has("syncStatus")) {
+            out.put("syncStatus", "local");
+        }
+        return out;
     }
 
     public JsonNode saleAttributionsList(JsonNode source, Integer page, Integer size) {
@@ -208,6 +222,135 @@ public class ResponseShapeService {
         out.put("platform", platform);
         out.put("status", status);
         return out;
+    }
+
+    // ---- marketplace connections --------------------------------------
+    public JsonNode marketplaceConnectionsList(JsonNode source, Integer page, Integer size) {
+        ArrayNode out = objectMapper.createArrayNode();
+        for (JsonNode item : asArray(source)) {
+            out.add(marketplaceConnection(item));
+        }
+        return paginateIfRequested(out, page, size);
+    }
+
+    public JsonNode marketplaceConnection(JsonNode source) {
+        // Deliberately omit credentialsEncrypted — never expose secrets to the UI.
+        ObjectNode out = pick(source, "id", "userId", "providerKey", "displayName", "status",
+                "externalAccountRef", "syncCursor", "metadata", "createdAt", "updatedAt");
+        if (!out.has("status")) {
+            out.put("status", "connected");
+        }
+        return out;
+    }
+
+    // ---- influencer commissions ---------------------------------------
+    public JsonNode commissionsList(JsonNode source, Integer page, Integer size) {
+        ArrayNode out = objectMapper.createArrayNode();
+        for (JsonNode item : asArray(source)) {
+            out.add(commission(item));
+        }
+        return paginateIfRequested(out, page, size);
+    }
+
+    public JsonNode commission(JsonNode source) {
+        ObjectNode out = pick(source, "id", "userId", "attributionId", "creatorId", "campaignId",
+                "grossSale", "commissionAmount", "currency", "status", "approvedAt", "payoutId",
+                "createdAt", "updatedAt");
+        if (!out.has("status")) {
+            out.put("status", "pending");
+        }
+        return out;
+    }
+
+    // ---- influencer payouts -------------------------------------------
+    public JsonNode payoutsList(JsonNode source, Integer page, Integer size) {
+        ArrayNode out = objectMapper.createArrayNode();
+        for (JsonNode item : asArray(source)) {
+            out.add(payout(item));
+        }
+        return paginateIfRequested(out, page, size);
+    }
+
+    public JsonNode payout(JsonNode source) {
+        ObjectNode out = pick(source, "id", "userId", "creatorId", "periodStart", "periodEnd",
+                "totalAmount", "currency", "method", "providerKey", "providerRef", "status", "notes",
+                "paidAt", "createdAt", "updatedAt");
+        if (!out.has("status")) {
+            out.put("status", "draft");
+        }
+        return out;
+    }
+
+    // ---- daily attribution stats --------------------------------------
+    public JsonNode dailyStatsList(JsonNode source, Integer page, Integer size) {
+        ArrayNode out = objectMapper.createArrayNode();
+        for (JsonNode item : asArray(source)) {
+            out.add(dailyStat(item));
+        }
+        return paginateIfRequested(out, page, size);
+    }
+
+    public JsonNode dailyStat(JsonNode source) {
+        return pick(source, "id", "userId", "day", "creatorId", "campaignId", "channel",
+                "clicks", "orders", "grossSales", "discounts", "commission", "refunds",
+                "createdAt", "updatedAt");
+    }
+
+    // ---- campaign briefs (content Phase 1) ----------------------------
+    public JsonNode campaignBriefsList(JsonNode source, Integer page, Integer size) {
+        ArrayNode out = objectMapper.createArrayNode();
+        for (JsonNode item : asArray(source)) {
+            out.add(campaignBrief(item));
+        }
+        return paginateIfRequested(out, page, size);
+    }
+
+    public JsonNode campaignBrief(JsonNode source) {
+        ObjectNode out = pick(source, "id", "userId", "campaignId", "disclosureText",
+                "status", "createdAt", "updatedAt");
+        out.set("content", parseJsonOrDefault(source, "content", objectMapper.createObjectNode()));
+        out.set("assets", parseJsonOrDefault(source, "assets", objectMapper.createArrayNode()));
+        out.set("hashtags", parseJsonOrDefault(source, "hashtags", objectMapper.createArrayNode()));
+        if (!out.has("status")) {
+            out.put("status", "draft");
+        }
+        return out;
+    }
+
+    // ---- landing templates (content Phase 2) --------------------------
+    public JsonNode landingTemplatesList(JsonNode source, Integer page, Integer size) {
+        ArrayNode out = objectMapper.createArrayNode();
+        for (JsonNode item : asArray(source)) {
+            out.add(landingTemplate(item));
+        }
+        return paginateIfRequested(out, page, size);
+    }
+
+    public JsonNode landingTemplate(JsonNode source) {
+        ObjectNode out = pick(source, "id", "userId", "campaignId", "publicSlug", "name",
+                "status", "createdAt", "updatedAt");
+        out.set("blocks", parseJsonOrDefault(source, "blocks", objectMapper.createArrayNode()));
+        out.set("theme", parseJsonOrDefault(source, "theme", objectMapper.createObjectNode()));
+        if (!out.has("status")) {
+            out.put("status", "draft");
+        }
+        return out;
+    }
+
+    /** Read a jsonb field that the DAO may return as a JSON string or a live node. */
+    private JsonNode parseJsonOrDefault(JsonNode source, String field, JsonNode fallback) {
+        if (source == null || !source.has(field) || source.get(field).isNull()) {
+            return fallback;
+        }
+        JsonNode node = source.get(field);
+        if (node.isTextual()) {
+            try {
+                return objectMapper.readTree(node.asText());
+            } catch (Exception ignored) {
+                return fallback;
+            }
+        }
+        return node;
     }
 
     public ObjectMapper objectMapper() {

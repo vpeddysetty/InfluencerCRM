@@ -198,15 +198,7 @@ function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit, onSocialLogin, authE
             >
               {socialProvider === 'google' ? 'Connecting…' : 'Google'}
             </button>
-            <button
-              type="button"
-              className="ghost-btn auth-alt-btn"
-              onClick={() => handleSocialLogin('facebook')}
-              disabled={Boolean(socialProvider)}
-              aria-busy={socialProvider === 'facebook'}
-            >
-              {socialProvider === 'facebook' ? 'Connecting…' : 'Facebook'}
-            </button>
+            {/* Facebook sign-in temporarily hidden pending Meta app review/config. */}
           </div>
         </div>
 

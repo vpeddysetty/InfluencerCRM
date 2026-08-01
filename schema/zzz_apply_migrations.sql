@@ -8,3 +8,5 @@
 \i /docker-entrypoint-initdb.d/migrations/2026_07_21_mapping_examples_alignment.sql
 \i /docker-entrypoint-initdb.d/migrations/2026_07_26_workflow_boards.sql
 \i /docker-entrypoint-initdb.d/migrations/2026_07_26_workflow_cards.sql
+\i /docker-entrypoint-initdb.d/migrations/2026_07_27_coupons_marketplace_commissions.sql
+\i /docker-entrypoint-initdb.d/migrations/2026_08_01_content_creation.sql

@@ -63,6 +63,19 @@ public class InfluencerCampaignCodeController {
         existing.setEndsAt(campaignCode.getEndsAt());
         existing.setIsActive(campaignCode.getIsActive());
         existing.setMetadata(campaignCode.getMetadata());
+        existing.setMarketplaceConnectionId(campaignCode.getMarketplaceConnectionId());
+        existing.setDiscountType(campaignCode.getDiscountType());
+        existing.setDiscountValue(campaignCode.getDiscountValue());
+        existing.setCommissionType(campaignCode.getCommissionType());
+        existing.setCommissionValue(campaignCode.getCommissionValue());
+        existing.setChannel(campaignCode.getChannel());
+        existing.setRefSlug(campaignCode.getRefSlug());
+        existing.setExternalCouponId(campaignCode.getExternalCouponId());
+        existing.setSyncStatus(campaignCode.getSyncStatus());
+        existing.setPublicSlug(campaignCode.getPublicSlug());
+        existing.setPersonalBlurb(campaignCode.getPersonalBlurb());
+        existing.setEmbedUrl(campaignCode.getEmbedUrl());
+        existing.setPersonalizationStatus(campaignCode.getPersonalizationStatus());
         return repository.save(existing);
     }
 

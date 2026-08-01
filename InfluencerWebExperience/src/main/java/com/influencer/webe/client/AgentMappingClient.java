@@ -57,6 +57,32 @@ public class AgentMappingClient {
         }
     }
 
+    /** Ask agent_service to draft campaign brief / landing copy (Content Phase 4). */
+    public JsonNode draftContent(JsonNode payload) {
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(properties.getAgentBaseUrl() + "/content/draft"))
+                .timeout(Duration.ofSeconds(45))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(writeJson(payload)))
+                .build();
+        try {
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
+                        "Agent content-draft failed with status " + response.statusCode() + ": " + response.body());
+            }
+            if (response.body() == null || response.body().isBlank()) {
+                return objectMapper.createObjectNode();
+            }
+            return objectMapper.readTree(response.body());
+        } catch (IOException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Unable to call agent content-draft endpoint", exception);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Agent content-draft call interrupted", exception);
+        }
+    }
+
     private String writeJson(JsonNode value) {
         try {
             return objectMapper.writeValueAsString(value);

@@ -6,6 +6,11 @@ import ImportPage from './pages/ImportPage'
 import CampaignsPage from './pages/CampaignsPage'
 import CreatorsPage from './pages/CreatorsPage'
 import WorkflowPage from './pages/WorkflowPage'
+import CouponsPage from './pages/CouponsPage'
+import MarketplacePage from './pages/MarketplacePage'
+import DashboardPage from './pages/DashboardPage'
+import PayoutsPage from './pages/PayoutsPage'
+import ContentPage from './pages/ContentPage'
 import WorkspaceLayout from './components/WorkspaceLayout'
 import {
   createCampaign,
@@ -29,6 +34,30 @@ import {
   listImportBatches,
   listCampaigns,
   listCreators,
+  listCoupons,
+  generateCoupon,
+  generateCouponsBulk,
+  deleteCoupon,
+  pushCoupon,
+  personalizeCoupon,
+  decideCouponPersonalization,
+  listMarketplaceProviders,
+  listMarketplaceConnections,
+  connectMarketplace,
+  deleteMarketplaceConnection,
+  simulateOrder,
+  getInfluencerRevenue,
+  listCommissions,
+  approveCommission,
+  listPayouts,
+  createPayoutBatch,
+  listPayoutProviders,
+  listCampaignBriefs,
+  createCampaignBrief,
+  updateCampaignBrief,
+  listLandingTemplates,
+  saveLandingTemplate,
+  draftContent,
   login,
   previewImportBatch,
   logout,
@@ -296,6 +325,10 @@ function App() {
   const [workflowCards, setWorkflowCards] = useState(persistedState?.workflowCards ?? [])
   const [activeBoardId, setActiveBoardId] = useState(persistedState?.activeBoardId ?? '')
 
+  const [coupons, setCoupons] = useState(persistedState?.coupons ?? [])
+  const [marketplaceProviders, setMarketplaceProviders] = useState([])
+  const [marketplaceConnections, setMarketplaceConnections] = useState(persistedState?.marketplaceConnections ?? [])
+
   const refreshWorkspaceData = async () => {
     setWorkspaceError('')
     const [
@@ -305,6 +338,9 @@ function App() {
       boardPayload,
       boardStagePayload,
       cardPayload,
+      couponPayload,
+      providerPayload,
+      connectionPayload,
     ] = await Promise.all([
       listCampaigns(authToken),
       listCreators(authToken),
@@ -312,12 +348,18 @@ function App() {
       listWorkflowBoards(authToken),
       listWorkflowBoardStages(authToken),
       listWorkflowCards(authToken),
+      listCoupons(authToken),
+      listMarketplaceProviders(authToken).catch(() => []),
+      listMarketplaceConnections(authToken).catch(() => []),
     ])
 
     setCampaigns(campaignPayload)
     setCreators(creatorPayload)
     setImportBatches(importBatchPayload)
     setWorkflowCards(cardPayload)
+    setCoupons(couponPayload)
+    setMarketplaceProviders(providerPayload)
+    setMarketplaceConnections(connectionPayload)
     setAssignmentForm((prev) => ({
       ...prev,
       campaignId: prev.campaignId || campaignPayload[0]?.id || '',
@@ -366,6 +408,8 @@ function App() {
       workflowBoardStages,
       workflowCards,
       activeBoardId,
+      coupons,
+      marketplaceConnections,
     }
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot))
   }, [
@@ -387,6 +431,8 @@ function App() {
     workflowBoardStages,
     workflowCards,
     activeBoardId,
+    coupons,
+    marketplaceConnections,
   ])
 
   useEffect(() => {
@@ -880,6 +926,103 @@ function App() {
     }
   }
 
+  // ---- coupons -------------------------------------------------------
+  const generateCouponRecord = async (payload) => {
+    setWorkspaceError('')
+    const created = await generateCoupon(authToken, { userId, ...payload })
+    setCoupons((prev) => [created, ...prev])
+    return created
+  }
+
+  const generateCouponsBulkRecord = async (payload) => {
+    setWorkspaceError('')
+    const created = await generateCouponsBulk(authToken, { userId, ...payload })
+    setCoupons((prev) => [...created, ...prev])
+    return created
+  }
+
+  const deleteCouponRecord = async (id) => {
+    setWorkspaceError('')
+    try {
+      await deleteCoupon(authToken, id)
+      setCoupons((prev) => prev.filter((coupon) => coupon.id !== id))
+    } catch (error) {
+      setWorkspaceError(error instanceof Error ? error.message : 'Unable to delete coupon.')
+    }
+  }
+
+  const pushCouponRecord = async (id, connectionId) => {
+    setWorkspaceError('')
+    const updated = await pushCoupon(authToken, id, { connectionId })
+    setCoupons((prev) => prev.map((coupon) => (coupon.id === id ? updated : coupon)))
+    return updated
+  }
+
+  const personalizeCouponRecord = async (id, payload) => {
+    setWorkspaceError('')
+    const updated = await personalizeCoupon(authToken, id, payload)
+    setCoupons((prev) => prev.map((coupon) => (coupon.id === id ? updated : coupon)))
+    return updated
+  }
+
+  const decideCouponPersonalizationRecord = async (id, decision) => {
+    setWorkspaceError('')
+    const updated = await decideCouponPersonalization(authToken, id, decision)
+    setCoupons((prev) => prev.map((coupon) => (coupon.id === id ? updated : coupon)))
+    return updated
+  }
+
+  // ---- marketplace connections ---------------------------------------
+  const connectMarketplaceRecord = async (payload) => {
+    setWorkspaceError('')
+    const created = await connectMarketplace(authToken, { userId, ...payload })
+    setMarketplaceConnections((prev) => [created, ...prev])
+    return created
+  }
+
+  const disconnectMarketplaceRecord = async (id) => {
+    setWorkspaceError('')
+    try {
+      await deleteMarketplaceConnection(authToken, id)
+      setMarketplaceConnections((prev) => prev.filter((conn) => conn.id !== id))
+    } catch (error) {
+      setWorkspaceError(error instanceof Error ? error.message : 'Unable to disconnect marketplace.')
+    }
+  }
+
+  // ---- analytics / attribution ---------------------------------------
+  const loadInfluencerRevenue = async () => getInfluencerRevenue(authToken)
+
+  const simulateOrderRecord = async (payload) => {
+    const result = await simulateOrder(authToken, { userId, ...payload })
+    // Refresh coupons so sync/attribution-derived state stays current.
+    try {
+      const refreshed = await listCoupons(authToken)
+      setCoupons(refreshed)
+    } catch {
+      // Non-fatal; dashboard refetches its own analytics.
+    }
+    return result
+  }
+
+  // ---- commissions & payouts -----------------------------------------
+  const loadCommissions = async () => listCommissions(authToken)
+  const loadPayouts = async () => listPayouts(authToken)
+  const loadPayoutProviders = async () => listPayoutProviders(authToken)
+  const approveCommissionRecord = async (id) => approveCommission(authToken, id)
+  const createPayoutRecord = async (payload) => createPayoutBatch(authToken, { userId, ...payload })
+
+  // ---- content: campaign briefs ---------------------------------------
+  const loadCampaignBriefs = async () => listCampaignBriefs(authToken)
+  const saveCampaignBrief = async (id, payload) => {
+    if (id) return updateCampaignBrief(authToken, id, { userId, ...payload })
+    return createCampaignBrief(authToken, { userId, ...payload })
+  }
+  const loadLandingTemplates = async () => listLandingTemplates(authToken)
+  const saveLandingTemplateRecord = async (payload) => saveLandingTemplate(authToken, { userId, ...payload })
+  const loadCouponsForContent = async () => listCoupons(authToken)
+  const draftContentRecord = async (payload) => draftContent(authToken, payload)
+
   const updateCampaignRecord = async (id, payload) => {
     const existing = campaigns.find((campaign) => campaign.id === id)
     if (!existing) {
@@ -1284,6 +1427,74 @@ function App() {
                   onCreateCard={createCardRecord}
                   onPlaceCard={placeCardRecord}
                   onDeleteCard={deleteCardRecord}
+                />
+              }
+            />
+            <Route
+              path="coupons"
+              element={
+                <CouponsPage
+                  coupons={coupons}
+                  campaigns={campaigns}
+                  creators={creators}
+                  campaignCreators={workflowCards}
+                  brandName={brandName}
+                  connections={marketplaceConnections}
+                  onGenerateCoupon={generateCouponRecord}
+                  onGenerateCouponsBulk={generateCouponsBulkRecord}
+                  onDeleteCoupon={deleteCouponRecord}
+                  onPushCoupon={pushCouponRecord}
+                  onPersonalizeCoupon={personalizeCouponRecord}
+                  onDecidePersonalization={decideCouponPersonalizationRecord}
+                />
+              }
+            />
+            <Route
+              path="marketplace"
+              element={
+                <MarketplacePage
+                  providers={marketplaceProviders}
+                  connections={marketplaceConnections}
+                  onConnect={connectMarketplaceRecord}
+                  onDisconnect={disconnectMarketplaceRecord}
+                />
+              }
+            />
+            <Route
+              path="dashboard"
+              element={
+                <DashboardPage
+                  coupons={coupons}
+                  onLoadRevenue={loadInfluencerRevenue}
+                  onSimulateOrder={simulateOrderRecord}
+                />
+              }
+            />
+            <Route
+              path="payouts"
+              element={
+                <PayoutsPage
+                  creators={creators}
+                  onLoadCommissions={loadCommissions}
+                  onLoadPayouts={loadPayouts}
+                  onLoadProviders={loadPayoutProviders}
+                  onApproveCommission={approveCommissionRecord}
+                  onCreatePayout={createPayoutRecord}
+                />
+              }
+            />
+            <Route
+              path="content"
+              element={
+                <ContentPage
+                  campaigns={campaigns}
+                  coupons={coupons}
+                  onLoadBriefs={loadCampaignBriefs}
+                  onSaveBrief={saveCampaignBrief}
+                  onLoadTemplates={loadLandingTemplates}
+                  onSaveTemplate={saveLandingTemplateRecord}
+                  onReloadCoupons={loadCouponsForContent}
+                  onDraftContent={draftContentRecord}
                 />
               }
             />

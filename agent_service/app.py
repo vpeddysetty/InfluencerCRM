@@ -1,5 +1,6 @@
 import csv
 import io
+import json
 import os
 from typing import List, Dict, Any, Optional
 from fastapi import FastAPI, UploadFile, File, HTTPException
@@ -78,6 +79,89 @@ def extract_columns_from_upload(file_name: str, contents: bytes) -> List[str]:
         raise HTTPException(status_code=400, detail=".xls files are not supported; please convert to .xlsx")
 
     raise HTTPException(status_code=400, detail="Only CSV/XLSX/XLS files are supported")
+
+
+class ContentDraftRequest(BaseModel):
+    kind: str = "brief"          # "brief" | "landing"
+    campaign_name: str = ""
+    brand_name: str = ""
+    product: str = ""
+    audience: str = ""
+    tone: str = "friendly"
+    creator_name: str = ""       # for landing / per-creator variants
+
+
+def _heuristic_draft(req: "ContentDraftRequest") -> Dict[str, Any]:
+    """Deterministic fallback used when the LLM is unavailable (no/invalid key)."""
+    product = req.product or "our product"
+    brand = req.brand_name or "the brand"
+    who = req.creator_name or "your favorite creator"
+    if req.kind == "landing":
+        return {
+            "kind": "landing",
+            "source": "heuristic",
+            "hero": f"{{{{creator.name}}}} loves {product} — grab {{{{discount}}}}",
+            "body": f"{who} partnered with {brand} to bring you {product}. Use the code below to save.",
+            "cta": "Shop now",
+        }
+    return {
+        "kind": "brief",
+        "source": "heuristic",
+        "summary": f"{brand} campaign '{req.campaign_name or 'Untitled'}' featuring {product}.",
+        "goals": "Drive awareness and coupon-attributed sales through creator content.",
+        "dos": f"Show {product} in authentic use; mention the discount code; tag {brand}.",
+        "donts": "No unsupported claims; no competitor mentions; don't omit the paid disclosure.",
+        "talkingPoints": f"Key benefits of {product}; why it fits the {req.audience or 'target'} audience.",
+        "hashtags": ["#ad", "#partner"],
+    }
+
+
+def _llm_draft(req: "ContentDraftRequest") -> Optional[Dict[str, Any]]:
+    if not advisor.is_available():
+        return None
+    ask = (
+        "You write influencer-marketing content. Return ONLY strict JSON. "
+        f"kind={req.kind}. For kind='brief' return keys: summary, goals, dos, donts, talkingPoints, hashtags (array). "
+        "For kind='landing' return keys: hero, body, cta. "
+        "In landing copy you MAY use tokens {{creator.name}}, {{coupon.code}}, {{discount}}."
+    )
+    payload = {
+        "campaign_name": req.campaign_name, "brand_name": req.brand_name,
+        "product": req.product, "audience": req.audience, "tone": req.tone,
+        "creator_name": req.creator_name, "kind": req.kind,
+    }
+    try:
+        response = advisor.client.responses.create(
+            model=advisor.model,
+            input=[
+                {"role": "system", "content": ask},
+                {"role": "user", "content": json.dumps(payload)},
+            ],
+            temperature=0.6,
+        )
+        content = getattr(response, "output_text", None)
+        if not content and hasattr(response, "choices") and response.choices:
+            content = response.choices[0].message.content
+        if not content:
+            return None
+        parsed = json.loads(content)
+        if not isinstance(parsed, dict):
+            return None
+        parsed["kind"] = req.kind
+        parsed["source"] = "llm"
+        return parsed
+    except Exception:
+        return None
+
+
+@app.post("/content/draft")
+def content_draft(request: ContentDraftRequest) -> Dict[str, Any]:
+    if request.kind not in ("brief", "landing"):
+        raise HTTPException(status_code=400, detail="kind must be 'brief' or 'landing'")
+    drafted = _llm_draft(request)
+    if drafted is None:
+        drafted = _heuristic_draft(request)
+    return {"status": "ok", "draft": drafted}
 
 
 @app.get("/health")
