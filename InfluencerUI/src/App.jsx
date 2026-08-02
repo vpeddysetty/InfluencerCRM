@@ -136,7 +136,18 @@ function loadPersistedState() {
       return null
     }
     const parsed = JSON.parse(raw)
-    return parsed && typeof parsed === 'object' ? parsed : null
+    if (!parsed || typeof parsed !== 'object') {
+      return null
+    }
+    // Snapshots written before tokens were removed still contain them. Strip and rewrite on
+    // first load, so upgrading actually clears the credential instead of leaving it sitting
+    // in storage until the user happens to log out.
+    if (parsed.authToken || parsed.refreshToken) {
+      delete parsed.authToken
+      delete parsed.refreshToken
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed))
+    }
+    return parsed
   } catch {
     return null
   }
@@ -314,8 +325,10 @@ function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(persistedState?.isLoggedIn ?? false)
   const [brandName, setBrandName] = useState(persistedState?.brandName ?? 'tejdux.io')
   const [userName, setUserName] = useState(persistedState?.userName ?? '')
-  const [authToken, setAuthToken] = useState(persistedState?.authToken ?? '')
-  const [refreshToken, setRefreshToken] = useState(persistedState?.refreshToken ?? '')
+  // Never seeded from persisted state: tokens are no longer written to localStorage, and an
+  // older snapshot that still carries one must not be a way to resurrect it.
+  const [authToken, setAuthToken] = useState('')
+  const [refreshToken, setRefreshToken] = useState('')
   const [userId, setUserId] = useState(persistedState?.userId ?? '')
   // Active brand plus the set the user may switch to. Solo accounts have exactly one entry,
   // which is why the switcher can be hidden without needing a separate code path.
@@ -435,13 +448,14 @@ function App() {
   }
 
   useEffect(() => {
+    // Credentials are deliberately absent from this snapshot. The session lives server-side in
+    // the DPS behind an httpOnly cookie; writing the access or refresh token to localStorage
+    // would hand an XSS payload the one thing that design exists to keep out of reach.
     const snapshot = {
       isSignUp,
       isLoggedIn,
       brandName,
       userName,
-      authToken,
-      refreshToken,
       userId,
       brandId,
       accountId,
@@ -468,8 +482,6 @@ function App() {
     isLoggedIn,
     brandName,
     userName,
-    authToken,
-    refreshToken,
     userId,
     brandId,
     accountId,

@@ -55,3 +55,9 @@ Thumbs.db
 # Temporary Office lock files
 ~$*.xlsx
 ~$*.xls
+
+# E2E harness runtime artifacts
+tests/.body
+tests/.code
+tests/ids.env
+tests/results.txt

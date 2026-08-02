@@ -6,7 +6,9 @@ import com.influencer.webe.shared.infrastructure.DaoGatewayClient;
 import com.influencer.webe.security.Permission;
 import com.influencer.webe.shared.application.RequestUserResolver;
 import com.influencer.webe.shared.application.ResponseShapeService;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -43,8 +45,10 @@ public class CampaignCreatorsController {
     }
 
     @GetMapping("/{id}")
-    public JsonNode findById(@PathVariable UUID id) {
-        return responseShapeService.campaignCreator(daoGatewayClient.get("/campaign-creators/" + id, null));
+    public JsonNode findById(@RequestHeader(value = "Authorization", required = false) String authorization,
+                             @PathVariable UUID id) {
+        UUID resolvedBrandId = requestUserResolver.requirePermissionForBrand(authorization, Permission.CAMPAIGN_READ);
+        return responseShapeService.campaignCreator(requireBrandOwned(id, resolvedBrandId));
     }
 
     @PostMapping
@@ -65,8 +69,29 @@ public class CampaignCreatorsController {
     }
 
     @DeleteMapping("/{id}")
-    public void delete(@PathVariable UUID id) {
+    public void delete(@RequestHeader(value = "Authorization", required = false) String authorization,
+                       @PathVariable UUID id) {
+        UUID resolvedBrandId = requestUserResolver.requirePermissionForBrand(authorization, Permission.CAMPAIGN_CREATOR_ASSIGN);
+        requireBrandOwned(id, resolvedBrandId);
         daoGatewayClient.delete("/campaign-creators/" + id);
+    }
+
+    /**
+     * Fetches an assignment and asserts it belongs to the caller's brand.
+     *
+     * <p>See {@code CreatorsController#requireBrandOwned}: the list route filters by brand, a lookup
+     * by id does not, so ownership is checked explicitly. 404 rather than 403 so the response does
+     * not confirm the existence of a row the caller cannot reach.
+     */
+    private JsonNode requireBrandOwned(UUID id, UUID resolvedBrandId) {
+        JsonNode existing = daoGatewayClient.get("/campaign-creators/" + id, null);
+        String ownerBrandId = existing != null && existing.hasNonNull("brandId")
+                ? existing.get("brandId").asText()
+                : null;
+        if (ownerBrandId == null || !resolvedBrandId.toString().equals(ownerBrandId)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Campaign creator not found");
+        }
+        return existing;
     }
 
     private UUID getUuid(ObjectNode payload, String fieldName) {

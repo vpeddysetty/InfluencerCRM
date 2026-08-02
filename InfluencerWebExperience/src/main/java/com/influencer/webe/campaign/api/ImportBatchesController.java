@@ -50,12 +50,19 @@ public class ImportBatchesController {
     }
 
     @GetMapping("/{id}")
-    public JsonNode findById(@PathVariable UUID id) {
-        return responseShapeService.importBatch(daoGatewayClient.get("/import-batches/" + id, null));
+    public JsonNode findById(@RequestHeader(value = "Authorization", required = false) String authorization,
+                             @RequestParam(required = false) UUID brandId,
+                             @PathVariable UUID id) {
+        return responseShapeService.importBatch(requireOwnedImportBatch(authorization, brandId, id));
     }
 
     @GetMapping("/{id}/columns")
-    public JsonNode columns(@PathVariable UUID id) {
+    public JsonNode columns(@RequestHeader(value = "Authorization", required = false) String authorization,
+                            @RequestParam(required = false) UUID brandId,
+                            @PathVariable UUID id) {
+        // An import batch's column headers describe the uploaded file, so this needs the same
+        // ownership check as the batch itself rather than being treated as harmless metadata.
+        requireOwnedImportBatch(authorization, brandId, id);
         return daoGatewayClient.get("/import-batches/" + id + "/columns", null);
     }
 
@@ -150,12 +157,24 @@ public class ImportBatchesController {
     }
 
     private void deleteOwnedImportBatch(String authorization, UUID brandId, UUID id) {
+        requireOwnedImportBatch(authorization, brandId, id);
+        daoGatewayClient.delete("/import-batches/" + id);
+    }
+
+    /**
+     * Fetches an import batch and asserts it belongs to the caller's brand.
+     *
+     * <p>Extracted from the delete path so the read routes enforce the same rule: a lookup by id
+     * carries no brand filter, so without this any caller knowing a UUID could read another
+     * tenant's batch and its column headers.
+     */
+    private JsonNode requireOwnedImportBatch(String authorization, UUID brandId, UUID id) {
         UUID resolvedBrandId = requestUserResolver.resolveBrandId(authorization, brandId);
         JsonNode existing = daoGatewayClient.get("/import-batches/" + id, null);
         String ownerId = existing != null && existing.hasNonNull("brandId") ? existing.get("brandId").asText() : null;
         if (ownerId == null || !resolvedBrandId.toString().equals(ownerId)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Import batch does not belong to authenticated user");
         }
-        daoGatewayClient.delete("/import-batches/" + id);
+        return existing;
     }
 }

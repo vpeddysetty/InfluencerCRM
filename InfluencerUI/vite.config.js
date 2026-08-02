@@ -39,8 +39,11 @@ export default defineConfig({
   build: { target: 'esnext' },
   server: {
     proxy: {
+      // The BFF listens on 8081. This pointed at 18081, where nothing listens, so every
+      // /api call — including the login the shell still routes this way — failed with a
+      // 502 and the app could not be signed into from the browser at all.
       '/api': {
-        target: 'http://localhost:18081',
+        target: process.env.VITE_BFF_URL || 'http://localhost:8081',
         changeOrigin: true,
       },
     },
