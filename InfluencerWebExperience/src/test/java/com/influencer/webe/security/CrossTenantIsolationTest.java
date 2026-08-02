@@ -1,8 +1,8 @@
 package com.influencer.webe.security;
 
 import com.influencer.webe.config.WebExperienceProperties;
-import com.influencer.webe.service.RequestUserResolver;
-import com.influencer.webe.service.SessionService;
+import com.influencer.webe.shared.application.RequestUserResolver;
+import com.influencer.webe.identity.application.SessionService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

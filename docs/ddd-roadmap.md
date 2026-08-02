@@ -342,8 +342,8 @@ changes rather than protocol changes.
 | 2 — Runtime tenancy switch | **complete** — see below |
 | 3 — RBAC enforcement | **complete** — see below |
 | 4 — Modular monolith | **complete** — see below |
-| 5 — Service extraction | **partial** — prerequisites done, split deferred (see below) |
-| 6 — Micro-frontends | **partial** — API + session split done, federation deferred (see below) |
+| 5 — Service extraction | **prerequisites complete** — split is now a per-context decision ([runbook](EXTRACTION-RUNBOOK.md)) |
+| 6 — Micro-frontends | **prerequisites complete** — federation is a manifest edit per route |
 
 ### Phase 0 completion record (2026-08-01)
 
@@ -664,7 +664,33 @@ carry a comment pointing at the other, plus a regression test.
 
 **Full results:** [TEST-REPORT.md](TEST-REPORT.md) — 122/122 passing (61 unit + ArchUnit, 61 behavioural).
 
-### ⚠️ You are now at the stop-and-reassess gate
+### Extraction foundation completed (2026-08-02)
+
+The earlier position was that extraction should wait for a scaling or team driver. That was
+reconsidered: Claude agents change the cost of the mechanical work, and building the foundation
+before scale pressure is cheaper than retrofitting under it. The prerequisites are now complete.
+
+| Added | Why it was blocking |
+|---|---|
+| BFF split into 7 contexts × 3 layers | The BFF was still layer-split; a service cannot move out while its API layer shares a package with six other contexts |
+| 11 BFF ArchUnit rules (23 total) | Boundaries now enforced at build time in both tiers |
+| `shared → identity` inverted via `TokenVerifier` | `RequestUserResolver` is used by every context and imported Identity directly — extracting Identity would have broken all seven |
+| 8 per-context DB roles | Turns the schema split into a boundary the *database* enforces, not just the compiler |
+| [Published contracts](contracts/README.md) | 104 endpoints mapped to contexts, with owned tables, ports and events |
+| `shell/routeManifest.js` | Routes as data; federating a page is a one-line change |
+| [Extraction runbook](EXTRACTION-RUNBOOK.md) | Per-context checklist, ordering, known blockers, effort estimates |
+
+**Still not done, and correctly so:** the runtime split itself. The application connects as one role
+that legitimately spans contexts; switching a service to `svc_<context>` is a config change taken at
+extraction time. Doing it now would break the monolith for no gain.
+
+**Recommended first extraction: Workflow**, not Identity — despite Identity being first in
+dependency order. Workflow has three tables, no money and no inbound ports, so it is the cheapest
+place to discover what this runbook got wrong.
+
+---
+
+### ⚠️ The original stop-and-reassess gate (retained for context)
 
 Phases 0–4 are done. The remaining phases are **gated on a concrete driver**, and at ~19k LOC with
 one developer none of them is currently present:

@@ -1,23 +1,6 @@
 import { NavLink, Outlet } from 'react-router-dom'
 import { MdsKicker, MdsNote } from './Mds'
-
-/**
- * Nav entries and the permission each requires.
- *
- * Gating here is a UX affordance only — the server is authoritative. Hiding a link the user
- * cannot use avoids handing them a dead end; it is not what stops them acting.
- */
-const NAV_ITEMS = [
-  { to: '/import', label: 'Import', permission: 'import:execute' },
-  { to: '/campaigns', label: 'Campaigns', permission: 'campaign:read' },
-  { to: '/creators', label: 'Creators', permission: 'creator:read' },
-  { to: '/content', label: 'Content', permission: 'content:read' },
-  { to: '/workflow', label: 'Workflow', permission: 'workflow:read' },
-  { to: '/coupons', label: 'Coupons', permission: 'coupon:read' },
-  { to: '/marketplace', label: 'Marketplace', permission: 'marketplace:connect' },
-  { to: '/dashboard', label: 'Dashboard', permission: 'attribution:read' },
-  { to: '/payouts', label: 'Payouts', permission: 'payout:read' },
-]
+import { visibleRoutes } from '../shell/routeManifest'
 
 function WorkspaceLayout({
   brandName,
@@ -30,9 +13,9 @@ function WorkspaceLayout({
   role = '',
   permissions = [],
 }) {
-  // An empty permission set means the token predates permission claims; showing the full nav
-  // is the safe default because the server still enforces every action.
-  const canSee = (permission) => permissions.length === 0 || permissions.includes(permission)
+  // Nav comes from the route manifest, so adding a page — or later moving one behind a
+  // federated remote — is a manifest edit rather than a change here.
+  const navItems = visibleRoutes(permissions)
 
   // Solo accounts have exactly one brand: render the name as plain text rather than a
   // one-option dropdown. Same data path, different affordance.
@@ -73,8 +56,8 @@ function WorkspaceLayout({
       </header>
 
       <nav className="workspace-nav" aria-label="Workspace views">
-        {NAV_ITEMS.filter((item) => canSee(item.permission)).map((item) => (
-          <NavLink key={item.to} to={item.to}>
+        {navItems.map((item) => (
+          <NavLink key={item.path} to={item.path}>
             {item.label}
           </NavLink>
         ))}

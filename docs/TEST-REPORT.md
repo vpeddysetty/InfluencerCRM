@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-02
 **Scope:** DDD migration Phases 0–6 (security floor → tenancy → RBAC → modular monolith → schema split & events → UI decomposition)
-**Result:** **122 / 122 passing** (61 unit + ArchUnit, 61 behavioural against the running stack)
+**Result:** **133 / 133 passing** (72 unit + ArchUnit, 61 behavioural against the running stack)
 
 ---
 
@@ -98,14 +98,20 @@ audited on.
 
 ## 4. Test results
 
-### 4.1 Automated unit + architecture tests — 61 passing
+### 4.1 Automated unit + architecture tests — 72 passing
 
 ```
-InfluencerWebExperience  39 tests   JwtServiceTest, CrossTenantIsolationTest, RolePermissionsTest
-InfluencerDAO            22 tests   ServiceTokenFilterTest, CommissionServiceTest, ContextBoundaryTest
+InfluencerWebExperience  50 tests   JwtServiceTest, CrossTenantIsolationTest, RolePermissionsTest,
+                                    BffContextBoundaryTest (11 rules)
+InfluencerDAO            22 tests   ServiceTokenFilterTest, CommissionServiceTest,
+                                    ContextBoundaryTest (12 rules)
                         ───────
-                         61 tests   0 failures, 0 errors
+                         72 tests   0 failures, 0 errors
 ```
+
+**23 ArchUnit rules** enforce context boundaries across both tiers. Both rule sets were verified to
+*fail* on a deliberately planted cross-context import, then return green once it was removed — a
+boundary test that has never failed is not evidence of anything.
 
 Run with `mvn test` in either module.
 
@@ -231,37 +237,54 @@ Stated plainly so the report is not read as more than it is.
 
 ---
 
-## 7. A deliberate deviation on Phases 5–6
+## 7. Phase 5 & 6 — extraction foundation
 
-The roadmap's own gate says extraction requires a concrete driver: independent scaling, separate
-teams, or a compliance boundary. This codebase is **~22k LOC with one contributor** and none of
-those is present.
+The decision here changed mid-project, deliberately. The earlier position was that extraction should
+wait for a scaling or team driver. The counter-argument — that Claude agents change the cost of the
+mechanical work, and that laying the foundation *before* scale pressure is cheaper than retrofitting
+under it — is the one being acted on.
 
-So rather than split into 7 services and 7 federated frontends — which would add distributed
-tracing, per-service CI, contract tests and eventual-consistency bugs to a codebase one person
-maintains — the work that carries real value at this scale and is genuinely prerequisite to
-extraction was done:
+So the **prerequisites for extraction are now complete**, while the runtime split itself is left as a
+deliberate, reversible next step per context.
 
-**Delivered**
+### Delivered
 
-- **Schema-per-context** — 24 tables across 9 Postgres schemas, so a future service can be granted
-  credentials reaching only its own data. Transparent to the app via `search_path`; zero code changed.
-- **Working event backbone** — outbox + relay + handler interface, with a consuming context reacting
-  to another context's event with no direct call between them.
-- **API surface split** — `api.js` became `api/core.js` plus 7 per-context slices (57 functions
-  distributed), so a remote can import only its own slice. A barrel keeps every existing import working.
-- **Shared session boundary** — `SessionContext` isolates exactly what a remote needs from the shell
-  (auth, active brand, permissions), which is the untangling Phase 6 named as its hard prerequisite.
+| Prerequisite | What it means |
+|---|---|
+| **BFF split into 7 contexts × 3 layers** | The BFF was still layer-split (all controllers in one package). A service cannot move out while its API layer sits in a shared pile with six others |
+| **11 BFF ArchUnit rules** | Boundaries enforced at build time in *both* tiers — 23 rules total |
+| **`shared → identity` coupling inverted** | `RequestUserResolver` (used by every context) imported Identity's `SessionService`. Extracting Identity would have broken all seven contexts. Now `shared` owns a `TokenVerifier` contract that Identity implements |
+| **8 per-context DB roles** | `svc_identity`…`svc_mapping`, each scoped to its own schema. Verified: `svc_finance` **cannot** write `creator.creators`; `svc_creator` **cannot** write `finance.influencer_payouts`; both **can** publish events and read the tenancy spine |
+| **Published contracts** | [contracts/README.md](contracts/README.md) — 104 endpoints mapped to 8 contexts, plus owned tables, ports and events |
+| **Route manifest** | `shell/routeManifest.js` declares routes as data with owning context and api slice. Federating a page becomes a one-line change |
+| **Extraction runbook** | [EXTRACTION-RUNBOOK.md](EXTRACTION-RUNBOOK.md) — per-context checklist, ordering, known blockers, effort estimates |
 
-**Not delivered, and why**
+### Verified isolation
 
-- **Separate deployables per context.** The boundaries are enforced by ArchUnit at compile time; the
-  seams are cut. Splitting the runtime adds operational cost with no current benefit.
-- **Module Federation remotes.** Same reasoning: `App.jsx` still owns page state. The shared boundary
-  now exists, so this remains a mechanical step whenever a driver appears.
+```sql
+svc_finance -> finance.influencer_payouts (own)      allowed
+svc_finance -> creator.creators (foreign)            DENIED
+svc_finance -> campaign.campaigns (foreign)          DENIED
+svc_creator -> finance.influencer_payouts (foreign)  DENIED
+svc_creator -> creator.creators (own)                allowed
+svc_creator -> shared.domain_events (publish)        allowed
+svc_creator -> identity.brands SELECT                allowed
+svc_creator -> identity.brands INSERT                DENIED
+```
 
-Everything above is reversible and additive. Nothing precludes full extraction later — that was the
-point of doing the boundaries first.
+This is what turns the schema split from an organisational convention into a boundary the database
+enforces. ArchUnit stops a developer crossing it; these roles stop the *runtime* crossing it.
+
+### Not delivered, and why
+
+- **Separate deployables.** Every prerequisite is in place; the step is now gated on a per-context
+  decision, not on missing groundwork. See the runbook's checklist.
+- **Module Federation remotes.** Same — the manifest and `SessionContext` make each one a scoped
+  change rather than a redesign.
+
+The application still connects as `influencercrm_user`, which legitimately spans contexts in one
+connection. Switching a service to its own role is a config change taken at extraction time; doing
+it now would break the monolith.
 
 ---
 
@@ -275,7 +298,8 @@ point of doing the boundaries first.
 | RBAC + separation of duties | ✅ enforced server-side, gated in UI |
 | Session lifecycle | ✅ JWT + rotating refresh tokens |
 | Domain events | ✅ outbox → relay → consumer, transactional |
-| Context boundaries | ✅ 12 ArchUnit rules, proven to fail on violation |
+| Context boundaries | ✅ 23 ArchUnit rules (12 DAO + 11 BFF), both proven to fail on violation |
+| Extraction prerequisites | ✅ per-context DB roles, published contracts, route manifest, runbook |
 | Data integrity | ✅ reconciliation passes |
 
-**122 / 122 tests passing.**
+**133 / 133 tests passing.**
