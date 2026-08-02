@@ -1,17 +1,20 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { federation } from '@module-federation/vite'
+import { federationRemotes } from './src/shell/gateway/originRegistry.js'
 
 /**
- * The shell (host).
+ * The presentation gateway (federation host).
  *
- * Consumes context remotes declared below. React is shared as a singleton because two copies of
- * React in one page break hooks — the classic federation failure and the reason this is not
- * optional.
+ * One origin the user actually visits. It authenticates once, holds the session, and pulls each
+ * bounded context's UI from that context's own origin — so many deployables look like one
+ * application and there is exactly one login.
  *
- * Remotes are opt-in via VITE_USE_REMOTES: with it unset the shell renders its local pages, so a
- * remote that is down or mid-deploy cannot take the whole app with it. That fallback is what makes
- * federation safe to adopt incrementally rather than as a big-bang cutover.
+ * Remotes come from `originRegistry.js` rather than being listed here, so moving one to a CDN or a
+ * preview environment is a config change and the registry cannot drift from what the shell loads.
+ *
+ * React is shared as a singleton: two copies in one page break hooks, and that is also what lets a
+ * remote read the gateway's React context despite being served from a different origin.
  */
 const useRemotes = process.env.VITE_USE_REMOTES === 'true'
 
@@ -23,13 +26,7 @@ export default defineConfig({
           federation({
             name: 'shell',
             dts: false,
-            remotes: {
-              mf_workflow: {
-                type: 'module',
-                name: 'mf_workflow',
-                entry: process.env.VITE_MF_WORKFLOW_ENTRY || 'http://localhost:5174/remoteEntry.js',
-              },
-            },
+            remotes: federationRemotes(),
             shared: {
               react: { singleton: true, requiredVersion: '^19.0.0' },
               'react-dom': { singleton: true, requiredVersion: '^19.0.0' },

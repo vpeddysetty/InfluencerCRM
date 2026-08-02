@@ -1,4 +1,5 @@
 import { createContext, useContext, useMemo } from 'react'
+import { useGateway } from './gateway/GatewayContext'
 
 /**
  * The only state a micro-frontend remote needs from the shell.
@@ -14,36 +15,46 @@ import { createContext, useContext, useMemo } from 'react'
 const SessionContext = createContext(null)
 
 export function SessionProvider({ value, children }) {
+  // The gateway is the authority on session and permissions. App.jsx still passes page state
+  // through `value`; anything the gateway owns is taken from it instead, so a remote on another
+  // origin and the shell can never disagree about who is logged in.
+  const gateway = useGateway()
+
   // Memoised on the fields that actually matter: without this every shell re-render would hand
   // remotes a new object and re-render all of them.
   const session = useMemo(
     () => ({
-      userId: value.userId,
-      userName: value.userName,
-      email: value.email,
+      userId: gateway.userId || value.userId,
+      userName: gateway.userName || value.userName,
+      email: gateway.email || value.email,
+      // Deliberately NOT exposed to remotes: they receive the `fetch` capability below instead,
+      // so a remote cannot leak a credential it never held.
       authToken: value.authToken,
 
-      accountId: value.accountId,
-      brandId: value.brandId,
-      brandName: value.brandName,
-      availableBrands: value.availableBrands,
+      accountId: gateway.accountId || value.accountId,
+      brandId: gateway.brandId || value.brandId,
+      brandName: gateway.brandName || value.brandName,
+      availableBrands: gateway.availableBrands?.length
+        ? gateway.availableBrands
+        : value.availableBrands,
       onSwitchBrand: value.onSwitchBrand,
 
-      role: value.role,
-      permissions: value.permissions,
+      role: gateway.role || value.role,
+      permissions: gateway.permissions?.length ? gateway.permissions : value.permissions,
+
+      // The only sanctioned route to the API from a remote.
+      fetch: gateway.fetch,
 
       /**
        * UX affordance only — the server re-checks every action. Hiding a control the caller
        * cannot use avoids a dead end; it is not what stops them acting.
        */
-      can: (permission) =>
-        !value.permissions || value.permissions.length === 0
-          ? true
-          : value.permissions.includes(permission),
+      can: gateway.can,
 
       isAgency: (value.availableBrands || []).length > 1,
     }),
     [
+      gateway,
       value.userId,
       value.userName,
       value.email,

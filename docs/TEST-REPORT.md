@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-02
 **Scope:** DDD migration Phases 0–6 (security floor → tenancy → RBAC → modular monolith → schema split & events → UI decomposition)
-**Result:** **189 / 189 passing** (102 unit + ArchUnit across 9 modules, 87 behavioural against a 9-service stack)
+**Result:** **196 / 196 passing** (102 unit + ArchUnit across 9 modules, 94 behavioural against 9 services + 6 micro-frontends)
 
 ---
 
@@ -36,9 +36,16 @@ cd InfluencerAttributionService && mvn spring-boot:run   # :8448
 cd InfluencerFinanceService     && mvn spring-boot:run   # :8449
 cd InfluencerContentService     && mvn spring-boot:run   # :8450
 
-# Frontend
-cd InfluencerUI              && npm run dev              # :5173 (shell)
-cd InfluencerWorkflowUI      && npm run dev              # :5174 (federated remote)
+# Micro-frontends, one per bounded context
+cd InfluencerWorkflowUI      && npm run dev              # :5174
+cd InfluencerCampaignsUI     && npm run dev              # :5175
+cd InfluencerCreatorsUI      && npm run dev              # :5176
+cd InfluencerCommerceUI      && npm run dev              # :5177
+cd InfluencerFinanceUI       && npm run dev              # :5178
+cd InfluencerContentUI       && npm run dev              # :5179
+
+# The presentation gateway — the only origin a user visits
+cd InfluencerUI && VITE_USE_REMOTES=true npm run dev     # :5173
 ```
 
 **Federated mode** — the shell defaults to its bundled pages. To consume remotes:
@@ -157,7 +164,7 @@ boundary test that has never failed is not evidence of anything.
 
 Run with `mvn test` in either module.
 
-### 4.2 Behavioural tests against the running stack — 87 passing
+### 4.2 Behavioural tests against the running stack — 94 passing
 
 Run with `bash tests/behavioural_suite.sh` while the stack is up.
 
@@ -172,7 +179,8 @@ Run with `bash tests/behavioural_suite.sh` while the stack is up.
 | G. Data integrity | 4 | ✅ all pass |
 | H. Extracted Workflow service | 9 | ✅ all pass |
 | I. All extracted services | 17 | ✅ all pass |
-| **Total** | **87** | **✅ 0 failures** |
+| J. Presentation gateway & micro-frontends | 7 | ✅ all pass |
+| **Total** | **94** | **✅ 0 failures** |
 
 #### A. Authentication & security floor
 
@@ -291,22 +299,41 @@ the four `orphaned_references` monitoring views all report empty.
 
 ---
 
-## 4.3 Micro-frontend federation
+## 4.3 Presentation gateway & micro-frontends
 
-The Workflow page is served from a federated remote (`mf_workflow`, port 5174), with the shell
-falling back to its bundled copy.
+The UI is now six micro-frontends, each served from its own origin, assembled behind a single
+gateway that authenticates once. See [PRESENTATION-GATEWAY.md](PRESENTATION-GATEWAY.md).
 
-| Mode | Build | Modules |
+| Remote | Origin | Pages |
 |---|---|---|
-| `VITE_USE_REMOTES` unset (default) | ✅ | 51 — local pages, no federation runtime |
-| `VITE_USE_REMOTES=true` | ✅ | 131 — federation runtime loaded |
-| Remote standalone (`InfluencerWorkflowUI`) | ✅ | `remoteEntry.js` emitted |
+| `mf_workflow` | :5174 | Workflow |
+| `mf_campaigns` | :5175 | Campaigns, Import |
+| `mf_creators` | :5176 | Creators |
+| `mf_commerce` | :5177 | Coupons, Marketplace, Dashboard |
+| `mf_finance` | :5178 | Payouts |
+| `mf_content` | :5179 | Content |
 
-Remotes are **opt-in and fall back at runtime**. A remote that is down or mid-deploy degrades to the
-bundled page rather than rendering a blank route — which is what makes federation safe to adopt one
-context at a time rather than as a big-bang cutover.
+All six serve `remoteEntry.js` (200) and allow cross-origin loading from the gateway.
 
-Adding the next remote is a one-line change in `shell/routeManifest.js`.
+**The problem the gateway solves:** `localStorage` is origin-scoped, so a token written at :5173 is
+invisible to a remote at :5174. Without a gateway that forces either six separate logins, or
+broadcasting the token to six origins. Instead the shell is the sole holder of the credential and
+remotes receive `authorizedFetch` — a narrow, revocable capability. **A remote cannot leak a token
+it never held.**
+
+React is shared as a federation singleton, which is what lets a remote on another origin read the
+gateway's React context. It is also why two copies of React would break hooks — the same setting
+does both jobs.
+
+| Build mode | Result | Modules |
+|---|---|---|
+| Bundled (default) | ✅ | 51 |
+| `VITE_USE_REMOTES=true` | ✅ | 131 |
+| Each remote standalone | ✅ | `remoteEntry.js` emitted ×6 |
+
+**Remotes fall back at runtime.** A remote that is down degrades to the bundled page and logs a
+warning rather than rendering a blank route — federation becomes adoptable one context at a time,
+and a remote outage is a degraded experience rather than an outage.
 
 ---
 
@@ -445,4 +472,4 @@ it now would break the monolith.
 | First extraction (Workflow) | ✅ own service + own DB role, dual-run identical, cutover and rollback both proven |
 | Data integrity | ✅ reconciliation passes |
 
-**189 / 189 tests passing.**
+**196 / 196 tests passing.**

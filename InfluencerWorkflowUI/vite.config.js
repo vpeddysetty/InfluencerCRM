@@ -32,6 +32,6 @@ export default defineConfig({
     // Federation requires a modern target: the runtime uses top-level await.
     target: 'esnext',
   },
-  server: { port: 5174, strictPort: true },
+  server: { port: 5174, strictPort: true, cors: true },
   preview: { port: 5174, strictPort: true },
 })

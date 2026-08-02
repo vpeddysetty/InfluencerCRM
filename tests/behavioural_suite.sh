@@ -194,15 +194,38 @@ if curl -s -o /dev/null --max-time 4 "http://localhost:8445/users" 2>/dev/null; 
   probe_svc content     8450 /landing-templates
 
   # The database is the backstop if code ever drifts across a boundary.
-  chk "svc_finance CANNOT write creator tables"  "$(docker exec influencercrm-postgres psql -U influencercrm_user -d influencercrm_db -t -A -c "select has_table_privilege('svc_finance','creator.creators','INSERT')" 2>/dev/null | tr -d '')" "f"
-  chk "svc_creator CANNOT write finance tables"  "$(docker exec influencercrm-postgres psql -U influencercrm_user -d influencercrm_db -t -A -c "select has_table_privilege('svc_creator','finance.influencer_payouts','INSERT')" 2>/dev/null | tr -d '')" "f"
-  chk "svc_content CANNOT write identity tables" "$(docker exec influencercrm-postgres psql -U influencercrm_user -d influencercrm_db -t -A -c "select has_table_privilege('svc_content','identity.users','INSERT')" 2>/dev/null | tr -d '')" "f"
+  chk "svc_finance CANNOT write creator tables"  "$(docker exec influencercrm-postgres psql -U influencercrm_user -d influencercrm_db -t -A -c "select has_table_privilege('svc_finance','creator.creators','INSERT')" 2>/dev/null | tr -d '
+')" "f"
+  chk "svc_creator CANNOT write finance tables"  "$(docker exec influencercrm-postgres psql -U influencercrm_user -d influencercrm_db -t -A -c "select has_table_privilege('svc_creator','finance.influencer_payouts','INSERT')" 2>/dev/null | tr -d '
+')" "f"
+  chk "svc_content CANNOT write identity tables" "$(docker exec influencercrm-postgres psql -U influencercrm_user -d influencercrm_db -t -A -c "select has_table_privilege('svc_content','identity.users','INSERT')" 2>/dev/null | tr -d '
+')" "f"
 
   # Severing left no dangling references behind.
-  chk "no orphaned cross-context references" "$(docker exec influencercrm-postgres psql -U influencercrm_user -d influencercrm_db -t -A -c "select (select count(*) from creator.orphaned_references)+(select count(*) from attribution.orphaned_references)+(select count(*) from finance.orphaned_references)+(select count(*) from content.orphaned_references)" 2>/dev/null | tr -d '')" "0"
-  chk "cross-context FKs severed (spine kept)" "$(docker exec influencercrm-postgres psql -U influencercrm_user -d influencercrm_db -t -A -c "select count(*) from pg_constraint c join pg_class t on t.oid=c.conrelid join pg_namespace n on n.oid=t.relnamespace join pg_class cf on cf.oid=c.confrelid join pg_namespace nf on nf.oid=cf.relnamespace where c.contype='f' and n.nspname<>nf.nspname and n.nspname in ('identity','creator','campaign','workflow','attribution','finance','content','mapping') and not (nf.nspname='identity' and cf.relname in ('brands','users'))" 2>/dev/null | tr -d '')" "0"
+  chk "no orphaned cross-context references" "$(docker exec influencercrm-postgres psql -U influencercrm_user -d influencercrm_db -t -A -c "select (select count(*) from creator.orphaned_references)+(select count(*) from attribution.orphaned_references)+(select count(*) from finance.orphaned_references)+(select count(*) from content.orphaned_references)" 2>/dev/null | tr -d '
+')" "0"
+  chk "cross-context FKs severed (spine kept)" "$(docker exec influencercrm-postgres psql -U influencercrm_user -d influencercrm_db -t -A -c "select count(*) from pg_constraint c join pg_class t on t.oid=c.conrelid join pg_namespace n on n.oid=t.relnamespace join pg_class cf on cf.oid=c.confrelid join pg_namespace nf on nf.oid=cf.relnamespace where c.contype='f' and n.nspname<>nf.nspname and n.nspname in ('identity','creator','campaign','workflow','attribution','finance','content','mapping') and not (nf.nspname='identity' and cf.relname in ('brands','users'))" 2>/dev/null | tr -d '
+')" "0"
 else
   echo "  SKIP  extracted services not running on :8445-:8450"
+fi
+
+echo
+echo "=============================================================="
+echo " J. PRESENTATION GATEWAY & MICRO-FRONTENDS"
+echo "=============================================================="
+# Each bounded context serves its UI from its own origin; the gateway federates them behind one
+# login. These check the origins are reachable and loadable cross-origin — not that React renders,
+# which needs a browser.
+if curl -s -o /dev/null --max-time 4 "http://localhost:5174/remoteEntry.js" 2>/dev/null; then
+  for entry in "workflow 5174" "campaigns 5175" "creators 5176" "commerce 5177" "finance 5178" "content 5179"; do
+    set -- $entry
+    chk "$1 remote serves remoteEntry.js" "$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:$2/remoteEntry.js" --max-time 15)" "200"
+  done
+  # Without CORS the gateway cannot load a remote from another origin at all.
+  chk "remotes allow cross-origin load from the gateway" "$(curl -s -D - -o /dev/null -H 'Origin: http://localhost:5173' 'http://localhost:5175/remoteEntry.js' --max-time 15 | grep -ci 'access-control-allow-origin' | tr -d '')" "1"
+else
+  echo "  SKIP  micro-frontend remotes not running on :5174-:5179"
 fi
 
 echo
