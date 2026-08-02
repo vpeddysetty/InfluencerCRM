@@ -113,6 +113,53 @@ user out.
 For a single-process local run only, `web-experience.allow-ephemeral-jwt-key=true` restores the old
 behaviour.
 
+#### Rotating the JWT signing key without logging anyone out
+
+Rotation used to be an outage: one key both signed and verified, so replacing it invalidated every
+token already issued. That made rotation something to avoid — the wrong incentive for a credential
+that should change regularly.
+
+Two settings now separate the roles:
+
+| Setting | Role |
+|---|---|
+| `web-experience.jwt-signing-key` | Signs new tokens, and verifies |
+| `web-experience.jwt-previous-keys` | Verification only. Comma-separated **public** JWKs |
+
+**The procedure — no user is signed out at any point:**
+
+```bash
+# 1. Generate the replacement (see above), then derive its public half for later.
+
+# 2. Deploy with the new key active and the OLD key retained for verification.
+#    Tokens already in the wild were signed by the old key and keep working.
+WEBE_JWT_SIGNING_KEY='{new key, private}'
+WEBE_JWT_PREVIOUS_KEYS='{old key, PUBLIC only}'
+
+# 3. Confirm both keys are advertised:
+curl -s http://localhost:8081/.well-known/jwks.json | jq '.keys | length'   # → 2
+
+# 4. Wait one access-token lifetime (web-experience.access-token-ttl-minutes, default 30 min).
+#    Every token signed by the old key has now expired.
+
+# 5. Deploy again with the predecessor removed. Rotation complete.
+WEBE_JWT_PREVIOUS_KEYS=''
+```
+
+Only the **public** half of a retired key belongs in `jwt-previous-keys`. Keeping its private half
+would leave a credential able to sign tokens — and being unable to sign with it is the entire point
+of rotating.
+
+Step 5 is not optional. Until it happens the old key is still trusted, so the rotation has widened
+the set of valid signers rather than replaced it.
+
+Multiple predecessors are supported, which matters during an incident when two rotations may happen
+in quick succession.
+
+**Verified by `KeyRotationTest`:** a token issued before rotation still verifies afterwards; new
+tokens are signed by the new key; retiring the predecessor rejects its tokens; an unrelated key is
+rejected throughout; and the JWKS endpoint never publishes private material.
+
 ### 5. Purge the key from git history
 
 Rewriting history is disruptive and coordinated — schedule it deliberately.

@@ -64,22 +64,31 @@ public class JwtService {
     private static final String ISSUER = "influencrm-web-experience";
 
     private final Duration accessTokenTtl;
-    /** Whether a missing signing key may fall back to an ephemeral one. Local single-process only. */
-    private final boolean allowEphemeralKey;
+    /**
+     * One key signs; several may verify. That split is what lets a key be rotated without logging
+     * everyone out — see {@link SigningKeySet}.
+     */
+    private final SigningKeySet keySet;
     private final RSAKey signingKey;
     private final RSASSASigner signer;
-    private final RSASSAVerifier verifier;
 
     public JwtService(WebExperienceProperties properties) {
         this.accessTokenTtl = Duration.ofMinutes(properties.getAccessTokenTtlMinutes());
-        this.allowEphemeralKey = properties.isAllowEphemeralJwtKey();
-        this.signingKey = resolveSigningKey(properties.getJwtSigningKey());
+        this.keySet = SigningKeySet.from(
+                properties.getJwtSigningKey(),
+                properties.getJwtPreviousKeys(),
+                properties.isAllowEphemeralJwtKey());
+        this.signingKey = keySet.activeKey();
         try {
             this.signer = new RSASSASigner(signingKey.toRSAPrivateKey());
-            this.verifier = new RSASSAVerifier(signingKey.toRSAPublicKey());
         } catch (JOSEException exception) {
             throw new IllegalStateException("Unable to initialise JWT signer", exception);
         }
+    }
+
+    /** Public keys other services verify against. Exposed at /.well-known/jwks.json. */
+    public com.nimbusds.jose.jwk.JWKSet publicJwkSet() {
+        return keySet.publicJwkSet();
     }
 
     public String issueAccessToken(TenantContext context, String provider) {
@@ -122,7 +131,15 @@ public class JwtService {
         }
         try {
             SignedJWT jwt = SignedJWT.parse(token);
-            if (!jwt.verify(verifier)) {
+
+            // Pick the key the token names rather than trying each in turn. An unknown kid means
+            // the token was signed by something this service does not trust, and guessing would
+            // only slow the rejection down.
+            Optional<RSAKey> key = keySet.verificationKey(jwt.getHeader().getKeyID());
+            if (key.isEmpty()) {
+                return Optional.empty();
+            }
+            if (!jwt.verify(new RSASSAVerifier(key.get().toRSAPublicKey()))) {
                 return Optional.empty();
             }
 
@@ -197,54 +214,4 @@ public class JwtService {
         return parsed;
     }
 
-    /**
-     * Loads the configured RSA key, or generates an ephemeral one for local development.
-     *
-     * <p>An ephemeral key means every restart invalidates outstanding tokens and a second instance
-     * cannot verify the first's tokens — acceptable for a single local process, never for a
-     * deployed environment. Configure {@code web-experience.jwt-signing-key} there.
-     */
-    private RSAKey resolveSigningKey(String configuredJwk) {
-        if (configuredJwk != null && !configuredJwk.isBlank()) {
-            try {
-                RSAKey parsed = RSAKey.parse(configuredJwk);
-                if (parsed.toRSAPrivateKey() == null) {
-                    throw new IllegalStateException("web-experience.jwt-signing-key must include the private key");
-                }
-                return parsed;
-            } catch (ParseException | JOSEException exception) {
-                throw new IllegalStateException("web-experience.jwt-signing-key is not a valid RSA JWK", exception);
-            }
-        }
-
-        // Refuse to start rather than silently issue tokens no other instance can verify.
-        //
-        // An ephemeral key is survivable in a single local process and catastrophic anywhere else:
-        // a second instance rejects the first's tokens, which surfaces as intermittent 401s that
-        // look like a session bug rather than a configuration one. Now that Workflow runs as a
-        // separate service, "anywhere else" includes any deployment.
-        if (!allowEphemeralKey) {
-            throw new IllegalStateException(
-                    "web-experience.jwt-signing-key is not configured. An ephemeral key cannot be "
-                            + "verified by another instance or service, so tokens would fail "
-                            + "intermittently. Set a persistent RSA JWK, or set "
-                            + "web-experience.allow-ephemeral-jwt-key=true for a single-process "
-                            + "local run.");
-        }
-
-        log.warn("No web-experience.jwt-signing-key configured; generating an ephemeral RSA key. "
-                + "Tokens will not survive restart and cannot be verified by other instances. "
-                + "This is permitted only because web-experience.allow-ephemeral-jwt-key=true.");
-        try {
-            KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
-            generator.initialize(2048);
-            KeyPair keyPair = generator.generateKeyPair();
-            return new RSAKey.Builder((RSAPublicKey) keyPair.getPublic())
-                    .privateKey((RSAPrivateKey) keyPair.getPrivate())
-                    .keyID(UUID.randomUUID().toString())
-                    .build();
-        } catch (Exception exception) {
-            throw new IllegalStateException("Unable to generate a development signing key", exception);
-        }
-    }
 }

@@ -149,24 +149,42 @@ mysterious.
 
 ---
 
-## Scaling: the Redis swap
+## Scaling: Redis sessions
 
-`SessionStore` is an interface for one reason: the in-memory implementation is **correct for a single
-instance and nothing else**. With two DPS instances behind a load balancer, instance B cannot see a
-session created by instance A, and the user is logged out whenever the balancer moves them — the same
-failure the refresh-token map caused before it moved to Postgres.
+**Implemented.** `RedisSessionStore` shares sessions across every DPS instance, so a load balancer
+may move a user freely and a restart no longer signs anyone out.
 
-Swapping is a bean:
-
-```java
-@Bean
-public SessionStore redisSessionStore(RedisTemplate<String, UiSession> template, DpsProperties props) {
-    return new RedisSessionStore(template, props);
-}
+```properties
+dps.session-store=redis          # anything else uses in-memory Caffeine
+spring.data.redis.host=localhost
+spring.data.redis.port=6379
 ```
 
-`@ConditionalOnMissingBean` means the in-memory one steps aside and **no caller changes**. The
-service logs a warning at startup so the limitation is noticed before it bites.
+The choice is **explicit, not inferred from whether Redis happens to be reachable**. Silently
+degrading to in-memory in a multi-instance deployment would appear to work and then log users out at
+random — the worst available failure mode, because it presents as a mysterious application bug
+rather than a missing dependency. With `session-store=redis` and Redis unreachable, the service
+refuses to start.
+
+### Two keys per session
+
+```
+dps:session:{sessionId}   → the serialised session   (TTL = session lifetime)
+dps:user:{userId}         → SET of that user's session ids
+```
+
+The reverse index exists so "log this user out everywhere" is a set lookup rather than a keyspace
+scan. `KEYS` over a production keyspace is the classic way to stall Redis, and revoking a
+compromised account is precisely when you cannot afford that.
+
+Redis TTL provides sliding expiry: every read rewrites the key with a fresh TTL, so activity extends
+the session and idleness ends it.
+
+### Verified
+
+A session was created, the DPS was **restarted**, and the same cookie still resolved — 31
+permissions intact, API proxy still returning 200. With the in-memory store that sequence logs the
+user out.
 
 ---
 

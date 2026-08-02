@@ -52,6 +52,13 @@
             <groupId>com.github.ben-manes.caffeine</groupId>
             <artifactId>caffeine</artifactId>
         </dependency>
+        <!-- Redis backs the session store when more than one DPS instance runs. Optional at
+             runtime: the service falls back to Caffeine when Redis is not configured, so a
+             single-instance local run needs no broker. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
 
         <dependency>
             <groupId>org.springframework.boot</groupId>

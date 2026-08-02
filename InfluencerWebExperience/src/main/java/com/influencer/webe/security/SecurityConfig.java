@@ -34,7 +34,10 @@ public class SecurityConfig {
     /** Endpoints that must remain reachable without a user token, and why. */
     private static final String[] PUBLIC_GET_PATHS = {
             "/health",
-            "/s/**"                       // public creator landing pages — served to anonymous visitors
+            "/s/**",                      // public creator landing pages — served to anonymous visitors
+            // Public keys, by definition. Every JWKS endpoint is unauthenticated; the response
+            // contains only public halves and is what lets another service verify tokens itself.
+            "/.well-known/jwks.json"
     };
 
     private static final String[] PUBLIC_POST_PATHS = {

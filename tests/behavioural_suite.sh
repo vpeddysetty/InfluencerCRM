@@ -246,8 +246,10 @@ if curl -s -o /dev/null --max-time 4 "$DPS/actuator/health" 2>/dev/null; then
   chk "login through the DPS succeeds" "$(echo "$LOGIN" | python -c 'import sys,json;print(str(json.load(sys.stdin)["authenticated"]).lower())' 2>/dev/null)" "true"
 
   # The reason this service exists: no credential reaches JavaScript.
-  chk "login response contains NO token" "$(echo "$LOGIN" | grep -ciE 'accessToken|refreshToken|eyJ' | tr -d '')" "0"
-  chk "session cookie is HttpOnly" "$(curl -s -D - -o /dev/null -X POST "$DPS/dps/auth/login" -H 'Content-Type: application/json' -d '{"email":"demo.admin@northstar.test","password":"DemoPass123!"}' --max-time 25 | grep -i 'INFLUENCRM_SESSION' | grep -ci 'HttpOnly' | tr -d '')" "1"
+  chk "login response contains NO token" "$(echo "$LOGIN" | grep -ciE 'accessToken|refreshToken|eyJ' | tr -d '
+')" "0"
+  chk "session cookie is HttpOnly" "$(curl -s -D - -o /dev/null -X POST "$DPS/dps/auth/login" -H 'Content-Type: application/json' -d '{"email":"demo.admin@northstar.test","password":"DemoPass123!"}' --max-time 25 | grep -i 'INFLUENCRM_SESSION' | grep -ci 'HttpOnly' | tr -d '
+')" "1"
 
   chk "session survives via cookie alone" "$(curl -s -b "$JAR" "$DPS/dps/session" --max-time 15 | python -c 'import sys,json;print(str(json.load(sys.stdin)["authenticated"]).lower())' 2>/dev/null)" "true"
 
@@ -260,14 +262,51 @@ if curl -s -o /dev/null --max-time 4 "$DPS/actuator/health" 2>/dev/null; then
   chk "authorize denies a permission not held" "$(curl -s -b "$JAR" "$DPS/dps/authorize?permission=account:billing" --max-time 15 | python -c 'import sys,json;print(str(json.load(sys.stdin)["granted"]).lower())' 2>/dev/null)" "false"
 
   # Credentialed CORS cannot use a wildcard, so the DPS must echo the specific origin.
-  chk "CORS echoes the remote origin"      "$(curl -s -D - -o /dev/null -H 'Origin: http://localhost:5177' "$DPS/dps/session" --max-time 15 | grep -ci 'access-control-allow-origin: http://localhost:5177' | tr -d '')" "1"
-  chk "CORS allows credentials"            "$(curl -s -D - -o /dev/null -H 'Origin: http://localhost:5177' "$DPS/dps/session" --max-time 15 | grep -ci 'access-control-allow-credentials: true' | tr -d '')" "1"
-  chk "CORS rejects an unlisted origin"    "$(curl -s -D - -o /dev/null -H 'Origin: http://evil.example' "$DPS/dps/session" --max-time 15 | grep -ci 'access-control-allow-origin: http://evil.example' | tr -d '')" "0"
+  chk "CORS echoes the remote origin"      "$(curl -s -D - -o /dev/null -H 'Origin: http://localhost:5177' "$DPS/dps/session" --max-time 15 | grep -ci 'access-control-allow-origin: http://localhost:5177' | tr -d '
+')" "1"
+  chk "CORS allows credentials"            "$(curl -s -D - -o /dev/null -H 'Origin: http://localhost:5177' "$DPS/dps/session" --max-time 15 | grep -ci 'access-control-allow-credentials: true' | tr -d '
+')" "1"
+  chk "CORS rejects an unlisted origin"    "$(curl -s -D - -o /dev/null -H 'Origin: http://evil.example' "$DPS/dps/session" --max-time 15 | grep -ci 'access-control-allow-origin: http://evil.example' | tr -d '
+')" "0"
 
   chk "login-time cache endpoint reachable" "$(curl -s -o /dev/null -w '%{http_code}' -b "$JAR" "$DPS/dps/cache" --max-time 15)" "200"
 else
   echo "  SKIP  DPS not running on :8090"
 fi
+
+echo
+echo "=============================================================="
+echo " L. REDIS SESSIONS & KEY ROTATION"
+echo "=============================================================="
+if docker exec influencercrm-redis redis-cli ping >/dev/null 2>&1; then
+  chk "redis reachable" "$(docker exec influencercrm-redis redis-cli ping 2>/dev/null | tr -d '
+')" "PONG"
+
+  RJAR="$TEMP/redis_suite_cookies.txt"; rm -f "$RJAR"
+  curl -s -c "$RJAR" -o /dev/null -X POST "$DPS/dps/auth/login" -H 'Content-Type: application/json' -d '{"email":"demo.admin@northstar.test","password":"DemoPass123!"}' --max-time 25
+  # Two keys per session: the session itself, and a reverse index so "log out everywhere" is a
+  # set lookup rather than a keyspace scan.
+  chk "session written to redis"     "$(docker exec influencercrm-redis redis-cli --scan --pattern 'dps:session:*' 2>/dev/null | grep -cq . && echo yes || echo no)" "yes"
+  chk "user reverse-index written"   "$(docker exec influencercrm-redis redis-cli --scan --pattern 'dps:user:*' 2>/dev/null | grep -cq . && echo yes || echo no)" "yes"
+  RKEY=$(docker exec influencercrm-redis redis-cli --scan --pattern 'dps:session:*' 2>/dev/null | head -1 | tr -d '
+')
+  chk "session key carries a TTL"    "$(docker exec influencercrm-redis redis-cli TTL "$RKEY" 2>/dev/null | tr -d '
+' | awk '{print ($1 > 0) ? "yes" : "no"}')" "yes"
+  chk "session usable after storing" "$(curl -s -b "$RJAR" "$DPS/dps/session" --max-time 15 | python -c 'import sys,json;print(str(json.load(sys.stdin)["authenticated"]).lower())' 2>/dev/null)" "true"
+else
+  echo "  SKIP  redis not running"
+fi
+
+# The JWKS endpoint is what lets another service verify tokens itself, and during a rotation it
+# advertises both keys so the overlap can be confirmed before retiring the old one.
+JWKS=$(curl -s "$B/.well-known/jwks.json" --max-time 15)
+chk "jwks endpoint is public"            "$(curl -s -o /dev/null -w '%{http_code}' "$B/.well-known/jwks.json" --max-time 15)" "200"
+chk "jwks publishes at least one key"    "$(echo "$JWKS" | python -c 'import sys,json;print("yes" if len(json.load(sys.stdin)["keys"])>0 else "no")' 2>/dev/null)" "yes"
+# The single most damaging mistake available here would be publishing the signing key itself.
+chk "jwks leaks NO private exponent"     "$(echo "$JWKS" | grep -c '\"d\"' | tr -d '
+')" "0"
+chk "jwks leaks NO private primes"       "$(echo "$JWKS" | grep -cE '\"[pq]\"' | tr -d '
+')" "0"
 
 echo
 echo "=============================================================="

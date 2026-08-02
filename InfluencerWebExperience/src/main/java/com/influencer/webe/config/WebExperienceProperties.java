@@ -14,6 +14,11 @@ public class WebExperienceProperties {
     // Escape hatch for a single-process local run. Anywhere with more than one instance — which now
     // includes any deployment, since Workflow is its own service — must configure a real key.
     private boolean allowEphemeralJwtKey = false;
+    /**
+     * Public JWKs of rotated-out keys, comma-separated. Still trusted for verification so a
+     * rotation does not invalidate tokens already in flight.
+     */
+    private String jwtPreviousKeys;
     private String daoServiceToken;
     private boolean daoTlsVerificationEnabled = true;
     private String daoTrustStore;
@@ -81,6 +86,14 @@ public class WebExperienceProperties {
 
     public void setJwtSigningKey(String jwtSigningKey) {
         this.jwtSigningKey = jwtSigningKey;
+    }
+
+    public String getJwtPreviousKeys() {
+        return jwtPreviousKeys;
+    }
+
+    public void setJwtPreviousKeys(String jwtPreviousKeys) {
+        this.jwtPreviousKeys = jwtPreviousKeys;
     }
 
     public boolean isAllowEphemeralJwtKey() {

@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-02
 **Scope:** DDD migration Phases 0–6 (security floor → tenancy → RBAC → modular monolith → schema split & events → UI decomposition)
-**Result:** **210 / 210 passing** (102 unit + ArchUnit across 9 modules, 108 behavioural against 10 services + 6 micro-frontends)
+**Result:** **227 / 227 passing** (110 unit + ArchUnit across 9 modules, 117 behavioural against 10 services + Redis + 6 micro-frontends)
 
 ---
 
@@ -139,7 +139,7 @@ audited on.
 
 ## 4. Test results
 
-### 4.1 Automated unit + architecture tests — 102 passing
+### 4.1 Automated unit + architecture tests — 110 passing
 
 ```
 InfluencerWebExperience  50 tests   JwtServiceTest, CrossTenantIsolationTest, RolePermissionsTest,
@@ -153,8 +153,9 @@ InfluencerCampaignService 4 tests   ServiceBoundaryTest
 InfluencerAttributionSvc  4 tests   ServiceBoundaryTest
 InfluencerFinanceService  4 tests   ServiceBoundaryTest
 InfluencerContentService  4 tests   ServiceBoundaryTest
+InfluencerWebExperience  +8 tests   KeyRotationTest — rotation without logging anyone out
                         ───────
-                        102 tests   0 failures, 0 errors
+                        110 tests   0 failures, 0 errors
 ```
 
 Each extracted service carries its own boundary rules. Extraction is not a one-time event — the
@@ -167,7 +168,7 @@ boundary test that has never failed is not evidence of anything.
 
 Run with `mvn test` in either module.
 
-### 4.2 Behavioural tests against the running stack — 108 passing
+### 4.2 Behavioural tests against the running stack — 117 passing
 
 Run with `bash tests/behavioural_suite.sh` while the stack is up.
 
@@ -184,7 +185,8 @@ Run with `bash tests/behavioural_suite.sh` while the stack is up.
 | I. All extracted services | 17 | ✅ all pass |
 | J. Presentation gateway & micro-frontends | 7 | ✅ all pass |
 | K. Digital Presentation Service | 14 | ✅ all pass |
-| **Total** | **108** | **✅ 0 failures** |
+| L. Redis sessions & key rotation | 9 | ✅ all pass |
+| **Total** | **117** | **✅ 0 failures** |
 
 #### A. Authentication & security floor
 
@@ -508,4 +510,4 @@ it now would break the monolith.
 | Digital Presentation Service | ✅ server-side session, httpOnly cookie, zero tokens in the browser |
 | Data integrity | ✅ reconciliation passes |
 
-**210 / 210 tests passing.**
+**227 / 227 tests passing.**
