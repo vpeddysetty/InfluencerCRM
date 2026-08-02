@@ -1,0 +1,56 @@
+WARNING: A terminally deprecated method in sun.misc.Unsafe has been called
+WARNING: sun.misc.Unsafe::staticFieldBase has been called by com.google.inject.internal.aop.HiddenClassDefiner (file:/C:/Users/peddy/tools/apache-maven-3.9.10/apache-maven-3.9.10/lib/guice-5.1.0-classes.jar)
+WARNING: Please consider reporting this to the maintainers of class com.google.inject.internal.aop.HiddenClassDefiner
+WARNING: sun.misc.Unsafe::staticFieldBase will be removed in a future release
+WARNING: Final field _cipher in class org.sonatype.plexus.components.sec.dispatcher.DefaultSecDispatcher has been mutated reflectively by class org.eclipse.sisu.bean.BeanPropertyField in unnamed module @11dc3715 (file:/C:/Users/peddy/tools/apache-maven-3.9.10/apache-maven-3.9.10/lib/org.eclipse.sisu.inject-0.9.0.M4.jar)
+WARNING: Use --enable-final-field-mutation=ALL-UNNAMED to avoid a warning
+WARNING: Mutating final fields will be blocked in a future release unless final field mutation is enabled
+
+  .   ____          _            __ _ _
+ /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
+( ( )\___ | '_ | '_| | '_ \/ _` | \ \ \ \
+ \\/  ___)| |_)| | | | | || (_| |  ) ) ) )
+  '  |____| .__|_| |_|_| |_\__, | / / / /
+ =========|_|==============|___/=/_/_/_/
+ :: Spring Boot ::                (v3.2.5)
+
+2026-08-02T11:32:01.593-04:00  INFO 56516 --- [           main] c.i.i.InfluencerIdentityApplication      : Starting InfluencerIdentityApplication using Java 26 with PID 56516 (C:\AI\InfluencerCRM\InfluencerIdentityService\target\classes started by peddy in C:\AI\InfluencerCRM\InfluencerIdentityService)
+2026-08-02T11:32:01.603-04:00  INFO 56516 --- [           main] c.i.i.InfluencerIdentityApplication      : No active profile set, falling back to 1 default profile: "default"
+2026-08-02T11:32:04.140-04:00  INFO 56516 --- [           main] .s.d.r.c.RepositoryConfigurationDelegate : Bootstrapping Spring Data JPA repositories in DEFAULT mode.
+2026-08-02T11:32:04.327-04:00  INFO 56516 --- [           main] .s.d.r.c.RepositoryConfigurationDelegate : Finished Spring Data repository scanning in 166 ms. Found 6 JPA repository interfaces.
+WARNING: A restricted method in java.lang.System has been called
+WARNING: java.lang.System::load has been called by org.apache.tomcat.jni.Library in an unnamed module (file:/C:/Users/peddy/.m2/repository/org/apache/tomcat/embed/tomcat-embed-core/10.1.20/tomcat-embed-core-10.1.20.jar)
+WARNING: Use --enable-native-access=ALL-UNNAMED to avoid a warning for callers in this module
+WARNING: Restricted methods will be blocked in a future release unless native access is enabled
+
+2026-08-02T11:32:06.159-04:00  INFO 56516 --- [           main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat initialized with port 8445 (http)
+2026-08-02T11:32:06.203-04:00  INFO 56516 --- [           main] o.apache.catalina.core.StandardService   : Starting service [Tomcat]
+2026-08-02T11:32:06.204-04:00  INFO 56516 --- [           main] o.apache.catalina.core.StandardEngine    : Starting Servlet engine: [Apache Tomcat/10.1.20]
+2026-08-02T11:32:06.400-04:00  INFO 56516 --- [           main] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring embedded WebApplicationContext
+2026-08-02T11:32:06.402-04:00  INFO 56516 --- [           main] w.s.c.ServletWebServerApplicationContext : Root WebApplicationContext: initialization completed in 4629 ms
+2026-08-02T11:32:07.159-04:00  INFO 56516 --- [           main] o.hibernate.jpa.internal.util.LogHelper  : HHH000204: Processing PersistenceUnitInfo [name: default]
+2026-08-02T11:32:07.258-04:00  INFO 56516 --- [           main] org.hibernate.Version                    : HHH000412: Hibernate ORM core version 6.4.4.Final
+2026-08-02T11:32:07.338-04:00  INFO 56516 --- [           main] o.h.c.internal.RegionFactoryInitiator    : HHH000026: Second-level cache disabled
+2026-08-02T11:32:07.922-04:00  INFO 56516 --- [           main] o.s.o.j.p.SpringPersistenceUnitInfo      : No LoadTimeWeaver setup: ignoring JPA class transformer
+2026-08-02T11:32:07.975-04:00  INFO 56516 --- [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Starting...
+2026-08-02T11:32:08.257-04:00  INFO 56516 --- [           main] com.zaxxer.hikari.pool.HikariPool        : HikariPool-1 - Added connection org.postgresql.jdbc.PgConnection@6533629
+2026-08-02T11:32:08.261-04:00  INFO 56516 --- [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Start completed.
+2026-08-02T11:32:08.330-04:00  WARN 56516 --- [           main] org.hibernate.orm.deprecation            : HHH90000025: PostgreSQLDialect does not need to be specified explicitly using 'hibernate.dialect' (remove the property setting and it will be selected by default)
+2026-08-02T11:32:10.482-04:00  INFO 56516 --- [           main] o.h.e.t.j.p.i.JtaPlatformInitiator       : HHH000489: No JTA platform available (set 'hibernate.transaction.jta.platform' to enable JTA platform integration)
+2026-08-02T11:32:10.490-04:00  INFO 56516 --- [           main] j.LocalContainerEntityManagerFactoryBean : Initialized JPA EntityManagerFactory for persistence unit 'default'
+2026-08-02T11:32:10.966-04:00  INFO 56516 --- [           main] o.s.d.j.r.query.QueryEnhancerFactory     : Hibernate is in classpath; If applicable, HQL parser will be used.
+2026-08-02T11:32:11.543-04:00  WARN 56516 --- [           main] JpaBaseConfiguration$JpaWebConfiguration : spring.jpa.open-in-view is enabled by default. Therefore, database queries may be performed during view rendering. Explicitly configure spring.jpa.open-in-view to disable this warning
+2026-08-02T11:32:11.589-04:00  WARN 56516 --- [           main] .s.s.UserDetailsServiceAutoConfiguration : 
+
+Using generated security password: b02d93c5-0301-4be0-a1cb-af0ad87839db
+
+This generated password is for development use only. Your security configuration must be updated before running your application in production.
+
+2026-08-02T11:32:12.138-04:00  INFO 56516 --- [           main] o.s.b.a.e.web.EndpointLinksResolver      : Exposing 2 endpoint(s) beneath base path '/actuator'
+2026-08-02T11:32:12.273-04:00  INFO 56516 --- [           main] o.s.s.web.DefaultSecurityFilterChain     : Will secure any request with [org.springframework.security.web.session.DisableEncodeUrlFilter@728cf276, org.springframework.security.web.context.request.async.WebAsyncManagerIntegrationFilter@66f15ce5, org.springframework.security.web.context.SecurityContextHolderFilter@2c634c0, org.springframework.security.web.header.HeaderWriterFilter@681ba763, org.springframework.security.web.authentication.logout.LogoutFilter@3e668743, com.influencer.identity.security.ServiceTokenFilter@7c1503a3, org.springframework.security.web.savedrequest.RequestCacheAwareFilter@1dc37d4f, org.springframework.security.web.servletapi.SecurityContextHolderAwareRequestFilter@5d96b0f, org.springframework.security.web.authentication.AnonymousAuthenticationFilter@69a8191e, org.springframework.security.web.session.SessionManagementFilter@301608d, org.springframework.security.web.access.ExceptionTranslationFilter@1ef4179, org.springframework.security.web.access.intercept.AuthorizationFilter@4ac64dc2]
+2026-08-02T11:32:12.843-04:00  INFO 56516 --- [           main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat started on port 8445 (http) with context path ''
+2026-08-02T11:32:12.858-04:00  INFO 56516 --- [           main] c.i.i.InfluencerIdentityApplication      : Started InfluencerIdentityApplication in 12.286 seconds (process running for 13.403)
+2026-08-02T11:33:15.031-04:00  INFO 56516 --- [nio-8445-exec-1] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring DispatcherServlet 'dispatcherServlet'
+2026-08-02T11:33:15.031-04:00  INFO 56516 --- [nio-8445-exec-1] o.s.web.servlet.DispatcherServlet        : Initializing Servlet 'dispatcherServlet'
+2026-08-02T11:33:15.032-04:00  INFO 56516 --- [nio-8445-exec-1] o.s.web.servlet.DispatcherServlet        : Completed initialization in 1 ms
+2026-08-02T12:40:50.245-04:00  WARN 56516 --- [l-1 housekeeper] com.zaxxer.hikari.pool.HikariPool        : HikariPool-1 - Thread starvation or clock leap detected (housekeeper delta=52m41s846ms637µs900ns).

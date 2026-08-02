@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-02
 **Scope:** DDD migration Phases 0–6 (security floor → tenancy → RBAC → modular monolith → schema split & events → UI decomposition)
-**Result:** **148 / 148 passing** (78 unit + ArchUnit, 70 behavioural against the running stack)
+**Result:** **189 / 189 passing** (102 unit + ArchUnit across 9 modules, 87 behavioural against a 9-service stack)
 
 ---
 
@@ -23,11 +23,31 @@ docker exec -i influencercrm-postgres psql -U influencercrm_user -d influencercr
   -f - < schema/seed/test_accounts.sql
 
 # 4. Services
-cd InfluencerDAO            && mvn spring-boot:run                                  # :8443 (https)
-cd InfluencerWorkflowService && mvn spring-boot:run                                 # :8444 (extracted)
-cd InfluencerWebExperience  && mvn spring-boot:run -Dspring-boot.run.profiles=local # :8081
-cd InfluencerUI             && npm run dev                                          # :5173
+# Gateway + legacy DAO
+cd InfluencerDAO             && mvn spring-boot:run                                  # :8443 (https)
+cd InfluencerWebExperience   && mvn spring-boot:run -Dspring-boot.run.profiles=local # :8081
+
+# One service per bounded context
+cd InfluencerWorkflowService    && mvn spring-boot:run   # :8444
+cd InfluencerIdentityService    && mvn spring-boot:run   # :8445
+cd InfluencerCreatorService     && mvn spring-boot:run   # :8446
+cd InfluencerCampaignService    && mvn spring-boot:run   # :8447
+cd InfluencerAttributionService && mvn spring-boot:run   # :8448
+cd InfluencerFinanceService     && mvn spring-boot:run   # :8449
+cd InfluencerContentService     && mvn spring-boot:run   # :8450
+
+# Frontend
+cd InfluencerUI              && npm run dev              # :5173 (shell)
+cd InfluencerWorkflowUI      && npm run dev              # :5174 (federated remote)
 ```
+
+**Federated mode** — the shell defaults to its bundled pages. To consume remotes:
+
+```bash
+cd InfluencerUI && VITE_USE_REMOTES=true npm run dev
+```
+
+A remote that is down falls back to the bundled page rather than breaking the route.
 
 **Routing Workflow to the extracted service** — the flag defaults to `false` (monolith), which is
 the safe committed state. To cut over:
@@ -109,18 +129,27 @@ audited on.
 
 ## 4. Test results
 
-### 4.1 Automated unit + architecture tests — 78 passing
+### 4.1 Automated unit + architecture tests — 102 passing
 
 ```
 InfluencerWebExperience  50 tests   JwtServiceTest, CrossTenantIsolationTest, RolePermissionsTest,
                                     BffContextBoundaryTest (11 rules)
 InfluencerDAO            22 tests   ServiceTokenFilterTest, CommissionServiceTest,
                                     ContextBoundaryTest (12 rules)
-InfluencerWorkflowService 4 tests   WorkflowServiceBoundaryTest — keeps the extracted
-                                    service from re-growing a monolith dependency
+InfluencerWorkflowService 4 tests   ServiceBoundaryTest
+InfluencerIdentityService 4 tests   ServiceBoundaryTest
+InfluencerCreatorService  4 tests   ServiceBoundaryTest
+InfluencerCampaignService 4 tests   ServiceBoundaryTest
+InfluencerAttributionSvc  4 tests   ServiceBoundaryTest
+InfluencerFinanceService  4 tests   ServiceBoundaryTest
+InfluencerContentService  4 tests   ServiceBoundaryTest
                         ───────
-                         78 tests   0 failures, 0 errors
+                        102 tests   0 failures, 0 errors
 ```
+
+Each extracted service carries its own boundary rules. Extraction is not a one-time event — the
+easiest way to undo it is a convenient import back to the monolith, so every service fails its build
+if one appears.
 
 **23 ArchUnit rules** enforce context boundaries across both tiers. Both rule sets were verified to
 *fail* on a deliberately planted cross-context import, then return green once it was removed — a
@@ -128,7 +157,7 @@ boundary test that has never failed is not evidence of anything.
 
 Run with `mvn test` in either module.
 
-### 4.2 Behavioural tests against the running stack — 70 passing
+### 4.2 Behavioural tests against the running stack — 87 passing
 
 Run with `bash tests/behavioural_suite.sh` while the stack is up.
 
@@ -142,7 +171,8 @@ Run with `bash tests/behavioural_suite.sh` while the stack is up.
 | F. Domain events / outbox | 3 | ✅ all pass |
 | G. Data integrity | 4 | ✅ all pass |
 | H. Extracted Workflow service | 9 | ✅ all pass |
-| **Total** | **70** | **✅ 0 failures** |
+| I. All extracted services | 17 | ✅ all pass |
+| **Total** | **87** | **✅ 0 failures** |
 
 #### A. Authentication & security floor
 
@@ -233,6 +263,50 @@ property change, not a redeploy.
 
 **Committed state is the safe one:** the flag defaults to `false`, so the monolith serves Workflow
 until someone deliberately flips it after a production soak.
+
+#### I. All extracted services
+
+Every bounded context now runs as its own service on its own port, under its own database role.
+
+| Service | Port | DB role | Serves | Rejects unauthenticated |
+|---|---|---|---|---|
+| Identity & Access | 8445 | `svc_identity` | 200 ✅ | 401 ✅ |
+| Creator Relationship | 8446 | `svc_creator` | 200 ✅ | 401 ✅ |
+| Campaign Management | 8447 | `svc_campaign` | 200 ✅ | 401 ✅ |
+| Attribution & Commerce | 8448 | `svc_attribution` | 200 ✅ | 401 ✅ |
+| Payouts & Finance | 8449 | `svc_finance` | 200 ✅ | 401 ✅ |
+| Content & Landing | 8450 | `svc_content` | 200 ✅ | 401 ✅ |
+| Collaboration Workflow | 8444 | `svc_workflow` | 200 ✅ | 401 ✅ |
+
+**Database-level isolation** — the backstop if code ever drifts across a boundary:
+
+```
+svc_finance → creator.creators INSERT          DENIED
+svc_creator → finance.influencer_payouts       DENIED
+svc_content → identity.users INSERT            DENIED
+```
+
+**17 cross-context foreign keys severed**, 54 tenancy-spine FKs kept. Zero orphaned references —
+the four `orphaned_references` monitoring views all report empty.
+
+---
+
+## 4.3 Micro-frontend federation
+
+The Workflow page is served from a federated remote (`mf_workflow`, port 5174), with the shell
+falling back to its bundled copy.
+
+| Mode | Build | Modules |
+|---|---|---|
+| `VITE_USE_REMOTES` unset (default) | ✅ | 51 — local pages, no federation runtime |
+| `VITE_USE_REMOTES=true` | ✅ | 131 — federation runtime loaded |
+| Remote standalone (`InfluencerWorkflowUI`) | ✅ | `remoteEntry.js` emitted |
+
+Remotes are **opt-in and fall back at runtime**. A remote that is down or mid-deploy degrades to the
+bundled page rather than rendering a blank route — which is what makes federation safe to adopt one
+context at a time rather than as a big-bang cutover.
+
+Adding the next remote is a one-line change in `shell/routeManifest.js`.
 
 ---
 
@@ -371,4 +445,4 @@ it now would break the monolith.
 | First extraction (Workflow) | ✅ own service + own DB role, dual-run identical, cutover and rollback both proven |
 | Data integrity | ✅ reconciliation passes |
 
-**148 / 148 tests passing.**
+**189 / 189 tests passing.**

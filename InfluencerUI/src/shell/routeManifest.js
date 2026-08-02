@@ -12,13 +12,41 @@ import { lazy } from 'react'
  * hiding a link avoids a dead end; it is not what stops anyone acting.
  */
 
+// Remotes are opt-in. With VITE_USE_REMOTES unset the shell renders its local pages, so a remote
+// that is down or mid-deploy cannot take the whole app with it — which is what makes federation
+// safe to adopt one context at a time rather than as a big-bang cutover.
+const USE_REMOTES = import.meta.env?.VITE_USE_REMOTES === 'true'
+
+/**
+ * Loads a page from its federated remote when remotes are enabled, falling back to the local copy.
+ *
+ * The fallback is not just for development: a remote failing to load at runtime should degrade to
+ * the bundled page rather than render a blank route.
+ */
+function contextPage(remoteSpecifier, localImport) {
+  if (!USE_REMOTES) {
+    return lazy(localImport)
+  }
+  // The specifier is a variable, not a literal, so the bundler leaves it alone and the federation
+  // runtime resolves it in the browser. A literal would be statically analysed and fail the build
+  // whenever remotes are disabled.
+  return lazy(() =>
+    import(/* @vite-ignore */ remoteSpecifier).catch(() => localImport()),
+  )
+}
+
 // Lazy so each context's page is a separate chunk. That split is what proves the boundary is real:
 // if two contexts share a chunk, they share code, and extraction would drag one into the other.
 const ImportPage = lazy(() => import('../pages/ImportPage'))
 const CampaignsPage = lazy(() => import('../pages/CampaignsPage'))
 const CreatorsPage = lazy(() => import('../pages/CreatorsPage'))
 const ContentPage = lazy(() => import('../pages/ContentPage'))
-const WorkflowPage = lazy(() => import('../pages/WorkflowPage'))
+// The one context extracted to a remote so far. Adding the next is a single line here —
+// which is the property the manifest exists to give.
+const WorkflowPage = contextPage(
+  'mf_workflow/WorkflowPage',
+  () => import('../pages/WorkflowPage'),
+)
 const CouponsPage = lazy(() => import('../pages/CouponsPage'))
 const MarketplacePage = lazy(() => import('../pages/MarketplacePage'))
 const DashboardPage = lazy(() => import('../pages/DashboardPage'))

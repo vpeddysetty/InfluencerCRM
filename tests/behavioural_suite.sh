@@ -178,6 +178,35 @@ fi
 
 echo
 echo "=============================================================="
+echo " I. ALL EXTRACTED SERVICES"
+echo "=============================================================="
+# One service per bounded context, each on its own port and its own DB role.
+probe_svc() { # probe_svc <name> <port> <path>
+  chk "$1 service serves its own data"      "$(curl -s -o /dev/null -w '%{http_code}' -H "X-Service-Token: $SVC" "http://localhost:$2$3" --max-time 15)" "200"
+  chk "$1 service rejects unauthenticated"  "$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:$2$3" --max-time 15)" "401"
+}
+if curl -s -o /dev/null --max-time 4 "http://localhost:8445/users" 2>/dev/null; then
+  probe_svc identity    8445 /users
+  probe_svc creator     8446 /creators
+  probe_svc campaign    8447 /campaigns
+  probe_svc attribution 8448 /influencer-campaign-codes
+  probe_svc finance     8449 /influencer-commissions
+  probe_svc content     8450 /landing-templates
+
+  # The database is the backstop if code ever drifts across a boundary.
+  chk "svc_finance CANNOT write creator tables"  "$(docker exec influencercrm-postgres psql -U influencercrm_user -d influencercrm_db -t -A -c "select has_table_privilege('svc_finance','creator.creators','INSERT')" 2>/dev/null | tr -d '')" "f"
+  chk "svc_creator CANNOT write finance tables"  "$(docker exec influencercrm-postgres psql -U influencercrm_user -d influencercrm_db -t -A -c "select has_table_privilege('svc_creator','finance.influencer_payouts','INSERT')" 2>/dev/null | tr -d '')" "f"
+  chk "svc_content CANNOT write identity tables" "$(docker exec influencercrm-postgres psql -U influencercrm_user -d influencercrm_db -t -A -c "select has_table_privilege('svc_content','identity.users','INSERT')" 2>/dev/null | tr -d '')" "f"
+
+  # Severing left no dangling references behind.
+  chk "no orphaned cross-context references" "$(docker exec influencercrm-postgres psql -U influencercrm_user -d influencercrm_db -t -A -c "select (select count(*) from creator.orphaned_references)+(select count(*) from attribution.orphaned_references)+(select count(*) from finance.orphaned_references)+(select count(*) from content.orphaned_references)" 2>/dev/null | tr -d '')" "0"
+  chk "cross-context FKs severed (spine kept)" "$(docker exec influencercrm-postgres psql -U influencercrm_user -d influencercrm_db -t -A -c "select count(*) from pg_constraint c join pg_class t on t.oid=c.conrelid join pg_namespace n on n.oid=t.relnamespace join pg_class cf on cf.oid=c.confrelid join pg_namespace nf on nf.oid=cf.relnamespace where c.contype='f' and n.nspname<>nf.nspname and n.nspname in ('identity','creator','campaign','workflow','attribution','finance','content','mapping') and not (nf.nspname='identity' and cf.relname in ('brands','users'))" 2>/dev/null | tr -d '')" "0"
+else
+  echo "  SKIP  extracted services not running on :8445-:8450"
+fi
+
+echo
+echo "=============================================================="
 printf " TOTAL: %d passed, %d failed\n" "$PASS" "$FAIL"
 echo "=============================================================="
 [ "$FAIL" -eq 0 ] || exit 1

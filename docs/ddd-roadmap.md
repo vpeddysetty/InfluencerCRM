@@ -342,7 +342,7 @@ changes rather than protocol changes.
 | 2 — Runtime tenancy switch | **complete** — see below |
 | 3 — RBAC enforcement | **complete** — see below |
 | 4 — Modular monolith | **complete** — see below |
-| 5 — Service extraction | **first context extracted** — Workflow runs as its own service; 6 remain ([runbook](EXTRACTION-RUNBOOK.md)) |
+| 5 — Service extraction | **complete** — all 7 contexts run as their own services |
 | 6 — Micro-frontends | **prerequisites complete** — federation is a manifest edit per route |
 
 ### Phase 0 completion record (2026-08-01)
@@ -663,6 +663,43 @@ remembering: the "which roles reach all brands" rule was written **twice** — o
 carry a comment pointing at the other, plus a regression test.
 
 **Full results:** [TEST-REPORT.md](TEST-REPORT.md) — 122/122 passing (61 unit + ArchUnit, 61 behavioural).
+
+### Phases 5 & 6 complete (2026-08-02)
+
+All seven bounded contexts now run as independent services, and the shell consumes its first
+federated remote.
+
+| Service | Port | DB role | Notes |
+|---|---|---|---|
+| Identity & Access | 8445 | `svc_identity` | The tenancy spine every other context reads |
+| Creator Relationship | 8446 | `svc_creator` | Exposes `CreatorProvisioningPort` over HTTP |
+| Campaign Management | 8447 | `svc_campaign` | Consumes Creator + Identity via HTTP adapters |
+| Collaboration Workflow | 8444 | `svc_workflow` | The pilot |
+| Attribution & Commerce | 8448 | `svc_attribution` | Highest write volume |
+| Payouts & Finance | 8449 | `svc_finance` | Money — strongest isolation |
+| Content & Landing | 8450 | `svc_content` | Public pages, different caching profile |
+
+**The substance was the ports, not the scaffolding.** Copying nine classes into a new module is
+mechanical. What mattered was turning `CreatorProvisioningPort` and `BrandLookupPort` from
+in-process calls into HTTP adapters — and because the interfaces were introduced in Phase 4, the
+importer that *uses* them did not change at all. That is precisely the payoff the ports were
+created for.
+
+**17 cross-context foreign keys severed**, 54 tenancy-spine FKs kept, zero orphans. Four
+`orphaned_references` views replace the lost guarantees and are safe to alert on.
+
+**Failure handling differs per adapter, deliberately.** Brand lookup failing is treated as "unknown"
+because a surviving FK still guarantees integrity, so a transient Identity outage must not block
+work. Creator provisioning failing is fatal, because a silently skipped creator would let an import
+report success while producing nothing.
+
+**Phase 6:** `mf_workflow` runs as a real federated remote on :5174. Remotes are opt-in via
+`VITE_USE_REMOTES` and **fall back to the bundled page at runtime**, so a remote that is down cannot
+take the app with it. Both build modes verified — 51 modules local, 131 federated.
+
+**189 tests passing** (102 unit/ArchUnit across 9 modules, 87 behavioural).
+
+---
 
 ### First extraction: Workflow (2026-08-02)
 

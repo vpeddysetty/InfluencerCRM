@@ -1,7 +1,7 @@
 # Architecture Migration Plan
 ## From single-brand monolith → multi-tenant, role-based, domain-driven micro-apps
 
-**Status:** Phases 0–4 delivered (2026-08-02); Phases 5–6 gated at the stop-and-reassess point.
+**Status:** All phases 0–6 delivered (2026-08-02). Seven services, federated shell.
 See [ddd-roadmap.md](ddd-roadmap.md) for per-phase completion records and live verification.
 **Date:** 2026-08-01
 **Scope:** tenancy model change (single brand → agency/multi-brand), RBAC introduction, and decomposition into per-context codebases (UI + BFF + product service).
