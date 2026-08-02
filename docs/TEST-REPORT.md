@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-02
 **Scope:** DDD migration Phases 0–6 (security floor → tenancy → RBAC → modular monolith → schema split & events → UI decomposition)
-**Result:** **133 / 133 passing** (72 unit + ArchUnit, 61 behavioural against the running stack)
+**Result:** **146 / 146 passing** (76 unit + ArchUnit, 70 behavioural against the running stack)
 
 ---
 
@@ -23,10 +23,21 @@ docker exec -i influencercrm-postgres psql -U influencercrm_user -d influencercr
   -f - < schema/seed/test_accounts.sql
 
 # 4. Services
-cd InfluencerDAO           && mvn spring-boot:run                                  # :8443 (https)
-cd InfluencerWebExperience && mvn spring-boot:run -Dspring-boot.run.profiles=local # :8081
-cd InfluencerUI            && npm run dev                                          # :5173
+cd InfluencerDAO            && mvn spring-boot:run                                  # :8443 (https)
+cd InfluencerWorkflowService && mvn spring-boot:run                                 # :8444 (extracted)
+cd InfluencerWebExperience  && mvn spring-boot:run -Dspring-boot.run.profiles=local # :8081
+cd InfluencerUI             && npm run dev                                          # :5173
 ```
+
+**Routing Workflow to the extracted service** — the flag defaults to `false` (monolith), which is
+the safe committed state. To cut over:
+
+```bash
+cd InfluencerWebExperience && mvn spring-boot:run -Dspring-boot.run.profiles=local   -Dspring-boot.run.arguments=--web-experience.workflow-service-enabled=true
+```
+
+The BFF logs which target it chose at startup. Flipping the flag back is the rollback — seconds,
+no redeploy.
 
 Open **http://localhost:5173** and log in with any account below.
 
@@ -98,15 +109,17 @@ audited on.
 
 ## 4. Test results
 
-### 4.1 Automated unit + architecture tests — 72 passing
+### 4.1 Automated unit + architecture tests — 76 passing
 
 ```
 InfluencerWebExperience  50 tests   JwtServiceTest, CrossTenantIsolationTest, RolePermissionsTest,
                                     BffContextBoundaryTest (11 rules)
 InfluencerDAO            22 tests   ServiceTokenFilterTest, CommissionServiceTest,
                                     ContextBoundaryTest (12 rules)
+InfluencerWorkflowService 4 tests   WorkflowServiceBoundaryTest — keeps the extracted
+                                    service from re-growing a monolith dependency
                         ───────
-                         72 tests   0 failures, 0 errors
+                         76 tests   0 failures, 0 errors
 ```
 
 **23 ArchUnit rules** enforce context boundaries across both tiers. Both rule sets were verified to
@@ -115,7 +128,9 @@ boundary test that has never failed is not evidence of anything.
 
 Run with `mvn test` in either module.
 
-### 4.2 Behavioural tests against the running stack — 61 passing
+### 4.2 Behavioural tests against the running stack — 70 passing
+
+Run with `bash tests/behavioural_suite.sh` while the stack is up.
 
 | Group | Cases | Result |
 |---|---|---|
@@ -126,7 +141,8 @@ Run with `mvn test` in either module.
 | E. Session lifecycle | 6 | ✅ all pass |
 | F. Domain events / outbox | 3 | ✅ all pass |
 | G. Data integrity | 4 | ✅ all pass |
-| **Total** | **61** | **✅ 0 failures** |
+| H. Extracted Workflow service | 9 | ✅ all pass |
+| **Total** | **70** | **✅ 0 failures** |
 
 #### A. Authentication & security floor
 
@@ -190,6 +206,33 @@ Accruing a commission writes a `CommissionAccrued` row carrying brand tenancy; t
 
 24 tables across 9 context schemas, none left in `public`, every user resolves to a brand, no creator
 row without a brand.
+
+#### H. Extracted Workflow service
+
+The first context extracted into its own deployable, per [EXTRACTION-RUNBOOK.md](EXTRACTION-RUNBOOK.md).
+
+| Case | Result |
+|---|---|
+| Service rejects calls without a service token | 401 ✅ |
+| Service serves with the token | 200 ✅ |
+| `svc_workflow` **cannot** write `finance.influencer_payouts` | denied ✅ |
+| `svc_workflow` **cannot** write `campaign.campaigns` | denied ✅ |
+| `svc_workflow` **can** write its own tables | allowed ✅ |
+| Monolith and extracted service return identical rows | 23 = 23 ✅ |
+| Cross-context FKs on `workflow_cards` removed | 0 ✅ |
+| Intra-aggregate FKs survived | 3 ✅ |
+| Orphan-monitoring view empty | 0 ✅ |
+
+**Dual-run diff before cutover** — all three collections byte-identical between the monolith
+(`:8443`) and the extracted service (`:8444`), and the write path returned the same response shape.
+That is what made the cutover uneventful.
+
+**Rollback rehearsed.** Flipping `web-experience.workflow-service-enabled` back to `false` returned
+routing to the monolith and all three endpoints kept serving 200. Cutover and rollback are both a
+property change, not a redeploy.
+
+**Committed state is the safe one:** the flag defaults to `false`, so the monolith serves Workflow
+until someone deliberately flips it after a production soak.
 
 ---
 
@@ -300,6 +343,7 @@ it now would break the monolith.
 | Domain events | ✅ outbox → relay → consumer, transactional |
 | Context boundaries | ✅ 23 ArchUnit rules (12 DAO + 11 BFF), both proven to fail on violation |
 | Extraction prerequisites | ✅ per-context DB roles, published contracts, route manifest, runbook |
+| First extraction (Workflow) | ✅ own service + own DB role, dual-run identical, cutover and rollback both proven |
 | Data integrity | ✅ reconciliation passes |
 
-**133 / 133 tests passing.**
+**146 / 146 tests passing.**

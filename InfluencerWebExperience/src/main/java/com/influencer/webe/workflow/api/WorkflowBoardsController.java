@@ -2,7 +2,7 @@ package com.influencer.webe.workflow.api;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.influencer.webe.shared.infrastructure.DaoGatewayClient;
+import com.influencer.webe.workflow.infrastructure.WorkflowGatewayClient;
 import com.influencer.webe.security.Permission;
 import com.influencer.webe.shared.application.RequestUserResolver;
 import com.influencer.webe.shared.application.ResponseShapeService;
@@ -15,11 +15,11 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api")
 public class WorkflowBoardsController {
-    private final DaoGatewayClient daoGatewayClient;
+    private final WorkflowGatewayClient daoGatewayClient;
     private final RequestUserResolver requestUserResolver;
     private final ResponseShapeService responseShapeService;
 
-    public WorkflowBoardsController(DaoGatewayClient daoGatewayClient,
+    public WorkflowBoardsController(WorkflowGatewayClient daoGatewayClient,
                                     RequestUserResolver requestUserResolver,
                                     ResponseShapeService responseShapeService) {
         this.daoGatewayClient = daoGatewayClient;

@@ -15,6 +15,12 @@ public class WebExperienceProperties {
     private boolean daoTlsVerificationEnabled = true;
     private String daoTrustStore;
     private String daoTrustStorePassword;
+
+    // --- Workflow service extraction (first extracted context) ---
+    // The flag is what makes the cutover reversible in seconds rather than a redeploy.
+    private boolean workflowServiceEnabled = false;
+    private String workflowServiceBaseUrl = "http://localhost:8444";
+    private String workflowServiceToken;
     private final Provider oauth = new Provider();
 
     public String getDaoBaseUrl() {
@@ -106,6 +112,31 @@ public class WebExperienceProperties {
 
     public void setDaoTrustStorePassword(String daoTrustStorePassword) {
         this.daoTrustStorePassword = daoTrustStorePassword;
+    }
+
+    /** Routes Workflow endpoints to the extracted service instead of the monolith DAO. */
+    public boolean isWorkflowServiceEnabled() {
+        return workflowServiceEnabled;
+    }
+
+    public void setWorkflowServiceEnabled(boolean workflowServiceEnabled) {
+        this.workflowServiceEnabled = workflowServiceEnabled;
+    }
+
+    public String getWorkflowServiceBaseUrl() {
+        return workflowServiceBaseUrl;
+    }
+
+    public void setWorkflowServiceBaseUrl(String workflowServiceBaseUrl) {
+        this.workflowServiceBaseUrl = workflowServiceBaseUrl;
+    }
+
+    public String getWorkflowServiceToken() {
+        return workflowServiceToken;
+    }
+
+    public void setWorkflowServiceToken(String workflowServiceToken) {
+        this.workflowServiceToken = workflowServiceToken;
     }
 
     public Provider getOauth() {

@@ -342,7 +342,7 @@ changes rather than protocol changes.
 | 2 — Runtime tenancy switch | **complete** — see below |
 | 3 — RBAC enforcement | **complete** — see below |
 | 4 — Modular monolith | **complete** — see below |
-| 5 — Service extraction | **prerequisites complete** — split is now a per-context decision ([runbook](EXTRACTION-RUNBOOK.md)) |
+| 5 — Service extraction | **first context extracted** — Workflow runs as its own service; 6 remain ([runbook](EXTRACTION-RUNBOOK.md)) |
 | 6 — Micro-frontends | **prerequisites complete** — federation is a manifest edit per route |
 
 ### Phase 0 completion record (2026-08-01)
@@ -663,6 +663,33 @@ remembering: the "which roles reach all brands" rule was written **twice** — o
 carry a comment pointing at the other, plus a regression test.
 
 **Full results:** [TEST-REPORT.md](TEST-REPORT.md) — 122/122 passing (61 unit + ArchUnit, 61 behavioural).
+
+### First extraction: Workflow (2026-08-02)
+
+Workflow now runs as `InfluencerWorkflowService` on its own port, against its own `svc_workflow`
+role. Chosen as the pilot over Identity — despite Identity being first in dependency order —
+precisely because it is cheap to get wrong: three tables, no money, no inbound ports.
+
+| Step | Result |
+|---|---|
+| Cross-context FKs severed | `workflow_cards → campaigns/creators` dropped; intra-aggregate FKs kept; `workflow.orphaned_cards` view replaces the guarantee |
+| Service scaffolded | 9 classes copied, own pom, own security, own ArchUnit rules |
+| Scoped DB role | `svc_workflow` **cannot** write finance or campaign tables — verified, not assumed |
+| Feature-flagged routing | `WorkflowGatewayClient` picks target by flag; BFF logs the choice at startup |
+| Dual-run diff | All three collections byte-identical, write path same shape |
+| Cutover | Full CRUD through the extracted service; RBAC still enforced |
+| Rollback | Rehearsed — flag flipped back, monolith served correctly |
+
+**Committed state is the safe one:** the flag defaults to `false`. Flipping it is a deliberate act
+after a production soak.
+
+**The pilot corrected the runbook**, which is what pilots are for. The largest gap: cross-context
+foreign keys were not mentioned at all, and they are step zero — a service with its own database
+cannot enforce an FK to a table it cannot see. The runbook previously said to drop them *after*
+proving the event path, which is too late to even start the service. That contradiction is fixed,
+along with four smaller corrections, in [EXTRACTION-RUNBOOK.md](EXTRACTION-RUNBOOK.md).
+
+---
 
 ### Extraction foundation completed (2026-08-02)
 
