@@ -19,3 +19,4 @@
 \i /docker-entrypoint-initdb.d/migrations/2026_08_02_phase5_workflow_extraction.sql
 \i /docker-entrypoint-initdb.d/migrations/2026_08_02_phase5_refresh_tokens.sql
 \i /docker-entrypoint-initdb.d/migrations/2026_08_02_phase5_sever_all_cross_context_fks.sql
+\i /docker-entrypoint-initdb.d/migrations/2026_08_02_phase6_federated_identities.sql

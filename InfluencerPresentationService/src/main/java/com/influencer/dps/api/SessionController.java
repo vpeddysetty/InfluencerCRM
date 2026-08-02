@@ -14,10 +14,14 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.net.URI;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -33,6 +37,14 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/dps")
 public class SessionController {
+
+    /**
+     * Providers the DPS will start a flow for.
+     *
+     * <p>An allowlist, not a pass-through: {@code provider} lands in a redirect URL, and forwarding
+     * an arbitrary value would let a caller shape where the browser is sent.
+     */
+    private static final Set<String> SUPPORTED_PROVIDERS = Set.of("google", "facebook");
 
     private final UiSessionService sessionService;
     private final DpsProperties properties;
@@ -53,6 +65,85 @@ public class SessionController {
     public ResponseEntity<SessionView> signup(@Valid @RequestBody SignupRequest request) {
         UiSession session = sessionService.signup(request.email(), request.password(), request.brandName());
         return withSessionCookie(session, SessionView.of(session));
+    }
+
+    /**
+     * Starts a federated sign-in.
+     *
+     * <p>Redirects to the BFF's provider-authorization leg. The DPS owns this entry point so the
+     * whole flow begins and ends on the origin that holds the session — the browser leaves from
+     * here and comes back to {@link #completeOAuth}.
+     */
+    @GetMapping("/auth/oauth/{provider}/start")
+    public ResponseEntity<Void> startOAuth(@PathVariable String provider,
+                                           @RequestParam(required = false) String brandName,
+                                           @RequestParam(required = false) String displayName) {
+        if (!SUPPORTED_PROVIDERS.contains(provider)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported provider: " + provider);
+        }
+
+        StringBuilder target = new StringBuilder(properties.getBffBaseUrl())
+                .append("/api/auth/oauth/").append(provider).append("/start");
+        String separator = "?";
+        if (brandName != null && !brandName.isBlank()) {
+            target.append(separator).append("brandName=").append(encode(brandName));
+            separator = "&";
+        }
+        if (displayName != null && !displayName.isBlank()) {
+            target.append(separator).append("displayName=").append(encode(displayName));
+        }
+        return ResponseEntity.status(HttpStatus.FOUND).location(URI.create(target.toString())).build();
+    }
+
+    /**
+     * Where the OAuth flow lands after the provider and the BFF are done.
+     *
+     * <p>The browser arrives with a single-use handoff code — never a token. The DPS redeems it
+     * server-to-server, sets the httpOnly session cookie, and redirects to the UI. A federated
+     * sign-in therefore leaves no credential anywhere JavaScript can read, exactly like a password
+     * one.
+     *
+     * <p>Redirects rather than returning JSON because the caller here is a browser following the
+     * provider's redirect chain, not a fetch() from the SPA. Errors go to the UI with a message
+     * parameter so the login page can render them, instead of showing a raw error page.
+     */
+    @GetMapping("/auth/oauth/complete")
+    public ResponseEntity<Void> completeOAuth(@RequestParam(required = false) String handoff,
+                                              @RequestParam(required = false) String error) {
+        if (error != null && !error.isBlank()) {
+            return redirectToUi("/login?error=" + encode(presentable(error)), null);
+        }
+        if (handoff == null || handoff.isBlank()) {
+            return redirectToUi("/login?error=" + encode("OAuth sign-in did not complete"), null);
+        }
+
+        try {
+            UiSession session = sessionService.completeOAuth(handoff);
+            // The cookie is set on this redirect response, so the session exists before the UI
+            // loads and its first /dps/session call already sees an authenticated user.
+            return redirectToUi("/", session);
+        } catch (ResponseStatusException exception) {
+            String reason = exception.getReason() == null ? "OAuth sign-in failed" : exception.getReason();
+            return redirectToUi("/login?error=" + encode(presentable(reason)), null);
+        } catch (Exception exception) {
+            return redirectToUi("/login?error=" + encode("OAuth sign-in failed"), null);
+        }
+    }
+
+    /**
+     * Reduces an upstream failure to something safe to show a user.
+     *
+     * <p>Two problems this solves. An upstream body can be a raw JSON error document — serialising
+     * a stack-trace-adjacent blob into a URL leaks internal shape and renders as noise. And the
+     * value lands in a query parameter the login page displays, so an over-long or structured
+     * string is both a bad error message and needless attack surface.
+     */
+    private String presentable(String reason) {
+        String trimmed = reason == null ? "" : reason.trim();
+        if (trimmed.isEmpty() || trimmed.startsWith("{") || trimmed.startsWith("[")) {
+            return "OAuth sign-in failed";
+        }
+        return trimmed.length() > 200 ? trimmed.substring(0, 200) : trimmed;
     }
 
     /**
@@ -138,6 +229,31 @@ public class SessionController {
             }
         }
         return null;
+    }
+
+    /**
+     * Redirects the browser to the UI, attaching the session cookie when one was established.
+     *
+     * <p>The cookie rides on the redirect itself, so the SPA is already authenticated by the time it
+     * loads — no intermediate page, and no window where the UI has to ask "did that work?".
+     */
+    private ResponseEntity<Void> redirectToUi(String path, UiSession session) {
+        String base = properties.getUiBaseUrl();
+        if (base == null || base.isBlank()) {
+            base = "http://localhost:5173";
+        }
+        ResponseEntity.BodyBuilder builder = ResponseEntity.status(HttpStatus.FOUND)
+                .location(URI.create(base.replaceAll("/+$", "") + path));
+        if (session != null) {
+            builder.header(HttpHeaders.SET_COOKIE, cookieBuilder(
+                    session.sessionId(),
+                    Duration.ofMinutes(properties.getSessionTtlMinutes())).build().toString());
+        }
+        return builder.build();
+    }
+
+    private String encode(String value) {
+        return URLEncoder.encode(value, StandardCharsets.UTF_8);
     }
 
     private <T> ResponseEntity<T> withSessionCookie(UiSession session, T body) {

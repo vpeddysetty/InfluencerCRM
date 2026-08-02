@@ -59,6 +59,18 @@ public class IdentityClient {
         return post("/api/auth/refresh", Map.of("refreshToken", refreshToken), null);
     }
 
+    /**
+     * Redeems a single-use OAuth handoff code for the completed sign-in.
+     *
+     * <p>This is the server-to-server half of the OAuth flow. The browser is redirected to the DPS
+     * carrying only the opaque code; the tokens travel on this call, which never touches the
+     * browser. That is what keeps a federated sign-in as token-free, from JavaScript's point of
+     * view, as a password one.
+     */
+    public JsonNode redeemOAuthHandoff(String handoffCode) {
+        return post("/api/auth/oauth/handoff", Map.of("handoff", handoffCode), null);
+    }
+
     public void logout(String refreshToken) {
         try {
             post("/api/auth/logout", Map.of("refreshToken", refreshToken), null);

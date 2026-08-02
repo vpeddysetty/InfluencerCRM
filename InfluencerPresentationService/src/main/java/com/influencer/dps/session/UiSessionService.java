@@ -54,6 +54,18 @@ public class UiSessionService {
         return establish(identityClient.signup(email, password, brandName));
     }
 
+    /**
+     * Completes a federated sign-in by redeeming the BFF's single-use handoff code.
+     *
+     * <p>Goes through the same {@code establish} path as password login, so a Google session is
+     * identical to a password one from here on: same cookie, same server-side tokens, same warm
+     * cache, same brand resolution. Federation changes how the user proved who they are, not what a
+     * session is.
+     */
+    public UiSession completeOAuth(String handoffCode) {
+        return establish(identityClient.redeemOAuthHandoff(handoffCode));
+    }
+
     private UiSession establish(JsonNode auth) {
         String accessToken = text(auth, "accessToken");
         if (accessToken == null || accessToken.isBlank()) {

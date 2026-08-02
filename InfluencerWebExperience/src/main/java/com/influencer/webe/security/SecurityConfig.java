@@ -47,11 +47,30 @@ public class SecurityConfig {
             "/api/auth/logout",
             "/api/auth/google/signup",
             "/api/auth/facebook/signup",
+            // Redeemed by the DPS mid-OAuth, when it holds no user token yet — so this cannot
+            // require one. The 256-bit single-use code IS the credential: it is unguessable, valid
+            // for 60 seconds, consumed on first read, and issued only to the provider's redirect.
+            // Same reasoning as /api/auth/refresh, which is public for the same structural reason.
+            "/api/auth/oauth/handoff",
             "/api/webhooks/**"            // marketplace callbacks — authenticated by provider signature
     };
 
+    /**
+     * The browser-redirect legs of the OAuth flow, which arrive with no credential by nature: the
+     * user is being bounced here by the provider. Protected by the OAuth state parameter.
+     *
+     * <p>Listed individually rather than as {@code /api/auth/oauth/**}. The wildcard would sweep in
+     * any future endpoint under that prefix by default — including
+     * {@code /api/auth/oauth/handoff}, which exchanges a code for real tokens. That one is
+     * deliberately allowed above, on the strength of its own single-use credential; the point here
+     * is that it should be an explicit decision rather than something a path prefix grants
+     * silently.
+     */
     private static final String[] PUBLIC_OAUTH_PATHS = {
-            "/api/auth/oauth/**"          // browser redirect flow; protected by the OAuth state parameter
+            "/api/auth/oauth/google/start",
+            "/api/auth/oauth/google/callback",
+            "/api/auth/oauth/facebook/start",
+            "/api/auth/oauth/facebook/callback"
     };
 
     private final WebExperienceProperties properties;

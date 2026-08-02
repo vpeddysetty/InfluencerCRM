@@ -104,9 +104,29 @@ public class AuthService {
         return signupWithSocial("facebook", accessToken, fallbackEmail, fallbackDisplayName, brandName);
     }
 
+    /**
+     * Signs a user in through an external provider, creating the account if it is new.
+     *
+     * <p><strong>Linking to an existing account requires a provider-verified email.</strong> The
+     * provider asserts an address; without a verification claim that assertion is only a string the
+     * caller controls. Matching it against an existing user would mean anyone who can present an
+     * unverified {@code owner@brand.com} to a lax provider — or post it directly to the social
+     * signup endpoint, which takes an email with no token at all — receives a session for that
+     * brand's account. Refusing is the safe default: the account holder can link the provider
+     * deliberately from a signed-in session, where ownership is already proven.
+     */
     private AuthResponse signupWithSocial(String provider, String accessToken, String fallbackEmail, String fallbackDisplayName, String brandName) {
         OAuthProfileService.OAuthProfile profile = oauthProfileService.resolveProfile(provider, accessToken, fallbackEmail, fallbackDisplayName);
         DaoUserClient.UserRecord existing = daoUserClient.findByEmail(profile.email()).orElse(null);
+
+        if (existing != null && !profile.emailVerified()) {
+            // Deliberately not "email already exists": that would confirm to an unauthenticated
+            // caller which addresses hold accounts. The user who genuinely owns this address can
+            // still sign in with their password and link the provider from account settings.
+            throw new IllegalArgumentException(
+                    "An account already exists for this email. Sign in with your password, then "
+                            + "link " + provider + " from account settings.");
+        }
         String customAttributes = mergeCustomAttributes(existing == null ? null : existing.customAttributes(), provider, profile);
         String resolvedBrandName = blankToNull(brandName);
         if (resolvedBrandName == null && existing != null) {
@@ -147,6 +167,9 @@ public class AuthService {
         oauth.put("providerUserId", profile.providerUserId());
         oauth.put("email", profile.email());
         oauth.put("displayName", profile.displayName());
+        // Whether the provider verified the address, not merely that it supplied one. Recorded so
+        // an account linked on a verified assertion can be told apart from one that was not.
+        oauth.put("emailVerified", profile.emailVerified());
         oauth.put("verifiedAt", Instant.now().toString());
         attributes.put("oauth", oauth);
 

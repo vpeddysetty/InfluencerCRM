@@ -59,8 +59,13 @@ public class DpsSecurityConfig {
                         .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
                         .csrfTokenRequestHandler(csrfHandler)
                         // Login and signup have no session to protect yet, and requiring a token
-                        // before one exists would make first sign-in impossible.
-                        .ignoringRequestMatchers("/dps/auth/login", "/dps/auth/signup"))
+                        // before one exists would make first sign-in impossible. The OAuth legs are
+                        // GET redirects arriving from the provider, which cannot carry a CSRF token
+                        // — and have no session to protect either, for the same reason.
+                        .ignoringRequestMatchers(
+                                "/dps/auth/login",
+                                "/dps/auth/signup",
+                                "/dps/auth/oauth/**"))
                 .sessionManagement(session -> session
                         // Sessions live in the DPS's own store, not in an HttpSession. Letting the
                         // container create one too would give us two competing session concepts.

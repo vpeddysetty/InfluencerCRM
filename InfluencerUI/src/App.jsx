@@ -78,6 +78,10 @@ import { createImportMappingJson, createImportMappingJsonFromAgent, parseSpreads
 // cached domain rows belong to an unknown tenant — versioning the key discards them rather than
 // risk showing one brand's data under another's name.
 const STORAGE_KEY = 'tejdux_ui_state_v3'
+
+// Origin of the Digital Presentation Service, which owns federated sign-in end to end. Kept in
+// step with the same constant in shell/gateway/PresentationGateway.js.
+const DPS_BASE_URL = import.meta.env?.VITE_DPS_URL || 'http://localhost:8090'
 const CAMPAIGN_TYPE_OPTIONS = [
   { value: 'product seeding', label: 'Product Seeding' },
   { value: 'sponsored content', label: 'Sponsored Content' },
@@ -650,68 +654,23 @@ function App() {
     setIsLoggedIn(true)
   }
 
+  /**
+   * Starts a federated sign-in by navigating to the DPS.
+   *
+   * Previously this opened a popup and waited for the callback page to postMessage the tokens
+   * back, which meant the access and refresh tokens passed through JavaScript. The DPS now
+   * completes the flow server-side and returns with an httpOnly session cookie already set, so
+   * there is nothing for the SPA to receive — hence a plain redirect rather than a promise.
+   *
+   * A full-page navigation also sidesteps popup blockers, and lands the user back on the shell
+   * authenticated instead of on an intermediate page.
+   */
   const handleSocialLogin = (provider, { brandName: socialBrandName = '' } = {}) => {
-    return new Promise((resolve, reject) => {
-      setAuthError('')
-      setWorkspaceError('')
+    setAuthError('')
+    setWorkspaceError('')
 
-      const query = socialBrandName ? `?brandName=${encodeURIComponent(socialBrandName)}` : ''
-      const startUrl = `/api/auth/oauth/${provider}/start${query}`
-
-      const width = 520
-      const height = 640
-      const left = window.screenX + Math.max(0, (window.outerWidth - width) / 2)
-      const top = window.screenY + Math.max(0, (window.outerHeight - height) / 2)
-      const popup = window.open(
-        startUrl,
-        'oauth-signin',
-        `width=${width},height=${height},left=${left},top=${top}`,
-      )
-
-      if (!popup) {
-        const message = 'Popup blocked. Allow popups for this site to sign in with ' + provider + '.'
-        setAuthError(message)
-        reject(new Error(message))
-        return
-      }
-
-      let settled = false
-
-      const cleanup = () => {
-        window.removeEventListener('message', onMessage)
-        window.clearInterval(closedTimer)
-      }
-
-      const onMessage = (event) => {
-        if (event.origin !== window.location.origin) {
-          return
-        }
-        const data = event.data
-        if (!data || data.type !== 'oauth-result') {
-          return
-        }
-        settled = true
-        cleanup()
-        if (data.ok && data.auth) {
-          establishSession(data.auth)
-          resolve(data.auth)
-        } else {
-          const message = data.error || 'Social sign-in failed.'
-          setAuthError(message)
-          reject(new Error(message))
-        }
-      }
-
-      window.addEventListener('message', onMessage)
-
-      // If the user closes the popup without completing, stop waiting.
-      const closedTimer = window.setInterval(() => {
-        if (popup.closed && !settled) {
-          cleanup()
-          reject(new Error('Sign-in window was closed.'))
-        }
-      }, 500)
-    })
+    const query = socialBrandName ? `?brandName=${encodeURIComponent(socialBrandName)}` : ''
+    window.location.assign(`${DPS_BASE_URL}/dps/auth/oauth/${provider}/start${query}`)
   }
 
   const persistImportMapping = async (mappingTextOverride) => {

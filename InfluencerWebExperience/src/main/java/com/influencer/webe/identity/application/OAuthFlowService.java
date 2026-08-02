@@ -18,19 +18,19 @@ public class OAuthFlowService {
     private final OAuthStateService oauthStateService;
     private final OAuthProfileService oauthProfileService;
     private final AuthService authService;
-    private final ObjectMapper objectMapper;
+    private final OAuthHandoffService handoffService;
 
     public OAuthFlowService(
             WebExperienceProperties properties,
             OAuthStateService oauthStateService,
             OAuthProfileService oauthProfileService,
             AuthService authService,
-            ObjectMapper objectMapper) {
+            OAuthHandoffService handoffService) {
         this.properties = properties;
         this.oauthStateService = oauthStateService;
         this.oauthProfileService = oauthProfileService;
         this.authService = authService;
-        this.objectMapper = objectMapper;
+        this.handoffService = handoffService;
     }
 
     public ResponseEntity<Void> startGoogle(String brandName, String displayName) {
@@ -50,10 +50,19 @@ public class OAuthFlowService {
     }
 
     /**
-     * Completes the authorization-code exchange and redirects the browser (the OAuth popup)
-     * back to a same-origin UI page, carrying the result in the URL fragment so the popup can
-     * postMessage it to the opener. Errors redirect to the same page with an {@code error}
-     * fragment instead of surfacing a raw 4xx/5xx, so the popup always lands somewhere readable.
+     * Completes the authorization-code exchange and hands the result to the DPS.
+     *
+     * <p>The browser is redirected to the DPS carrying a single-use handoff code — never the tokens
+     * themselves. The DPS redeems that code server-to-server and converts the sign-in into an
+     * httpOnly cookie session.
+     *
+     * <p>This previously redirected to a UI page with the tokens base64'd into the URL fragment, for
+     * a popup to {@code postMessage} to its opener. That put an access and refresh token into a URL:
+     * readable by any script on the landing page, and retained in browser history. Handing them to
+     * the DPS instead is the whole reason that service exists.
+     *
+     * <p>Errors still redirect rather than returning a raw 4xx, so the popup always lands somewhere
+     * that can render a message instead of showing the browser's error page.
      */
     private ResponseEntity<Void> completeSocial(String provider, String code, String state) {
         try {
@@ -68,35 +77,29 @@ public class OAuthFlowService {
             AuthService.AuthResponse auth = "google".equals(provider)
                     ? authService.signupWithGoogle(accessToken, null, request.displayName(), request.brandName())
                     : authService.signupWithFacebook(accessToken, null, request.displayName(), request.brandName());
-            return redirectToUi(uiCallbackUrl() + "#result=" + encodeResult(auth));
+            return redirectToDps("/dps/auth/oauth/complete?handoff=" + encode(handoffService.store(auth)));
         } catch (ResponseStatusException exception) {
             String reason = exception.getReason() == null ? "OAuth sign-in failed" : exception.getReason();
-            return redirectToUi(uiCallbackUrl() + "#error=" + encode(reason));
+            return redirectToDps("/dps/auth/oauth/complete?error=" + encode(reason));
+        } catch (IllegalArgumentException exception) {
+            // Thrown when an unverified provider email collides with an existing account. The
+            // message explains how to link deliberately, so it is worth surfacing rather than
+            // flattening into a generic failure.
+            String reason = exception.getMessage() == null ? "OAuth sign-in failed" : exception.getMessage();
+            return redirectToDps("/dps/auth/oauth/complete?error=" + encode(reason));
         } catch (Exception exception) {
-            return redirectToUi(uiCallbackUrl() + "#error=" + encode("OAuth sign-in failed"));
+            return redirectToDps("/dps/auth/oauth/complete?error=" + encode("OAuth sign-in failed"));
         }
     }
 
-    private ResponseEntity<Void> redirectToUi(String url) {
-        return ResponseEntity.status(HttpStatus.FOUND).location(URI.create(url)).build();
-    }
-
-    private String uiCallbackUrl() {
-        String base = properties.getUiBaseUrl();
+    private ResponseEntity<Void> redirectToDps(String pathAndQuery) {
+        String base = properties.getDpsBaseUrl();
         if (base == null || base.isBlank()) {
-            base = "http://localhost:5173";
+            base = "http://localhost:8090";
         }
-        return base.replaceAll("/+$", "") + "/oauth-callback.html";
-    }
-
-    private String encodeResult(AuthService.AuthResponse auth) {
-        try {
-            String json = objectMapper.writeValueAsString(auth);
-            // base64url so tokens/JSON survive the URL fragment without escaping surprises.
-            return Base64.getUrlEncoder().withoutPadding().encodeToString(json.getBytes(StandardCharsets.UTF_8));
-        } catch (Exception exception) {
-            throw new IllegalStateException("Unable to serialize auth response", exception);
-        }
+        return ResponseEntity.status(HttpStatus.FOUND)
+                .location(URI.create(base.replaceAll("/+$", "") + pathAndQuery))
+                .build();
     }
 
     private String buildAuthorizationUrl(String provider, String brandName, String displayName) {

@@ -2,6 +2,7 @@ package com.influencer.webe.identity.api;
 
 import com.influencer.webe.identity.application.AuthService;
 import com.influencer.webe.identity.application.OAuthFlowService;
+import com.influencer.webe.identity.application.OAuthHandoffService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
@@ -16,10 +17,14 @@ import java.net.URI;
 public class AuthController {
     private final AuthService authService;
     private final OAuthFlowService oauthFlowService;
+    private final OAuthHandoffService oauthHandoffService;
 
-    public AuthController(AuthService authService, OAuthFlowService oauthFlowService) {
+    public AuthController(AuthService authService,
+                          OAuthFlowService oauthFlowService,
+                          OAuthHandoffService oauthHandoffService) {
         this.authService = authService;
         this.oauthFlowService = oauthFlowService;
+        this.oauthHandoffService = oauthHandoffService;
     }
 
     @PostMapping("/signup")
@@ -70,6 +75,20 @@ public class AuthController {
         return oauthFlowService.completeGoogle(code, state);
     }
 
+    /**
+     * Redeems a single-use OAuth handoff code for the completed sign-in.
+     *
+     * <p>Called server-to-server by the DPS, never by a browser: the tokens in this response are
+     * exactly what must not travel through a URL or reach JavaScript. The code is consumed on read,
+     * so a replay finds nothing.
+     */
+    @PostMapping("/oauth/handoff")
+    public AuthService.AuthResponse redeemOAuthHandoff(@Valid @RequestBody OAuthHandoffRequest request) {
+        return oauthHandoffService.consume(request.handoff())
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Invalid or expired OAuth handoff code"));
+    }
+
     @GetMapping("/oauth/facebook/start")
     public ResponseEntity<Void> startFacebookOAuth(
             @RequestParam(required = false) String brandName,
@@ -96,6 +115,9 @@ public class AuthController {
     }
 
     public record LogoutRequest(@NotBlank String refreshToken) {
+    }
+
+    public record OAuthHandoffRequest(@NotBlank String handoff) {
     }
 
     public record RefreshRequest(@NotBlank String refreshToken) {

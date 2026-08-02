@@ -43,7 +43,13 @@ public class UserController {
     public User update(@PathVariable UUID id, @RequestBody User user) {
         User existing = repository.findById(id).orElseThrow(() -> new RuntimeException("User not found"));
         existing.setEmail(user.getEmail());
-        existing.setPasswordHash(user.getPasswordHash());
+        // password_hash became nullable so federated users can exist without one. That makes a
+        // blind copy destructive: a PUT that simply omits the field would erase the password and
+        // lock out anyone whose only other credential is a provider link. Absent means "unchanged";
+        // clearing a password is its own operation, not a side effect of editing a profile.
+        if (user.getPasswordHash() != null && !user.getPasswordHash().isBlank()) {
+            existing.setPasswordHash(user.getPasswordHash());
+        }
         existing.setBrandName(user.getBrandName());
         existing.setCustomAttributes(user.getCustomAttributes());
         existing.setRole(user.getRole());

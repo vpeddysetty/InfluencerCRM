@@ -17,7 +17,14 @@ public class User {
     @Column(name = "email", nullable = false, unique = true)
     private String email;
 
-    @Column(name = "password_hash", nullable = false)
+    /**
+     * Null for users who authenticate only through an external provider.
+     *
+     * <p>Mirrors the Identity service mapping: the column was made nullable so a federated signup
+     * need not invent a hash that can never be used. Kept in step here because a stale
+     * {@code nullable = false} would have Hibernate reject a row Postgres accepts.
+     */
+    @Column(name = "password_hash")
     private String passwordHash;
 
     @Column(name = "brand_name")

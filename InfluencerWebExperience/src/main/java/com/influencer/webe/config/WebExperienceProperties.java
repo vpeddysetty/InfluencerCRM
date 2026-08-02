@@ -7,6 +7,18 @@ public class WebExperienceProperties {
     private String daoBaseUrl;
     private String agentBaseUrl;
     private String uiBaseUrl;
+
+    /**
+     * Origin of the Digital Presentation Service, where the OAuth callback hands off.
+     *
+     * <p>The completed sign-in is delivered here rather than to the UI: the DPS turns it into an
+     * httpOnly cookie session, so no token reaches JavaScript. Bouncing it to a browser page
+     * instead — as the earlier fragment-based flow did — puts the tokens somewhere script can read.
+     */
+    private String dpsBaseUrl = "http://localhost:8090";
+
+    /** This service's own externally-reachable origin, used to build provider redirect URIs. */
+    private String publicBaseUrl = "http://localhost:8081";
     private long sessionTtlMinutes = 720;
     private long accessTokenTtlMinutes = 30;
     private long refreshTokenTtlMinutes = 43200;
@@ -41,6 +53,22 @@ public class WebExperienceProperties {
 
     public String getUiBaseUrl() {
         return uiBaseUrl;
+    }
+
+    public String getPublicBaseUrl() {
+        return publicBaseUrl;
+    }
+
+    public void setPublicBaseUrl(String publicBaseUrl) {
+        this.publicBaseUrl = publicBaseUrl;
+    }
+
+    public String getDpsBaseUrl() {
+        return dpsBaseUrl;
+    }
+
+    public void setDpsBaseUrl(String dpsBaseUrl) {
+        this.dpsBaseUrl = dpsBaseUrl;
     }
 
     public void setUiBaseUrl(String uiBaseUrl) {

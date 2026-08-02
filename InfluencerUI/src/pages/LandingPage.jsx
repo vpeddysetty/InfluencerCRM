@@ -33,7 +33,7 @@ function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit, onSocialLogin, authE
       }
   }
 
-  const handleSocialLogin = async (provider) => {
+  const handleSocialLogin = (provider) => {
     if (socialProvider || !onSocialLogin) {
       return
     }
@@ -41,15 +41,11 @@ function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit, onSocialLogin, authE
     const brandInput = document.querySelector('input[name="brand"]')
     const brandName = isSignUp ? String(brandInput?.value || '').trim() : ''
 
+    // Navigates away to the DPS, which completes the flow and returns the user already signed in.
+    // There is no result to await and no route to push: the redirect replaces this page. The
+    // spinner stays on deliberately — it is the last thing rendered before the browser leaves.
     setSocialProvider(provider)
-    try {
-      await onSocialLogin(provider, { brandName })
-      submitTimerRef.current = window.setTimeout(() => {
-        navigate('/import')
-      }, 340)
-    } catch {
-      setSocialProvider('')
-    }
+    onSocialLogin(provider, { brandName })
   }
 
   return (

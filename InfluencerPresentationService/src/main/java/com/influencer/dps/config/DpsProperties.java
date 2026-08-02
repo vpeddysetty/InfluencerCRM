@@ -31,6 +31,14 @@ public class DpsProperties {
             "http://localhost:5178",
             "http://localhost:5179"));
 
+    /**
+     * Origin of the React shell, where the OAuth flow returns the user after signing in.
+     *
+     * <p>Only used for redirects the DPS itself issues. The session cookie is set on that redirect,
+     * so the SPA is authenticated before its first request.
+     */
+    private String uiBaseUrl = "http://localhost:5173";
+
     /** Sliding session lifetime. Activity extends it; idleness ends it. */
     private long sessionTtlMinutes = 480;
 
@@ -77,6 +85,14 @@ public class DpsProperties {
 
     public void setAllowedOrigins(List<String> allowedOrigins) {
         this.allowedOrigins = allowedOrigins;
+    }
+
+    public String getUiBaseUrl() {
+        return uiBaseUrl;
+    }
+
+    public void setUiBaseUrl(String uiBaseUrl) {
+        this.uiBaseUrl = uiBaseUrl;
     }
 
     public long getSessionTtlMinutes() {

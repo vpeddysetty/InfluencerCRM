@@ -63,6 +63,10 @@ public class OAuthProfileService {
                 "local-" + provider.toLowerCase() + "-" + fallbackEmail.toLowerCase(),
                 fallbackEmail.trim().toLowerCase(),
                 fallbackDisplayName == null || fallbackDisplayName.isBlank() ? fallbackEmail.trim() : fallbackDisplayName.trim(),
+                // Never verified: this address came from the caller, not from a provider. Treating
+                // a self-asserted email as verified would let anyone claim an existing account by
+                // naming its address — the exact takeover this flag exists to prevent.
+                false,
                 "{}");
     }
 
@@ -94,6 +98,10 @@ public class OAuthProfileService {
                         text(node, "sub", "google-unknown"),
                         text(node, "email", null),
                         text(node, "name", text(node, "email", "Google User")),
+                        // Google returns email_verified on the userinfo endpoint. Defaulting to
+                        // false when absent is deliberate: a missing claim is not evidence of
+                        // verification, and this flag gates account linking.
+                        node.path("email_verified").asBoolean(false),
                         node.toString()));
     }
 
@@ -107,6 +115,10 @@ public class OAuthProfileService {
                         text(node, "id", "facebook-unknown"),
                         text(node, "email", null),
                         text(node, "name", text(node, "email", "Facebook User")),
+                        // Facebook's Graph API exposes no per-address verification claim, so an
+                        // email from it can never satisfy the auto-link check. Linking a Facebook
+                        // identity to an existing account stays an explicit, signed-in action.
+                        false,
                         node.toString()));
     }
 
@@ -260,6 +272,22 @@ public class OAuthProfileService {
         OAuthProfile map(JsonNode node);
     }
 
-    public record OAuthProfile(String provider, String providerUserId, String email, String displayName, String rawProfileJson) {
+    /**
+     * A resolved provider profile.
+     *
+     * @param providerUserId the provider's stable subject id (Google {@code sub}, Facebook {@code
+     *                       id}). This — not the email — is what identifies the external account:
+     *                       emails get reassigned, subject ids do not.
+     * @param emailVerified  whether the provider states it verified ownership of the address.
+     *                       Carried explicitly rather than assumed, because auto-linking an
+     *                       unverified assertion to an existing account hands that account to
+     *                       whoever registered the address at a lax provider.
+     */
+    public record OAuthProfile(String provider,
+                               String providerUserId,
+                               String email,
+                               String displayName,
+                               boolean emailVerified,
+                               String rawProfileJson) {
     }
 }

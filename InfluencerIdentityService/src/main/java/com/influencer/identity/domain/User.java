@@ -17,7 +17,14 @@ public class User {
     @Column(name = "email", nullable = false, unique = true)
     private String email;
 
-    @Column(name = "password_hash", nullable = false)
+    /**
+     * Null for users who authenticate only through an external provider.
+     *
+     * <p>The "a user must retain at least one credential" rule spans this field and the
+     * federated_identities table, so it lives in {@code CredentialPolicy} rather than in a
+     * constraint that can only see one of them.
+     */
+    @Column(name = "password_hash")
     private String passwordHash;
 
     @Column(name = "brand_name")
