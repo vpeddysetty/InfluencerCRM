@@ -1,83 +1,53 @@
 /**
- * The presentation gateway.
+ * Thin client for the Digital Presentation Service (DPS).
  *
- * One place that authenticates a user, holds the resulting session, and decides which routes —
- * across which origins — that user may reach. Remotes never authenticate, never read storage, and
- * never construct an API client; they ask the gateway.
+ * <p>This used to hold the session itself: tokens in `localStorage`, refresh logic, permission
+ * decoding. All of that moved server-side. What remains is a client — it calls the DPS, which owns
+ * the session and returns only what the browser is allowed to know.
  *
- * <h3>Why a gateway rather than letting each remote handle its own auth</h3>
- * Micro-frontends are served from different origins. `localStorage` is origin-scoped, so a token
- * written by the shell at :5173 is simply invisible to a remote at :5174. Left alone, each remote
- * would need its own login — which is both a terrible experience and a much larger attack surface,
- * since the token would then exist in N places instead of one.
- *
- * The gateway makes the shell the sole holder of the credential. Remotes receive a narrow, revocable
- * capability (`fetch` bound to the session) rather than the token itself.
- *
- * <h3>What it deliberately does not do</h3>
- * It does not enforce authorization. Hiding a route the user cannot use avoids a dead end; the
- * server re-checks every call regardless. Treating this as the security boundary would be a mistake
- * — a remote is just JavaScript in the user's browser.
+ * <h3>Why the move</h3>
+ * <ul>
+ *   <li><strong>No token in JavaScript.</strong> The session is an httpOnly cookie, so an XSS
+ *       payload has nothing to steal. Previously any script on the page could read the access token
+ *       out of storage.</li>
+ *   <li><strong>Genuinely one session across origins.</strong> Storage is origin-scoped, so sharing
+ *       previously depended on React context reaching every remote. A cookie is sent by the browser
+ *       to the DPS from <em>any</em> allowed origin, whether or not React is involved.</li>
+ *   <li><strong>Refresh happens where the tokens are.</strong> No coordination between six remotes
+ *       racing to rotate one refresh token.</li>
+ *   <li><strong>A place for the login-time cache.</strong> The DPS assembles it once at login;
+ *       remotes read it from the session instead of each fetching the same reference data.</li>
+ * </ul>
  */
 
-const STORAGE_KEY = 'influencrm_gateway_session_v1'
+const DPS_BASE_URL = import.meta.env?.VITE_DPS_URL || 'http://localhost:8090'
 
-/** Session shape the gateway owns. Remotes see a read-only projection of this. */
-const EMPTY_SESSION = {
+/** Shape the DPS returns for an anonymous caller. Mirrors SessionView.anonymous(). */
+const ANONYMOUS = {
   authenticated: false,
   userId: '',
   email: '',
   userName: '',
-  accessToken: '',
-  refreshToken: '',
   accountId: '',
   brandId: '',
   brandName: '',
   role: '',
   permissions: [],
   availableBrands: [],
+  warmCache: {},
 }
 
 export class PresentationGateway {
-  constructor({ apiBaseUrl = '', onSessionChange = () => {} } = {}) {
-    this.apiBaseUrl = apiBaseUrl
+  constructor({ dpsBaseUrl = DPS_BASE_URL, onSessionChange = () => {} } = {}) {
+    this.dpsBaseUrl = dpsBaseUrl
     this.onSessionChange = onSessionChange
-    this.session = this.#restore()
+    // Nothing is restored from storage: the session lives in a cookie the browser holds and this
+    // code cannot read. `loadSession()` asks the DPS who we are.
+    this.session = { ...ANONYMOUS }
     this.subscribers = new Set()
-    // Collapses concurrent 401s into one refresh, so a burst of parallel calls from several
-    // remotes cannot rotate the refresh token repeatedly and invalidate each other.
-    this.inFlightRefresh = null
+    this.ready = false
   }
 
-  // ---------------------------------------------------------------- session
-
-  #restore() {
-    try {
-      const raw = window.localStorage.getItem(STORAGE_KEY)
-      if (!raw) return { ...EMPTY_SESSION }
-      const parsed = JSON.parse(raw)
-      return parsed && typeof parsed === 'object' ? { ...EMPTY_SESSION, ...parsed } : { ...EMPTY_SESSION }
-    } catch {
-      return { ...EMPTY_SESSION }
-    }
-  }
-
-  #persist() {
-    try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(this.session))
-    } catch {
-      // A full or blocked storage quota must not break the running session — it only means the
-      // user will have to log in again after a reload.
-    }
-  }
-
-  #emit() {
-    this.#persist()
-    this.onSessionChange(this.getSession())
-    this.subscribers.forEach((fn) => fn(this.getSession()))
-  }
-
-  /** Read-only projection. Callers cannot mutate the gateway's state by holding this. */
   getSession() {
     return Object.freeze({ ...this.session, permissions: [...this.session.permissions] })
   }
@@ -87,177 +57,130 @@ export class PresentationGateway {
     return () => this.subscribers.delete(listener)
   }
 
-  #applyAuthResponse(response) {
-    const email = response?.email || ''
-    const inferredName = email.includes('@') ? email.split('@')[0] : email
+  #emit() {
+    this.onSessionChange(this.getSession())
+    this.subscribers.forEach((fn) => fn(this.getSession()))
+  }
 
+  #apply(view) {
     this.session = {
-      ...this.session,
-      authenticated: Boolean(response?.accessToken),
-      userId: response?.userId || '',
-      email,
-      userName: inferredName || 'Brand Operator',
-      accessToken: response?.accessToken || '',
-      // A refresh response omits the refresh token when it did not rotate; keep the existing one
-      // rather than blanking it, or the next refresh would fail.
-      refreshToken: response?.refreshToken || this.session.refreshToken || '',
-      accountId: response?.accountId || '',
-      brandId: response?.brandId || '',
-      brandName: response?.brandName || this.session.brandName || '',
-      role: response?.role || '',
-      permissions: readPermissions(response?.accessToken),
+      ...ANONYMOUS,
+      ...view,
+      permissions: Array.isArray(view?.permissions) ? view.permissions : [],
+      availableBrands: Array.isArray(view?.availableBrands) ? view.availableBrands : [],
+      warmCache: view?.warmCache || {},
     }
     this.#emit()
     return this.getSession()
   }
 
-  // ------------------------------------------------------------------ auth
+  // ------------------------------------------------------------------ session
+
+  /**
+   * Asks the DPS who the caller is.
+   *
+   * <p>Called on mount. Returns an anonymous session rather than failing when there is no cookie —
+   * "not logged in" is a normal first-visit state, not an error.
+   */
+  async loadSession() {
+    try {
+      const view = await this.#call('/dps/session')
+      this.ready = true
+      return this.#apply(view)
+    } catch {
+      this.ready = true
+      return this.#apply(ANONYMOUS)
+    }
+  }
 
   async login({ email, password }) {
-    const response = await this.#call('/api/auth/login', {
-      method: 'POST',
-      body: { email, password },
-      anonymous: true,
-    })
-    return this.#applyAuthResponse(response)
+    return this.#apply(await this.#call('/dps/auth/login', { method: 'POST', body: { email, password } }))
   }
 
   async signup({ email, password, brandName }) {
-    const response = await this.#call('/api/auth/signup', {
-      method: 'POST',
-      body: { email, password, brandName },
-      anonymous: true,
-    })
-    return this.#applyAuthResponse(response)
+    return this.#apply(
+      await this.#call('/dps/auth/signup', { method: 'POST', body: { email, password, brandName } }),
+    )
   }
 
   async logout() {
     try {
-      if (this.session.refreshToken) {
-        await this.#call('/api/auth/logout', {
-          method: 'POST',
-          body: { refreshToken: this.session.refreshToken },
-          anonymous: true,
-        })
-      }
+      await this.#call('/dps/auth/logout', { method: 'POST' })
     } catch {
-      // The desired end state — no live session — is reached locally regardless.
+      // The DPS clears the cookie regardless; local state is reset either way.
     }
-    this.session = { ...EMPTY_SESSION }
-    this.#emit()
+    return this.#apply(ANONYMOUS)
   }
 
-  /**
-   * Renews the access token. Concurrent callers share one in-flight request: several remotes
-   * hitting 401 simultaneously must not each rotate the refresh token.
-   */
-  async refresh() {
-    if (!this.session.refreshToken) return null
-    if (this.inFlightRefresh) return this.inFlightRefresh
-
-    this.inFlightRefresh = (async () => {
-      try {
-        const response = await this.#call('/api/auth/refresh', {
-          method: 'POST',
-          body: { refreshToken: this.session.refreshToken },
-          anonymous: true,
-        })
-        return this.#applyAuthResponse(response).accessToken
-      } catch {
-        this.session = { ...EMPTY_SESSION }
-        this.#emit()
-        return null
-      } finally {
-        this.inFlightRefresh = null
-      }
-    })()
-
-    return this.inFlightRefresh
-  }
-
-  // ----------------------------------------------------------------- brands
-
-  async loadBrands() {
-    if (!this.session.authenticated) return []
-    try {
-      const brands = await this.#call('/api/brands')
-      this.session = { ...this.session, availableBrands: Array.isArray(brands) ? brands : [] }
-      this.#emit()
-      return this.session.availableBrands
-    } catch {
-      // Non-fatal: the workspace still works against the brand already in the token.
-      return this.session.availableBrands
-    }
-  }
-
-  /**
-   * Switches the active brand.
-   *
-   * The server re-mints the token because role and permissions are per-brand — carrying the old
-   * brand's role across would over-grant. This is why brand switching is a gateway concern and not
-   * something a remote can do for itself.
-   */
   async switchBrand(brandId) {
     if (!brandId || brandId === this.session.brandId) return this.getSession()
-    const response = await this.#call('/api/brands/switch', {
-      method: 'POST',
-      body: { brandId },
-    })
-    return this.#applyAuthResponse(response)
+    return this.#apply(await this.#call('/dps/brands/switch', { method: 'POST', body: { brandId } }))
+  }
+
+  async loadBrands() {
+    try {
+      const brands = await this.#call('/dps/brands')
+      this.session = { ...this.session, availableBrands: Array.isArray(brands) ? brands : [] }
+      this.#emit()
+    } catch {
+      // Non-fatal: the workspace still works against the active brand.
+    }
+    return this.session.availableBrands
   }
 
   // ------------------------------------------------------------ authorization
 
   /**
-   * Whether the session may use a capability.
+   * Whether the session holds a permission.
    *
-   * A UX affordance only. An empty permission set means the token predates permission claims, in
-   * which case showing everything is safer than an empty app — the server still refuses.
+   * <p>Read from the session the DPS returned. A UX affordance only — the server re-checks every
+   * call, so this decides what to render and nothing more.
    */
   can(permission) {
     if (!permission) return true
-    if (!this.session.permissions || this.session.permissions.length === 0) return true
+    if (!this.session.permissions?.length) return true
     return this.session.permissions.includes(permission)
   }
 
-  // ------------------------------------------------------------------- fetch
+  /** Data the DPS assembled at login, so remotes need not re-fetch it. */
+  warm(key) {
+    return key ? this.session.warmCache?.[key] : this.session.warmCache
+  }
+
+  // -------------------------------------------------------------------- fetch
 
   /**
    * The capability handed to remotes.
    *
-   * Remotes call this instead of `fetch`. They never see the token, so a compromised or careless
-   * remote cannot exfiltrate a credential it was never given — and revoking access is a matter of
-   * no longer passing this function.
+   * <p>Calls travel to the DPS, which attaches the bearer token and tenancy header server-side.
+   * There is no token here to attach, and none to leak.
    *
-   * Retries once through refresh on 401, so an expired token mid-session is invisible to the caller.
+   * <p>`credentials: 'include'` is what sends the session cookie cross-origin. Without it every
+   * call from a remote would be anonymous.
    */
   authorizedFetch = async (path, options = {}) => {
-    const send = async (token) => {
-      const headers = { ...(options.headers || {}) }
-      if (!options.isFormData) headers['Content-Type'] = headers['Content-Type'] || 'application/json'
-      if (token) headers.Authorization = `Bearer ${token}`
-      // The active brand is the tenancy key and travels as a header, so no call site can pick
-      // a different one.
-      if (this.session.brandId) headers['X-Brand-Id'] = this.session.brandId
-
-      return fetch(this.apiBaseUrl + path, {
-        method: options.method || 'GET',
-        headers,
-        body:
-          options.body == null
-            ? undefined
-            : options.isFormData
-              ? options.body
-              : JSON.stringify(options.body),
-      })
+    const headers = { ...(options.headers || {}) }
+    if (!options.isFormData) {
+      headers['Content-Type'] = headers['Content-Type'] || 'application/json'
     }
+    // Double-submit CSRF: cookies are attached automatically, so possession of the token — which
+    // only same-origin script can read — is what proves the request was not forged.
+    const csrf = readCookie('XSRF-TOKEN')
+    if (csrf) headers['X-XSRF-TOKEN'] = csrf
 
-    let response = await send(this.session.accessToken)
-    if (response.status === 401 && this.session.accessToken && !options.anonymous) {
-      const renewed = await this.refresh()
-      if (renewed) response = await send(renewed)
-    }
-    return response
+    // A bare path is a platform API call and goes through the DPS proxy; a /dps/ path is a
+    // gateway call and is passed through unchanged.
+    const url = path.startsWith('/dps/')
+      ? this.dpsBaseUrl + path
+      : `${this.dpsBaseUrl}/dps/api${path.startsWith('/api') ? path.slice(4) : path}`
+
+    return fetch(url, {
+      method: options.method || 'GET',
+      headers,
+      credentials: 'include',
+      body:
+        options.body == null ? undefined : options.isFormData ? options.body : JSON.stringify(options.body),
+    })
   }
 
   async #call(path, options = {}) {
@@ -271,22 +194,10 @@ export class PresentationGateway {
   }
 }
 
-/**
- * Reads permission claims from the access token.
- *
- * Decoded, never verified — this decides what to render, not what is allowed. A tampered token
- * buys nothing but a UI offering links the API will refuse.
- */
-function readPermissions(accessToken) {
-  if (!accessToken) return []
-  try {
-    const payload = accessToken.split('.')[1]
-    if (!payload) return []
-    const claims = JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/')))
-    return Array.isArray(claims.perms) ? claims.perms : []
-  } catch {
-    return []
-  }
+/** Reads a non-httpOnly cookie. Only ever used for the CSRF token, which is readable by design. */
+function readCookie(name) {
+  const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`))
+  return match ? decodeURIComponent(match[1]) : null
 }
 
 export default PresentationGateway

@@ -15,17 +15,23 @@ import PresentationGateway from './PresentationGateway'
  */
 const GatewayContext = createContext(null)
 
-export function GatewayProvider({ apiBaseUrl = '', children }) {
+export function GatewayProvider({ dpsBaseUrl, children }) {
   // The gateway is stateful and long-lived; recreating it per render would drop the session.
   const gatewayRef = useRef(null)
   if (gatewayRef.current === null) {
-    gatewayRef.current = new PresentationGateway({ apiBaseUrl })
+    gatewayRef.current = new PresentationGateway(dpsBaseUrl ? { dpsBaseUrl } : {})
   }
   const gateway = gatewayRef.current
 
   const [session, setSession] = useState(() => gateway.getSession())
 
   useEffect(() => gateway.subscribe(setSession), [gateway])
+
+  // Who am I? The session lives in an httpOnly cookie this code cannot read, so the DPS is the
+  // only way to find out. Runs once on mount, before any route renders.
+  useEffect(() => {
+    gateway.loadSession()
+  }, [gateway])
 
   // Brands drive the switcher, and the set can change when a membership is granted or revoked.
   useEffect(() => {
@@ -48,9 +54,12 @@ export function GatewayProvider({ apiBaseUrl = '', children }) {
       permissions: session.permissions,
       availableBrands: session.availableBrands,
       isAgency: (session.availableBrands || []).length > 1,
+      // Data the DPS assembled at login, so a remote need not re-fetch shared reference data.
+      warm: (key) => gateway.warm(key),
 
       // ---- capabilities ----
-      // The only way a remote reaches the API. No token is handed over.
+      // The only way a remote reaches the API. There is no token in this process to hand over —
+      // the DPS attaches it server-side.
       fetch: gateway.authorizedFetch,
       can: (permission) => gateway.can(permission),
 

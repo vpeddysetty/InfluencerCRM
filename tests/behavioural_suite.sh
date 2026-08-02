@@ -223,9 +223,50 @@ if curl -s -o /dev/null --max-time 4 "http://localhost:5174/remoteEntry.js" 2>/d
     chk "$1 remote serves remoteEntry.js" "$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:$2/remoteEntry.js" --max-time 15)" "200"
   done
   # Without CORS the gateway cannot load a remote from another origin at all.
-  chk "remotes allow cross-origin load from the gateway" "$(curl -s -D - -o /dev/null -H 'Origin: http://localhost:5173' 'http://localhost:5175/remoteEntry.js' --max-time 15 | grep -ci 'access-control-allow-origin' | tr -d '')" "1"
+  chk "remotes allow cross-origin load from the gateway" "$(curl -s -D - -o /dev/null -H 'Origin: http://localhost:5173' 'http://localhost:5175/remoteEntry.js' --max-time 15 | grep -ci 'access-control-allow-origin' | tr -d '
+')" "1"
 else
   echo "  SKIP  micro-frontend remotes not running on :5174-:5179"
+fi
+
+echo
+echo "=============================================================="
+echo " K. DIGITAL PRESENTATION SERVICE (DPS)"
+echo "=============================================================="
+DPS="http://localhost:8090"
+JAR="$TEMP/dps_suite_cookies.txt"
+rm -f "$JAR"
+if curl -s -o /dev/null --max-time 4 "$DPS/actuator/health" 2>/dev/null; then
+  # Not-logged-in is a normal first-visit state, so /session answers 200 with authenticated:false
+  # rather than 401 — a 401 here would fill the console and tempt callers to treat it as failure.
+  chk "anonymous /session returns 200 not 401" "$(curl -s -o /dev/null -w '%{http_code}' "$DPS/dps/session" --max-time 15)" "200"
+  chk "anonymous /session says authenticated=false" "$(curl -s "$DPS/dps/session" --max-time 15 | python -c 'import sys,json;print(str(json.load(sys.stdin)["authenticated"]).lower())' 2>/dev/null)" "false"
+
+  LOGIN=$(curl -s -c "$JAR" -X POST "$DPS/dps/auth/login" -H 'Content-Type: application/json' -d '{"email":"demo.admin@northstar.test","password":"DemoPass123!"}' --max-time 25)
+  chk "login through the DPS succeeds" "$(echo "$LOGIN" | python -c 'import sys,json;print(str(json.load(sys.stdin)["authenticated"]).lower())' 2>/dev/null)" "true"
+
+  # The reason this service exists: no credential reaches JavaScript.
+  chk "login response contains NO token" "$(echo "$LOGIN" | grep -ciE 'accessToken|refreshToken|eyJ' | tr -d '')" "0"
+  chk "session cookie is HttpOnly" "$(curl -s -D - -o /dev/null -X POST "$DPS/dps/auth/login" -H 'Content-Type: application/json' -d '{"email":"demo.admin@northstar.test","password":"DemoPass123!"}' --max-time 25 | grep -i 'INFLUENCRM_SESSION' | grep -ci 'HttpOnly' | tr -d '')" "1"
+
+  chk "session survives via cookie alone" "$(curl -s -b "$JAR" "$DPS/dps/session" --max-time 15 | python -c 'import sys,json;print(str(json.load(sys.stdin)["authenticated"]).lower())' 2>/dev/null)" "true"
+
+  # Remotes reach the platform through the DPS, which attaches the token server-side.
+  chk "API proxy with session cookie"    "$(curl -s -o /dev/null -w '%{http_code}' -b "$JAR" "$DPS/dps/api/creators" --max-time 25)" "200"
+  chk "API proxy without a session"      "$(curl -s -o /dev/null -w '%{http_code}' "$DPS/dps/api/creators" --max-time 25)" "401"
+
+  chk "authorize grants a held permission"   "$(curl -s -b "$JAR" "$DPS/dps/authorize?permission=creator:write" --max-time 15 | python -c 'import sys,json;print(str(json.load(sys.stdin)["granted"]).lower())' 2>/dev/null)" "true"
+  # ADMIN is not OWNER: billing stays denied, so the Phase 3 matrix still holds through the DPS.
+  chk "authorize denies a permission not held" "$(curl -s -b "$JAR" "$DPS/dps/authorize?permission=account:billing" --max-time 15 | python -c 'import sys,json;print(str(json.load(sys.stdin)["granted"]).lower())' 2>/dev/null)" "false"
+
+  # Credentialed CORS cannot use a wildcard, so the DPS must echo the specific origin.
+  chk "CORS echoes the remote origin"      "$(curl -s -D - -o /dev/null -H 'Origin: http://localhost:5177' "$DPS/dps/session" --max-time 15 | grep -ci 'access-control-allow-origin: http://localhost:5177' | tr -d '')" "1"
+  chk "CORS allows credentials"            "$(curl -s -D - -o /dev/null -H 'Origin: http://localhost:5177' "$DPS/dps/session" --max-time 15 | grep -ci 'access-control-allow-credentials: true' | tr -d '')" "1"
+  chk "CORS rejects an unlisted origin"    "$(curl -s -D - -o /dev/null -H 'Origin: http://evil.example' "$DPS/dps/session" --max-time 15 | grep -ci 'access-control-allow-origin: http://evil.example' | tr -d '')" "0"
+
+  chk "login-time cache endpoint reachable" "$(curl -s -o /dev/null -w '%{http_code}' -b "$JAR" "$DPS/dps/cache" --max-time 15)" "200"
+else
+  echo "  SKIP  DPS not running on :8090"
 fi
 
 echo

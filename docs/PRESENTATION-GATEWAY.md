@@ -1,6 +1,11 @@
 # Presentation Gateway
 
 **Date:** 2026-08-02
+**Status:** superseded in part — the session now lives server-side in the
+[Digital Presentation Service](DIGITAL-PRESENTATION-SERVICE.md) rather than in React. This document
+still describes the federation and routing design, which is unchanged; the auth sections describe
+the earlier client-side approach and are kept for the reasoning.
+
 **What it is:** the single origin a user visits, which authenticates them once and assembles a UI
 from micro-frontends served by six other origins.
 

@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-02
 **Scope:** DDD migration Phases 0–6 (security floor → tenancy → RBAC → modular monolith → schema split & events → UI decomposition)
-**Result:** **196 / 196 passing** (102 unit + ArchUnit across 9 modules, 94 behavioural against 9 services + 6 micro-frontends)
+**Result:** **210 / 210 passing** (102 unit + ArchUnit across 9 modules, 108 behavioural against 10 services + 6 micro-frontends)
 
 ---
 
@@ -23,6 +23,9 @@ docker exec -i influencercrm-postgres psql -U influencercrm_user -d influencercr
   -f - < schema/seed/test_accounts.sql
 
 # 4. Services
+# Digital Presentation Service — auth/authz for every micro-frontend origin
+cd InfluencerPresentationService && mvn spring-boot:run                              # :8090
+
 # Gateway + legacy DAO
 cd InfluencerDAO             && mvn spring-boot:run                                  # :8443 (https)
 cd InfluencerWebExperience   && mvn spring-boot:run -Dspring-boot.run.profiles=local # :8081
@@ -164,7 +167,7 @@ boundary test that has never failed is not evidence of anything.
 
 Run with `mvn test` in either module.
 
-### 4.2 Behavioural tests against the running stack — 94 passing
+### 4.2 Behavioural tests against the running stack — 108 passing
 
 Run with `bash tests/behavioural_suite.sh` while the stack is up.
 
@@ -180,7 +183,8 @@ Run with `bash tests/behavioural_suite.sh` while the stack is up.
 | H. Extracted Workflow service | 9 | ✅ all pass |
 | I. All extracted services | 17 | ✅ all pass |
 | J. Presentation gateway & micro-frontends | 7 | ✅ all pass |
-| **Total** | **94** | **✅ 0 failures** |
+| K. Digital Presentation Service | 14 | ✅ all pass |
+| **Total** | **108** | **✅ 0 failures** |
 
 #### A. Authentication & security floor
 
@@ -335,6 +339,37 @@ does both jobs.
 warning rather than rendering a blank route — federation becomes adoptable one context at a time,
 and a remote outage is a degraded experience rather than an outage.
 
+#### K. Digital Presentation Service
+
+The session moved out of React and into a Spring Boot service
+([DIGITAL-PRESENTATION-SERVICE.md](DIGITAL-PRESENTATION-SERVICE.md)).
+
+| Case | Result |
+|---|---|
+| Anonymous `/session` returns 200, not 401 | ✅ |
+| Anonymous `/session` reports `authenticated:false` | ✅ |
+| Login through the DPS succeeds | ✅ |
+| **Login response contains no token** | 0 occurrences ✅ |
+| **Session cookie is `HttpOnly`** | ✅ |
+| Session survives on the cookie alone | ✅ |
+| API proxy with a session cookie | 200 ✅ |
+| API proxy without a session | 401 ✅ |
+| `authorize` grants a held permission | ✅ |
+| `authorize` denies one not held (`account:billing` for ADMIN) | ✅ |
+| CORS echoes the specific remote origin | ✅ |
+| CORS allows credentials | ✅ |
+| CORS rejects an unlisted origin | ✅ |
+| Login-time cache endpoint reachable | 200 ✅ |
+
+**The two that matter most** are the token check and the `HttpOnly` check. Together they mean an XSS
+payload has nothing to steal — previously any script on the page could read the access token out of
+`localStorage`.
+
+The `account:billing` denial for an ADMIN is also worth noting: the Phase 3 permission matrix still
+holds through the DPS, which reads permissions from the token rather than recomputing them.
+
+---
+
 ---
 
 ## 5. Defects found and fixed during testing
@@ -470,6 +505,7 @@ it now would break the monolith.
 | Context boundaries | ✅ 23 ArchUnit rules (12 DAO + 11 BFF), both proven to fail on violation |
 | Extraction prerequisites | ✅ per-context DB roles, published contracts, route manifest, runbook |
 | First extraction (Workflow) | ✅ own service + own DB role, dual-run identical, cutover and rollback both proven |
+| Digital Presentation Service | ✅ server-side session, httpOnly cookie, zero tokens in the browser |
 | Data integrity | ✅ reconciliation passes |
 
-**196 / 196 tests passing.**
+**210 / 210 tests passing.**
