@@ -80,10 +80,38 @@ openssl rand -base64 32
 
 ### 4. Set a persistent JWT signing key
 
-`web-experience.jwt-signing-key` is unset by default, so the BFF generates an **ephemeral** RSA key
-at startup. Tokens then die on restart and a second instance cannot verify the first's tokens. Set
-`WEBE_JWT_SIGNING_KEY` to a persistent RSA JWK (JSON, including the private key) in every deployed
-environment.
+**The BFF now refuses to start without one.** An ephemeral key cannot be verified by a second
+instance or by an extracted service, and the resulting intermittent 401s read as a session bug
+rather than a configuration one — so it fails loudly at boot instead.
+
+#### Generating a JWT signing key
+
+```bash
+cat > GenKey.java <<'EOF'
+import com.nimbusds.jose.jwk.RSAKey;
+import java.security.KeyPair; import java.security.KeyPairGenerator;
+import java.security.interfaces.*; import java.util.UUID;
+public class GenKey {
+  public static void main(String[] a) throws Exception {
+    KeyPairGenerator g = KeyPairGenerator.getInstance("RSA"); g.initialize(2048);
+    KeyPair kp = g.generateKeyPair();
+    System.out.println(new RSAKey.Builder((RSAPublicKey) kp.getPublic())
+        .privateKey((RSAPrivateKey) kp.getPrivate())
+        .keyID(UUID.randomUUID().toString()).build().toJSONString());
+  }
+}
+EOF
+
+CP=$(find ~/.m2/repository/com/nimbusds/nimbus-jose-jwt -name '*.jar' | head -1)
+java -cp "$CP" GenKey.java
+```
+
+Set the output as `WEBE_JWT_SIGNING_KEY` (or `web-experience.jwt-signing-key`) in every deployed
+environment. Treat it exactly like the TLS private key: never commit it, and rotating it logs every
+user out.
+
+For a single-process local run only, `web-experience.allow-ephemeral-jwt-key=true` restores the old
+behaviour.
 
 ### 5. Purge the key from git history
 

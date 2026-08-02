@@ -20,3 +20,16 @@ web-experience.oauth.facebook.client-secret=your-facebook-app-secret
 
 # Override the UI origin here if you don't run the UI on http://localhost:5173
 # web-experience.ui-base-url=http://localhost:5173
+
+# --- JWT signing key (REQUIRED) ---
+# A persistent RSA JWK, including the private key. Without it the BFF refuses to start:
+# an ephemeral key cannot be verified by a second instance or by an extracted service,
+# which surfaces as intermittent 401s that look like a session bug rather than config.
+#
+# Generate one:
+#   see docs/keystore-rotation.md, "Generating a JWT signing key"
+#
+# web-experience.jwt-signing-key={"p":"...","kty":"RSA","q":"...","d":"...","n":"..."}
+#
+# For a single-process local run you may instead skip the key entirely with:
+#   web-experience.allow-ephemeral-jwt-key=true

@@ -46,11 +46,14 @@ class CrossTenantIsolationTest {
         WebExperienceProperties properties = new WebExperienceProperties();
         properties.setAccessTokenTtlMinutes(30);
         properties.setRefreshTokenTtlMinutes(1440);
+        // Unit test: a self-contained key is what makes these assertions independent.
+        properties.setAllowEphemeralJwtKey(true);
 
         jwtService = new JwtService(properties);
-        // SessionService is used here only for token verification, so the tenancy client is not
-        // exercised; passing null keeps the test a unit test rather than requiring a live DAO.
-        SessionService sessionService = new SessionService(jwtService, new RefreshTokenStore(properties), null);
+        // SessionService is used here only for token verification, so neither the refresh store
+        // nor the tenancy client is exercised; passing null keeps this a unit test rather than
+        // requiring a live DAO.
+        SessionService sessionService = new SessionService(jwtService, null, null);
         resolver = new RequestUserResolver(sessionService);
     }
 

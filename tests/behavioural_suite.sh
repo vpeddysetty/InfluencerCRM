@@ -142,7 +142,7 @@ echo
 echo "=============================================================="
 echo " G. DATA INTEGRITY"
 echo "=============================================================="
-chk "24 tables across 9 context schemas" "$(docker exec influencercrm-postgres psql -U influencercrm_user -d influencercrm_db -t -A -c "select count(*) from pg_tables where schemaname in ('identity','creator','campaign','workflow','attribution','finance','content','mapping','shared')" 2>/dev/null | tr -d '\r')" "24"
+chk "25 tables across 9 context schemas" "$(docker exec influencercrm-postgres psql -U influencercrm_user -d influencercrm_db -t -A -c "select count(*) from pg_tables where schemaname in ('identity','creator','campaign','workflow','attribution','finance','content','mapping','shared')" 2>/dev/null | tr -d '\r')" "25"
 chk "no domain tables left in public" "$(docker exec influencercrm-postgres psql -U influencercrm_user -d influencercrm_db -t -A -c "select count(*) from pg_tables where schemaname='public' and tablename in ('users','creators','campaigns','brands')" 2>/dev/null | tr -d '\r')" "0"
 chk "every user resolves to a brand" "$(docker exec influencercrm-postgres psql -U influencercrm_user -d influencercrm_db -t -A -c "select count(*) from identity.users u where not exists (select 1 from identity.memberships m where m.user_id=u.id)" 2>/dev/null | tr -d '\r')" "0"
 chk "no creator row without a brand" "$(docker exec influencercrm-postgres psql -U influencercrm_user -d influencercrm_db -t -A -c "select count(*) from creator.creators where brand_id is null" 2>/dev/null | tr -d '\r')" "0"
@@ -156,16 +156,22 @@ if curl -s -o /dev/null --max-time 5 "$WF/workflow-boards" 2>/dev/null; then
   chk "workflow service rejects calls without a service token" "$(curl -s -o /dev/null -w '%{http_code}' "$WF/workflow-boards" --max-time 20)" "401"
   chk "workflow service serves with the token"                 "$(curl -s -o /dev/null -w '%{http_code}' -H "X-Service-Token: $SVC" "$WF/workflow-boards" --max-time 20)" "200"
   # The reason the service exists: it runs as svc_workflow, which the database confines.
-  chk "svc_workflow CANNOT write finance tables" "$(docker exec influencercrm-postgres psql -U influencercrm_user -d influencercrm_db -t -A -c "select has_table_privilege('svc_workflow','finance.influencer_payouts','INSERT')" 2>/dev/null | tr -d '')" "f"
-  chk "svc_workflow CANNOT write campaign tables" "$(docker exec influencercrm-postgres psql -U influencercrm_user -d influencercrm_db -t -A -c "select has_table_privilege('svc_workflow','campaign.campaigns','INSERT')" 2>/dev/null | tr -d '')" "f"
-  chk "svc_workflow CAN write its own tables" "$(docker exec influencercrm-postgres psql -U influencercrm_user -d influencercrm_db -t -A -c "select has_table_privilege('svc_workflow','workflow.workflow_boards','INSERT')" 2>/dev/null | tr -d '')" "t"
+  chk "svc_workflow CANNOT write finance tables" "$(docker exec influencercrm-postgres psql -U influencercrm_user -d influencercrm_db -t -A -c "select has_table_privilege('svc_workflow','finance.influencer_payouts','INSERT')" 2>/dev/null | tr -d '
+')" "f"
+  chk "svc_workflow CANNOT write campaign tables" "$(docker exec influencercrm-postgres psql -U influencercrm_user -d influencercrm_db -t -A -c "select has_table_privilege('svc_workflow','campaign.campaigns','INSERT')" 2>/dev/null | tr -d '
+')" "f"
+  chk "svc_workflow CAN write its own tables" "$(docker exec influencercrm-postgres psql -U influencercrm_user -d influencercrm_db -t -A -c "select has_table_privilege('svc_workflow','workflow.workflow_boards','INSERT')" 2>/dev/null | tr -d '
+')" "t"
   # Dual-run equivalence: the extracted service and the monolith must agree.
   DAO_N=$(curl -sk -H "X-Service-Token: $SVC" "$DAO/workflow-boards" --max-time 20 | python -c 'import sys,json;print(len(json.load(sys.stdin)))' 2>/dev/null)
   SVC_N=$(curl -s  -H "X-Service-Token: $SVC" "$WF/workflow-boards"  --max-time 20 | python -c 'import sys,json;print(len(json.load(sys.stdin)))' 2>/dev/null)
   chk "monolith and extracted service return the same rows" "$SVC_N" "$DAO_N"
-  chk "cross-context FKs on workflow_cards are gone" "$(docker exec influencercrm-postgres psql -U influencercrm_user -d influencercrm_db -t -A -c "select count(*) from pg_constraint where conname in ('workflow_cards_campaign_id_fkey','workflow_cards_creator_id_fkey')" 2>/dev/null | tr -d '')" "0"
-  chk "intra-aggregate FKs survived" "$(docker exec influencercrm-postgres psql -U influencercrm_user -d influencercrm_db -t -A -c "select count(*) from pg_constraint where conname in ('workflow_cards_board_id_fkey','workflow_cards_stage_id_fkey','workflow_board_stages_board_id_fkey')" 2>/dev/null | tr -d '')" "3"
-  chk "orphan-monitoring view is empty" "$(docker exec influencercrm-postgres psql -U influencercrm_user -d influencercrm_db -t -A -c "select count(*) from workflow.orphaned_cards" 2>/dev/null | tr -d '')" "0"
+  chk "cross-context FKs on workflow_cards are gone" "$(docker exec influencercrm-postgres psql -U influencercrm_user -d influencercrm_db -t -A -c "select count(*) from pg_constraint where conname in ('workflow_cards_campaign_id_fkey','workflow_cards_creator_id_fkey')" 2>/dev/null | tr -d '
+')" "0"
+  chk "intra-aggregate FKs survived" "$(docker exec influencercrm-postgres psql -U influencercrm_user -d influencercrm_db -t -A -c "select count(*) from pg_constraint where conname in ('workflow_cards_board_id_fkey','workflow_cards_stage_id_fkey','workflow_board_stages_board_id_fkey')" 2>/dev/null | tr -d '
+')" "3"
+  chk "orphan-monitoring view is empty" "$(docker exec influencercrm-postgres psql -U influencercrm_user -d influencercrm_db -t -A -c "select count(*) from workflow.orphaned_cards" 2>/dev/null | tr -d '
+')" "0"
 else
   echo "  SKIP  workflow service not running on :8444"
 fi

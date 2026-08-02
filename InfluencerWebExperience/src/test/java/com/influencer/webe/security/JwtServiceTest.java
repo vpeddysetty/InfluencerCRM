@@ -33,6 +33,10 @@ class JwtServiceTest {
     private WebExperienceProperties properties(long accessTokenTtlMinutes) {
         WebExperienceProperties properties = new WebExperienceProperties();
         properties.setAccessTokenTtlMinutes(accessTokenTtlMinutes);
+        // These tests deliberately want a fresh, independent key per instance — that is how
+        // "a token signed by another instance is rejected" is expressed. Production refuses to
+        // start without a configured key, so the escape hatch is opted into explicitly here.
+        properties.setAllowEphemeralJwtKey(true);
         return properties;
     }
 
@@ -112,5 +116,46 @@ class JwtServiceTest {
         assertThat(jwtService.verify(tokenA).orElseThrow().userId()).isEqualTo(USER_ID);
         assertThat(jwtService.verify(tokenB).orElseThrow().userId()).isEqualTo(OTHER_USER_ID);
         assertThat(tokenA).isNotEqualTo(tokenB);
+    }
+
+    @Test
+    @DisplayName("startup fails loudly when no signing key is configured")
+    void refusesToStartWithoutAConfiguredKey() {
+        WebExperienceProperties properties = new WebExperienceProperties();
+        properties.setAccessTokenTtlMinutes(30);
+        // Deliberately does NOT opt into an ephemeral key.
+
+        // An ephemeral key cannot be verified by another instance or by an extracted service, so
+        // the resulting 401s look like a session bug. Failing at boot is far cheaper to diagnose
+        // than intermittent logouts in production.
+        org.assertj.core.api.Assertions
+                .assertThatThrownBy(() -> new JwtService(properties))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("jwt-signing-key is not configured");
+    }
+
+    @Test
+    @DisplayName("a configured key is reused, so tokens survive a restart")
+    void configuredKeySurvivesRestart() {
+        // Stand in for "the same key is configured on two instances / across a restart".
+        WebExperienceProperties first = new WebExperienceProperties();
+        first.setAccessTokenTtlMinutes(30);
+        first.setAllowEphemeralJwtKey(true);
+        JwtService generator = new JwtService(first);
+
+        String jwk = generator.exportSigningKeyForTesting();
+
+        WebExperienceProperties configured = new WebExperienceProperties();
+        configured.setAccessTokenTtlMinutes(30);
+        configured.setJwtSigningKey(jwk);
+
+        JwtService instanceA = new JwtService(configured);
+        JwtService instanceB = new JwtService(configured);
+
+        String token = instanceA.issueAccessToken(contextFor(USER_ID), "password");
+
+        // The whole point: instance B verifies a token instance A minted.
+        assertThat(instanceB.verify(token)).isPresent();
+        assertThat(instanceB.verify(token).orElseThrow().userId()).isEqualTo(USER_ID);
     }
 }

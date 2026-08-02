@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-02
 **Scope:** DDD migration Phases 0–6 (security floor → tenancy → RBAC → modular monolith → schema split & events → UI decomposition)
-**Result:** **146 / 146 passing** (76 unit + ArchUnit, 70 behavioural against the running stack)
+**Result:** **148 / 148 passing** (78 unit + ArchUnit, 70 behavioural against the running stack)
 
 ---
 
@@ -109,7 +109,7 @@ audited on.
 
 ## 4. Test results
 
-### 4.1 Automated unit + architecture tests — 76 passing
+### 4.1 Automated unit + architecture tests — 78 passing
 
 ```
 InfluencerWebExperience  50 tests   JwtServiceTest, CrossTenantIsolationTest, RolePermissionsTest,
@@ -119,7 +119,7 @@ InfluencerDAO            22 tests   ServiceTokenFilterTest, CommissionServiceTes
 InfluencerWorkflowService 4 tests   WorkflowServiceBoundaryTest — keeps the extracted
                                     service from re-growing a monolith dependency
                         ───────
-                         76 tests   0 failures, 0 errors
+                         78 tests   0 failures, 0 errors
 ```
 
 **23 ArchUnit rules** enforce context boundaries across both tiers. Both rule sets were verified to
@@ -277,6 +277,31 @@ Stated plainly so the report is not read as more than it is.
 - **No micro-frontend federation.** See §7.
 - **Keystore rotation is outstanding** — the previously committed private key is still in git
   history and must be treated as compromised. See [keystore-rotation.md](keystore-rotation.md).
+  This is the only remaining item from the pre-deployment list; the two multi-instance blockers
+  below are now closed.
+
+### Multi-instance blockers, resolved
+
+Both had to be fixed before Identity could be extracted, because both produce failures that look
+like session bugs rather than configuration or topology problems.
+
+| Blocker | Was | Now |
+|---|---|---|
+| **JWT signing key** | Ephemeral, generated per process. A second instance rejected the first's tokens | A configured RSA JWK is **required**; the BFF refuses to start without one. `allow-ephemeral-jwt-key=true` is an explicit single-process opt-in |
+| **Refresh tokens** | `ConcurrentHashMap`. Instance B could not see a token issued by instance A | Persisted in `identity.refresh_tokens`, **hash only** — a database dump yields no usable credential |
+
+**Verified by restarting the BFF mid-session:**
+
+```
+access token issued BEFORE restart still valid  -> 200   (persistent signing key)
+refresh token issued BEFORE restart still works -> yes   (persistent store)
+rotated: replaying the old refresh token        -> 400
+logout revokes                                  -> 204, row deleted
+```
+
+Before this change every one of those failed after a restart. `JwtServiceTest` also proves two
+instances sharing one configured key verify each other's tokens — the property that makes
+multi-service deployment work at all.
 
 ---
 
@@ -346,4 +371,4 @@ it now would break the monolith.
 | First extraction (Workflow) | ✅ own service + own DB role, dual-run identical, cutover and rollback both proven |
 | Data integrity | ✅ reconciliation passes |
 
-**146 / 146 tests passing.**
+**148 / 148 tests passing.**

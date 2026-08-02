@@ -64,12 +64,15 @@ public class JwtService {
     private static final String ISSUER = "influencrm-web-experience";
 
     private final Duration accessTokenTtl;
+    /** Whether a missing signing key may fall back to an ephemeral one. Local single-process only. */
+    private final boolean allowEphemeralKey;
     private final RSAKey signingKey;
     private final RSASSASigner signer;
     private final RSASSAVerifier verifier;
 
     public JwtService(WebExperienceProperties properties) {
         this.accessTokenTtl = Duration.ofMinutes(properties.getAccessTokenTtlMinutes());
+        this.allowEphemeralKey = properties.isAllowEphemeralJwtKey();
         this.signingKey = resolveSigningKey(properties.getJwtSigningKey());
         try {
             this.signer = new RSASSASigner(signingKey.toRSAPrivateKey());
@@ -149,6 +152,17 @@ public class JwtService {
         }
     }
 
+    /**
+     * The signing key as a JWK string.
+     *
+     * <p>Exists so a test can prove that two instances sharing one configured key verify each
+     * other's tokens — the property that makes multi-instance and multi-service deployment work.
+     * Not called by production code.
+     */
+    String exportSigningKeyForTesting() {
+        return signingKey.toJSONString();
+    }
+
     public Duration getAccessTokenTtl() {
         return accessTokenTtl;
     }
@@ -203,9 +217,24 @@ public class JwtService {
             }
         }
 
+        // Refuse to start rather than silently issue tokens no other instance can verify.
+        //
+        // An ephemeral key is survivable in a single local process and catastrophic anywhere else:
+        // a second instance rejects the first's tokens, which surfaces as intermittent 401s that
+        // look like a session bug rather than a configuration one. Now that Workflow runs as a
+        // separate service, "anywhere else" includes any deployment.
+        if (!allowEphemeralKey) {
+            throw new IllegalStateException(
+                    "web-experience.jwt-signing-key is not configured. An ephemeral key cannot be "
+                            + "verified by another instance or service, so tokens would fail "
+                            + "intermittently. Set a persistent RSA JWK, or set "
+                            + "web-experience.allow-ephemeral-jwt-key=true for a single-process "
+                            + "local run.");
+        }
+
         log.warn("No web-experience.jwt-signing-key configured; generating an ephemeral RSA key. "
                 + "Tokens will not survive restart and cannot be verified by other instances. "
-                + "Set a persistent key outside local development.");
+                + "This is permitted only because web-experience.allow-ephemeral-jwt-key=true.");
         try {
             KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
             generator.initialize(2048);

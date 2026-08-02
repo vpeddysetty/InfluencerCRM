@@ -11,6 +11,9 @@ public class WebExperienceProperties {
     private long accessTokenTtlMinutes = 30;
     private long refreshTokenTtlMinutes = 43200;
     private String jwtSigningKey;
+    // Escape hatch for a single-process local run. Anywhere with more than one instance — which now
+    // includes any deployment, since Workflow is its own service — must configure a real key.
+    private boolean allowEphemeralJwtKey = false;
     private String daoServiceToken;
     private boolean daoTlsVerificationEnabled = true;
     private String daoTrustStore;
@@ -78,6 +81,14 @@ public class WebExperienceProperties {
 
     public void setJwtSigningKey(String jwtSigningKey) {
         this.jwtSigningKey = jwtSigningKey;
+    }
+
+    public boolean isAllowEphemeralJwtKey() {
+        return allowEphemeralJwtKey;
+    }
+
+    public void setAllowEphemeralJwtKey(boolean allowEphemeralJwtKey) {
+        this.allowEphemeralJwtKey = allowEphemeralJwtKey;
     }
 
     /** Shared secret presented to the DAO so it can reject non-service traffic. */

@@ -162,8 +162,8 @@ Stated plainly so none of it is discovered late.
 | Item | Why it matters | When |
 |---|---|---|
 | **Rotate the TLS keystore** | The old private key is in git history and must be treated as compromised | **Before any deployment** |
-| **Set a persistent JWT signing key** | An ephemeral key means services cannot verify each other's tokens | Before service #2 |
-| **Move `RefreshTokenStore` to Postgres** | In-memory today; a second instance cannot see the first's tokens | With Identity extraction |
+| ~~Set a persistent JWT signing key~~ | ✅ **Done.** The BFF now refuses to start without one | Completed 2026-08-02 |
+| ~~Move `RefreshTokenStore` to Postgres~~ | ✅ **Done.** Lives in `identity.refresh_tokens`, hash only | Completed 2026-08-02 |
 | **Move BFF domain logic into contexts** | `AttributionService`, `CouponService`, `PayoutService`, `LandingService` still hold logic that belongs in the owning context | Per context, at extraction |
 | **Distributed tracing** | Once there are 3+ services, "which hop failed?" stops being answerable from logs | Before service #3 |
 | **Contract tests** | ArchUnit stops compile-time coupling; only contract tests stop runtime drift between services | With service #2 |
