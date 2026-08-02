@@ -2249,3 +2249,18 @@ button:focus {
 .perso-status.perso-approved { color: #0f766e; }
 .perso-status.perso-pending { color: #b45309; }
 .perso-status.perso-rejected { color: #9f1239; }
+
+/* ---- landing page preview ---- */
+.landing-preview {
+  margin-top: 0.75rem;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 12px;
+  overflow: hidden;
+  background: #fff;
+}
+.landing-preview-frame {
+  width: 100%;
+  height: 520px;
+  border: 0;
+  display: block;
+}

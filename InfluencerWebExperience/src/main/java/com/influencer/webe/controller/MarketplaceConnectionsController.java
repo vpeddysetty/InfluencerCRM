@@ -3,6 +3,7 @@ package com.influencer.webe.controller;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.influencer.webe.client.DaoGatewayClient;
+import com.influencer.webe.security.Permission;
 import com.influencer.webe.service.RequestUserResolver;
 import com.influencer.webe.service.ResponseShapeService;
 import org.springframework.web.bind.annotation.*;
@@ -33,13 +34,13 @@ public class MarketplaceConnectionsController {
 
     @GetMapping("/marketplace-connections")
     public JsonNode list(@RequestHeader(value = "Authorization", required = false) String authorization,
-                         @RequestParam(required = false) UUID userId,
+                         @RequestParam(required = false) UUID brandId,
                          @RequestParam(required = false) String providerKey,
                          @RequestParam(required = false) Integer page,
                          @RequestParam(required = false) Integer size) {
-        UUID resolved = requestUserResolver.resolveUserId(authorization, userId);
+        UUID resolved = requestUserResolver.requirePermissionForBrand(authorization, Permission.COUPON_READ);
         Map<String, String> query = new LinkedHashMap<>();
-        query.put("userId", resolved.toString());
+        query.put("brandId", resolved.toString());
         query.put("providerKey", providerKey);
         return shape.marketplaceConnectionsList(dao.get("/marketplace-connections", query), page, size);
     }
@@ -52,7 +53,7 @@ public class MarketplaceConnectionsController {
     @PostMapping("/marketplace-connections")
     public JsonNode create(@RequestHeader(value = "Authorization", required = false) String authorization,
                            @RequestBody ObjectNode payload) {
-        payload.put("userId", requestUserResolver.resolveUserId(authorization, getUuid(payload, "userId")).toString());
+        payload.put("brandId", requestUserResolver.requirePermissionForBrand(authorization, Permission.MARKETPLACE_CONNECT).toString());
         return shape.marketplaceConnection(dao.post("/marketplace-connections", payload));
     }
 
@@ -60,7 +61,7 @@ public class MarketplaceConnectionsController {
     public JsonNode update(@RequestHeader(value = "Authorization", required = false) String authorization,
                            @PathVariable UUID id,
                            @RequestBody ObjectNode payload) {
-        payload.put("userId", requestUserResolver.resolveUserId(authorization, getUuid(payload, "userId")).toString());
+        payload.put("brandId", requestUserResolver.resolveBrandId(authorization, getUuid(payload, "brandId")).toString());
         return shape.marketplaceConnection(dao.put("/marketplace-connections/" + id, payload));
     }
 

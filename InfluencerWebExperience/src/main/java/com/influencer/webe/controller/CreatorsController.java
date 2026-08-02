@@ -3,6 +3,7 @@ package com.influencer.webe.controller;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.influencer.webe.client.DaoGatewayClient;
+import com.influencer.webe.security.Permission;
 import com.influencer.webe.service.RequestUserResolver;
 import com.influencer.webe.service.ResponseShapeService;
 import org.springframework.web.bind.annotation.*;
@@ -28,12 +29,12 @@ public class CreatorsController {
 
     @GetMapping
     public JsonNode list(@RequestHeader(value = "Authorization", required = false) String authorization,
-                         @RequestParam(required = false) UUID userId,
+                         @RequestParam(required = false) UUID brandId,
                          @RequestParam(required = false) Integer page,
                          @RequestParam(required = false) Integer size) {
-        UUID resolvedUserId = requestUserResolver.resolveUserId(authorization, userId);
+        UUID resolvedBrandId = requestUserResolver.requirePermissionForBrand(authorization, Permission.CREATOR_READ);
         Map<String, String> query = new LinkedHashMap<>();
-        query.put("userId", resolvedUserId.toString());
+        query.put("brandId", resolvedBrandId.toString());
         return responseShapeService.creatorsList(daoGatewayClient.get("/creators", query), page, size);
     }
 
@@ -45,8 +46,8 @@ public class CreatorsController {
     @PostMapping
     public JsonNode create(@RequestHeader(value = "Authorization", required = false) String authorization,
                            @RequestBody ObjectNode payload) {
-        UUID resolvedUserId = requestUserResolver.resolveUserId(authorization, getUuid(payload, "userId"));
-        payload.put("userId", resolvedUserId.toString());
+        UUID resolvedBrandId = requestUserResolver.requirePermissionForBrand(authorization, Permission.CREATOR_WRITE);
+        payload.put("brandId", resolvedBrandId.toString());
         return responseShapeService.creator(daoGatewayClient.post("/creators", payload));
     }
 
@@ -54,8 +55,8 @@ public class CreatorsController {
     public JsonNode update(@RequestHeader(value = "Authorization", required = false) String authorization,
                            @PathVariable UUID id,
                            @RequestBody ObjectNode payload) {
-        UUID resolvedUserId = requestUserResolver.resolveUserId(authorization, getUuid(payload, "userId"));
-        payload.put("userId", resolvedUserId.toString());
+        UUID resolvedBrandId = requestUserResolver.requirePermissionForBrand(authorization, Permission.CREATOR_WRITE);
+        payload.put("brandId", resolvedBrandId.toString());
         return responseShapeService.creator(daoGatewayClient.put("/creators/" + id, payload));
     }
 

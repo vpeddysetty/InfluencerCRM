@@ -10,3 +10,8 @@
 \i /docker-entrypoint-initdb.d/migrations/2026_07_26_workflow_cards.sql
 \i /docker-entrypoint-initdb.d/migrations/2026_07_27_coupons_marketplace_commissions.sql
 \i /docker-entrypoint-initdb.d/migrations/2026_08_01_content_creation.sql
+\i /docker-entrypoint-initdb.d/migrations/2026_08_02_accounts_brands_memberships.sql
+\i /docker-entrypoint-initdb.d/migrations/2026_08_02_phase2_brand_tenancy_cutover.sql
+\i /docker-entrypoint-initdb.d/migrations/2026_08_02_phase2_legacy_user_fk.sql
+\i /docker-entrypoint-initdb.d/migrations/2026_08_02_phase4_outbox.sql
+\i /docker-entrypoint-initdb.d/migrations/2026_08_02_phase5_schema_per_context.sql

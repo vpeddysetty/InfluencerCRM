@@ -65,7 +65,7 @@ public class MarketplaceService {
      * Validate credentials with the provider, then persist a
      * {@code marketplace_connections} row. Returns the shaped connection.
      */
-    public JsonNode connect(UUID userId, String providerKey, Map<String, String> credentials) {
+    public JsonNode connect(UUID brandId, String providerKey, Map<String, String> credentials) {
         MarketplaceProvider provider = registry.find(providerKey).orElseThrow(() ->
                 new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unknown marketplace provider: " + providerKey));
 
@@ -76,7 +76,7 @@ public class MarketplaceService {
         }
 
         ObjectNode payload = shape.objectMapper().createObjectNode();
-        payload.put("userId", userId.toString());
+        payload.put("brandId", brandId.toString());
         payload.put("providerKey", provider.key());
         payload.put("displayName", result.getDisplayName() != null ? result.getDisplayName() : provider.displayName());
         payload.put("status", "connected");
@@ -92,9 +92,9 @@ public class MarketplaceService {
      * and its connection, calls the adapter, and records the external id +
      * sync_status back on the coupon.
      */
-    public JsonNode pushCoupon(UUID userId, UUID couponId, UUID connectionIdOverride) {
+    public JsonNode pushCoupon(UUID brandId, UUID couponId, UUID connectionIdOverride) {
         JsonNode coupon = dao.get("/influencer-campaign-codes/" + couponId, null);
-        requireOwner(coupon, userId, "coupon");
+        requireOwner(coupon, brandId, "coupon");
 
         UUID connectionId = connectionIdOverride;
         if (connectionId == null && coupon.hasNonNull("marketplaceConnectionId")) {
@@ -106,7 +106,7 @@ public class MarketplaceService {
         }
 
         JsonNode connRow = dao.get("/marketplace-connections/" + connectionId, null);
-        requireOwner(connRow, userId, "connection");
+        requireOwner(connRow, brandId, "connection");
 
         MarketplaceProvider provider = registry.find(connRow.get("providerKey").asText()).orElseThrow(() ->
                 new ResponseStatusException(HttpStatus.BAD_REQUEST, "Connection uses an unknown provider"));
@@ -176,11 +176,11 @@ public class MarketplaceService {
                 cursor);
     }
 
-    private void requireOwner(JsonNode row, UUID userId, String label) {
+    private void requireOwner(JsonNode row, UUID brandId, String label) {
         if (row == null || row.isNull() || !row.hasNonNull("id")) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, label + " not found");
         }
-        if (!row.hasNonNull("userId") || !row.get("userId").asText().equals(userId.toString())) {
+        if (!row.hasNonNull("brandId") || !row.get("brandId").asText().equals(brandId.toString())) {
             // Ownership enforcement for money/store resources (Phase 2 hardening).
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not your " + label);
         }

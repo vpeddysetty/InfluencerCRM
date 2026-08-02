@@ -16,6 +16,14 @@ application-local.properties
 oauthclient.txt
 **/oauthclient.txt
 
+# TLS keystores hold PRIVATE keys and must never be committed.
+# See docs/keystore-rotation.md — the previously committed keystore is compromised and
+# must be rotated before any deployment. Truststores (public certs only) are safe to commit.
+*.p12
+!**/dao-truststore.p12
+*.jks
+!**/*truststore*.jks
+
 # Local runtime logs from running the stack
 *.out.log
 *.err.log

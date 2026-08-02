@@ -28,14 +28,14 @@ public class InfluencerTrackingController {
 
     @GetMapping("/influencer-campaign-codes")
     public JsonNode listCodes(@RequestHeader(value = "Authorization", required = false) String authorization,
-                              @RequestParam(required = false) UUID userId,
+                              @RequestParam(required = false) UUID brandId,
                               @RequestParam(required = false) UUID campaignId,
                               @RequestParam(required = false) UUID creatorId,
                               @RequestParam(required = false) Integer page,
                               @RequestParam(required = false) Integer size) {
-        UUID resolvedUserId = requestUserResolver.resolveUserId(authorization, userId);
+        UUID resolvedBrandId = requestUserResolver.resolveBrandId(authorization, brandId);
         Map<String, String> query = new LinkedHashMap<>();
-        query.put("userId", resolvedUserId.toString());
+        query.put("brandId", resolvedBrandId.toString());
         query.put("campaignId", campaignId == null ? null : campaignId.toString());
         query.put("creatorId", creatorId == null ? null : creatorId.toString());
         return responseShapeService.campaignCodesList(daoGatewayClient.get("/influencer-campaign-codes", query), page, size);
@@ -47,7 +47,7 @@ public class InfluencerTrackingController {
     @PostMapping("/influencer-campaign-codes")
     public JsonNode createCode(@RequestHeader(value = "Authorization", required = false) String authorization,
                                @RequestBody ObjectNode payload) {
-        payload.put("userId", requestUserResolver.resolveUserId(authorization, getUuid(payload, "userId")).toString());
+        payload.put("brandId", requestUserResolver.resolveBrandId(authorization, getUuid(payload, "brandId")).toString());
         return responseShapeService.campaignCode(daoGatewayClient.post("/influencer-campaign-codes", payload));
     }
 
@@ -55,7 +55,7 @@ public class InfluencerTrackingController {
     public JsonNode updateCode(@RequestHeader(value = "Authorization", required = false) String authorization,
                                @PathVariable UUID id,
                                @RequestBody ObjectNode payload) {
-        payload.put("userId", requestUserResolver.resolveUserId(authorization, getUuid(payload, "userId")).toString());
+        payload.put("brandId", requestUserResolver.resolveBrandId(authorization, getUuid(payload, "brandId")).toString());
         return responseShapeService.campaignCode(daoGatewayClient.put("/influencer-campaign-codes/" + id, payload));
     }
 
@@ -64,14 +64,14 @@ public class InfluencerTrackingController {
 
     @GetMapping("/influencer-sale-attributions")
     public JsonNode listAttributions(@RequestHeader(value = "Authorization", required = false) String authorization,
-                                     @RequestParam(required = false) UUID userId,
+                                     @RequestParam(required = false) UUID brandId,
                                      @RequestParam(required = false) UUID campaignCodeId,
                                      @RequestParam(required = false) UUID campaignCreatorId,
                                      @RequestParam(required = false) Integer page,
                                      @RequestParam(required = false) Integer size) {
-        UUID resolvedUserId = requestUserResolver.resolveUserId(authorization, userId);
+        UUID resolvedBrandId = requestUserResolver.resolveBrandId(authorization, brandId);
         Map<String, String> query = new LinkedHashMap<>();
-        query.put("userId", resolvedUserId.toString());
+        query.put("brandId", resolvedBrandId.toString());
         query.put("campaignCodeId", campaignCodeId == null ? null : campaignCodeId.toString());
         query.put("campaignCreatorId", campaignCreatorId == null ? null : campaignCreatorId.toString());
         return responseShapeService.saleAttributionsList(daoGatewayClient.get("/influencer-sale-attributions", query), page, size);
@@ -83,7 +83,7 @@ public class InfluencerTrackingController {
     @PostMapping("/influencer-sale-attributions")
     public JsonNode createAttribution(@RequestHeader(value = "Authorization", required = false) String authorization,
                                       @RequestBody ObjectNode payload) {
-        payload.put("userId", requestUserResolver.resolveUserId(authorization, getUuid(payload, "userId")).toString());
+        payload.put("brandId", requestUserResolver.resolveBrandId(authorization, getUuid(payload, "brandId")).toString());
         return responseShapeService.saleAttribution(daoGatewayClient.post("/influencer-sale-attributions", payload));
     }
 
@@ -91,7 +91,7 @@ public class InfluencerTrackingController {
     public JsonNode updateAttribution(@RequestHeader(value = "Authorization", required = false) String authorization,
                                       @PathVariable UUID id,
                                       @RequestBody ObjectNode payload) {
-        payload.put("userId", requestUserResolver.resolveUserId(authorization, getUuid(payload, "userId")).toString());
+        payload.put("brandId", requestUserResolver.resolveBrandId(authorization, getUuid(payload, "brandId")).toString());
         return responseShapeService.saleAttribution(daoGatewayClient.put("/influencer-sale-attributions/" + id, payload));
     }
 

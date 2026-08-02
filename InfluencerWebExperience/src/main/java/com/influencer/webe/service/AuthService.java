@@ -49,7 +49,7 @@ public class AuthService {
 
         DaoUserClient.UserRecord createdUser = daoUserClient.createUser(payload);
         SessionService.SessionInfo session = sessionService.createSession(createdUser.id(), createdUser.email(), "password");
-        return AuthResponse.from(createdUser, session.token());
+        return AuthResponse.from(createdUser, session);
     }
 
     public AuthResponse login(String email, String password) {
@@ -61,14 +61,39 @@ public class AuthService {
         }
 
         SessionService.SessionInfo session = sessionService.createSession(user.id(), user.email(), "password");
-        return AuthResponse.from(user, session.token());
+        return AuthResponse.from(user, session);
     }
 
-    public void logout(String accessToken) {
-        if (accessToken == null || accessToken.isBlank()) {
-            throw new IllegalArgumentException("accessToken is required");
+    /**
+     * Revokes the session's refresh token. The caller's access token remains valid until it expires
+     * — the accepted trade-off of stateless verification, bounded by the short access-token TTL.
+     */
+    public void logout(String refreshToken) {
+        if (refreshToken == null || refreshToken.isBlank()) {
+            throw new IllegalArgumentException("refreshToken is required");
         }
-        sessionService.invalidate(accessToken);
+        sessionService.invalidate(refreshToken);
+    }
+
+    /**
+     * Exchanges a refresh token for a fresh access token, rotating the refresh token in the process.
+     *
+     * <p>The user is loaded <em>before</em> rotation so the new access token carries a correct email
+     * claim, and so a deleted user cannot renew a session.
+     */
+    public AuthResponse refresh(String refreshToken) {
+        if (refreshToken == null || refreshToken.isBlank()) {
+            throw new IllegalArgumentException("refreshToken is required");
+        }
+
+        UUID userId = sessionService.peekRefreshTokenUserId(refreshToken)
+                .orElseThrow(() -> new IllegalArgumentException("Invalid or expired refresh token"));
+        DaoUserClient.UserRecord user = daoUserClient.findById(userId)
+                .orElseThrow(() -> new IllegalArgumentException("Invalid or expired refresh token"));
+
+        SessionService.SessionInfo session = sessionService.refresh(refreshToken, user.email())
+                .orElseThrow(() -> new IllegalArgumentException("Invalid or expired refresh token"));
+        return AuthResponse.from(user, session);
     }
 
     public AuthResponse signupWithGoogle(String accessToken, String fallbackEmail, String fallbackDisplayName, String brandName) {
@@ -104,7 +129,7 @@ public class AuthService {
 
         DaoUserClient.UserRecord saved = existing == null ? daoUserClient.createUser(payload) : daoUserClient.updateUser(existing.id(), payload);
         SessionService.SessionInfo session = sessionService.createSession(saved.id(), saved.email(), provider);
-        return AuthResponse.from(saved, session.token());
+        return AuthResponse.from(saved, session);
     }
 
     private String mergeCustomAttributes(String currentJson, String provider, OAuthProfileService.OAuthProfile profile) {
@@ -143,17 +168,42 @@ public class AuthService {
         return value == null || value.isBlank() ? null : value.trim();
     }
 
-    public record AuthResponse(UUID userId, String email, String brandName, String role, String plan, String accessToken, String tokenType, Instant issuedAt) {
-        public static AuthResponse from(DaoUserClient.UserRecord user, String accessToken) {
+    /**
+     * The session as the client sees it.
+     *
+     * <p>{@code brandId}, {@code brandName} and {@code role} describe the <em>active brand</em>, not
+     * the user: an agency member can hold different roles on different brands, so these change when
+     * the caller switches brand. {@code brandName} comes from the brands table now, no longer from
+     * the superseded {@code users.brand_name} column.
+     */
+    public record AuthResponse(
+            UUID userId,
+            String email,
+            UUID accountId,
+            UUID brandId,
+            String brandName,
+            String role,
+            String plan,
+            String accessToken,
+            String refreshToken,
+            String tokenType,
+            Instant issuedAt,
+            Instant expiresAt) {
+
+        public static AuthResponse from(DaoUserClient.UserRecord user, SessionService.SessionInfo session) {
             return new AuthResponse(
                     user.id(),
                     user.email(),
-                    user.brandName(),
-                    user.role(),
+                    session.accountId(),
+                    session.brandId(),
+                    session.brandName() != null ? session.brandName() : user.brandName(),
+                    session.role(),
                     user.plan(),
-                    accessToken,
+                    session.token(),
+                    session.refreshToken(),
                     "Bearer",
-                    Instant.now());
+                    session.issuedAt(),
+                    session.expiresAt());
         }
     }
 }

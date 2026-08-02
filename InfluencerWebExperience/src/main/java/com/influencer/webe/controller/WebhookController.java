@@ -14,7 +14,7 @@ import java.util.UUID;
  * Order ingestion endpoints (Phase 3).
  *
  * - {@code POST /api/webhooks/marketplace/{providerKey}} is the public webhook a
- *   marketplace calls; it must carry a {@code userId} (resolved from the store
+ *   marketplace calls; it must carry a {@code brandId} (resolved from the store
  *   mapping in a real integration). Signature verification is delegated to the
  *   provider adapter (mock trusts all).
  * - {@code POST /api/attribution/simulate} is an auth-scoped test hook that feeds
@@ -35,11 +35,11 @@ public class WebhookController {
     @PostMapping("/webhooks/marketplace/{providerKey}")
     @ResponseStatus(HttpStatus.OK)
     public JsonNode webhook(@PathVariable String providerKey,
-                            @RequestParam(required = false) UUID userId,
+                            @RequestParam(required = false) UUID brandId,
                             @RequestBody ObjectNode payload) {
-        UUID resolved = userId != null ? userId : getUuid(payload, "userId");
+        UUID resolved = brandId != null ? brandId : getUuid(payload, "brandId");
         if (resolved == null) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "userId is required for webhook ingestion");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "brandId is required for webhook ingestion");
         }
         return attributionService.ingest(resolved, providerKey, payload);
     }
@@ -51,13 +51,13 @@ public class WebhookController {
     @PostMapping("/attribution/simulate")
     public JsonNode simulate(@RequestHeader(value = "Authorization", required = false) String authorization,
                              @RequestBody ObjectNode payload) {
-        UUID userId = requestUserResolver.resolveUserId(authorization, getUuid(payload, "userId"));
+        UUID brandId = requestUserResolver.resolveBrandId(authorization, getUuid(payload, "brandId"));
         String providerKey = payload.hasNonNull("providerKey") ? payload.get("providerKey").asText() : "mock";
         JsonNode order = payload.get("order");
         if (order == null || !order.isObject()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "order object is required");
         }
-        return attributionService.ingest(userId, providerKey, order);
+        return attributionService.ingest(brandId, providerKey, order);
     }
 
     private UUID getUuid(ObjectNode payload, String fieldName) {

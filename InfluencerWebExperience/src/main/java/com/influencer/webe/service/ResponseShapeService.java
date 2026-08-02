@@ -28,7 +28,7 @@ public class ResponseShapeService {
     }
 
     public JsonNode campaign(JsonNode source) {
-        return pick(source, "id", "userId", "name", "budget", "status", "campaignType", "customAttributes", "createdAt", "updatedAt");
+        return pick(source, "id", "brandId", "name", "budget", "status", "campaignType", "customAttributes", "createdAt", "updatedAt");
     }
 
     public JsonNode workflowBoardsList(JsonNode source, Integer page, Integer size) {
@@ -40,7 +40,7 @@ public class ResponseShapeService {
     }
 
     public JsonNode workflowBoard(JsonNode source) {
-        return pick(source, "id", "userId", "name", "startDate", "endDate", "isActive", "position", "createdAt", "updatedAt");
+        return pick(source, "id", "brandId", "name", "startDate", "endDate", "isActive", "position", "createdAt", "updatedAt");
     }
 
     public JsonNode workflowBoardStagesList(JsonNode source, Integer page, Integer size) {
@@ -52,7 +52,7 @@ public class ResponseShapeService {
     }
 
     public JsonNode workflowBoardStage(JsonNode source) {
-        return pick(source, "id", "userId", "boardId", "stageName", "position", "createdAt", "updatedAt");
+        return pick(source, "id", "brandId", "boardId", "stageName", "position", "createdAt", "updatedAt");
     }
 
     public JsonNode workflowCardsList(JsonNode source, Integer page, Integer size) {
@@ -64,7 +64,7 @@ public class ResponseShapeService {
     }
 
     public JsonNode workflowCard(JsonNode source) {
-        ObjectNode out = pick(source, "id", "userId", "campaignId", "creatorId", "boardId", "stageId",
+        ObjectNode out = pick(source, "id", "brandId", "campaignId", "creatorId", "boardId", "stageId",
                 "name", "status", "feeCurrency", "notes", "position", "createdAt", "updatedAt");
         // Always expose placement keys (null when unassigned) so the UI can rely on them.
         if (!out.has("boardId")) {
@@ -104,7 +104,7 @@ public class ResponseShapeService {
     }
 
     public JsonNode creator(JsonNode source) {
-        return pick(source, "id", "userId", "name", "handle", "platform", "email", "customAttributes", "createdAt", "updatedAt");
+        return pick(source, "id", "brandId", "name", "handle", "platform", "email", "customAttributes", "createdAt", "updatedAt");
     }
 
     public JsonNode campaignCreatorsList(JsonNode source, Integer page, Integer size) {
@@ -116,7 +116,7 @@ public class ResponseShapeService {
     }
 
     public JsonNode campaignCreator(JsonNode source) {
-        ObjectNode out = pick(source, "id", "userId", "campaignId", "creatorId", "notes", "createdAt", "updatedAt");
+        ObjectNode out = pick(source, "id", "brandId", "campaignId", "creatorId", "notes", "createdAt", "updatedAt");
         if (source != null && source.hasNonNull("agreedFee")) {
             out.set("fee", source.get("agreedFee"));
         } else if (source != null && source.hasNonNull("fee")) {
@@ -155,7 +155,7 @@ public class ResponseShapeService {
     }
 
     public JsonNode importBatch(JsonNode source) {
-        return pick(source, "id", "userId", "status", "sourceFilename", "sourceFileStored", "columnMapping", "rowCount", "createdAt", "updatedAt");
+        return pick(source, "id", "brandId", "status", "sourceFilename", "sourceFileStored", "columnMapping", "rowCount", "createdAt", "updatedAt");
     }
 
     public JsonNode importDiscoverResult(JsonNode source) {
@@ -179,7 +179,7 @@ public class ResponseShapeService {
     }
 
     public JsonNode campaignCode(JsonNode source) {
-        ObjectNode out = pick(source, "id", "userId", "campaignId", "creatorId", "campaignCreatorId",
+        ObjectNode out = pick(source, "id", "brandId", "campaignId", "creatorId", "campaignCreatorId",
                 "code", "codeType", "landingUrl", "startsAt", "endsAt", "isActive",
                 "marketplaceConnectionId", "discountType", "discountValue",
                 "commissionType", "commissionValue", "channel", "refSlug",
@@ -206,7 +206,7 @@ public class ResponseShapeService {
 
     public JsonNode saleAttribution(JsonNode source) {
         ObjectNode out = pick(source,
-                "id", "userId", "campaignCodeId", "campaignId", "creatorId", "campaignCreatorId",
+                "id", "brandId", "campaignCodeId", "campaignId", "creatorId", "campaignCreatorId",
                 "orderId", "orderLineId", "saleAmount", "discountAmount", "netAmount", "commissionAmount",
                 "currency", "occurredAt", "trackedAt", "createdAt", "updatedAt");
 
@@ -235,7 +235,7 @@ public class ResponseShapeService {
 
     public JsonNode marketplaceConnection(JsonNode source) {
         // Deliberately omit credentialsEncrypted — never expose secrets to the UI.
-        ObjectNode out = pick(source, "id", "userId", "providerKey", "displayName", "status",
+        ObjectNode out = pick(source, "id", "brandId", "providerKey", "displayName", "status",
                 "externalAccountRef", "syncCursor", "metadata", "createdAt", "updatedAt");
         if (!out.has("status")) {
             out.put("status", "connected");
@@ -253,7 +253,7 @@ public class ResponseShapeService {
     }
 
     public JsonNode commission(JsonNode source) {
-        ObjectNode out = pick(source, "id", "userId", "attributionId", "creatorId", "campaignId",
+        ObjectNode out = pick(source, "id", "brandId", "attributionId", "creatorId", "campaignId",
                 "grossSale", "commissionAmount", "currency", "status", "approvedAt", "payoutId",
                 "createdAt", "updatedAt");
         if (!out.has("status")) {
@@ -272,7 +272,7 @@ public class ResponseShapeService {
     }
 
     public JsonNode payout(JsonNode source) {
-        ObjectNode out = pick(source, "id", "userId", "creatorId", "periodStart", "periodEnd",
+        ObjectNode out = pick(source, "id", "brandId", "creatorId", "periodStart", "periodEnd",
                 "totalAmount", "currency", "method", "providerKey", "providerRef", "status", "notes",
                 "paidAt", "createdAt", "updatedAt");
         if (!out.has("status")) {
@@ -291,7 +291,7 @@ public class ResponseShapeService {
     }
 
     public JsonNode dailyStat(JsonNode source) {
-        return pick(source, "id", "userId", "day", "creatorId", "campaignId", "channel",
+        return pick(source, "id", "brandId", "day", "creatorId", "campaignId", "channel",
                 "clicks", "orders", "grossSales", "discounts", "commission", "refunds",
                 "createdAt", "updatedAt");
     }
@@ -306,7 +306,7 @@ public class ResponseShapeService {
     }
 
     public JsonNode campaignBrief(JsonNode source) {
-        ObjectNode out = pick(source, "id", "userId", "campaignId", "disclosureText",
+        ObjectNode out = pick(source, "id", "brandId", "campaignId", "disclosureText",
                 "status", "createdAt", "updatedAt");
         out.set("content", parseJsonOrDefault(source, "content", objectMapper.createObjectNode()));
         out.set("assets", parseJsonOrDefault(source, "assets", objectMapper.createArrayNode()));
@@ -327,7 +327,7 @@ public class ResponseShapeService {
     }
 
     public JsonNode landingTemplate(JsonNode source) {
-        ObjectNode out = pick(source, "id", "userId", "campaignId", "publicSlug", "name",
+        ObjectNode out = pick(source, "id", "brandId", "campaignId", "publicSlug", "name",
                 "status", "createdAt", "updatedAt");
         out.set("blocks", parseJsonOrDefault(source, "blocks", objectMapper.createArrayNode()));
         out.set("theme", parseJsonOrDefault(source, "theme", objectMapper.createObjectNode()));

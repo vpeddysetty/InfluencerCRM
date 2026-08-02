@@ -46,18 +46,18 @@ public class AttributionService {
      * the provider adapter, normalizes, and runs the attribution pipeline.
      * Returns a small JSON summary of what happened.
      */
-    public JsonNode ingest(UUID userId, String providerKey, JsonNode rawPayload) {
+    public JsonNode ingest(UUID brandId, String providerKey, JsonNode rawPayload) {
         MarketplaceProvider provider = registry.find(providerKey).orElseThrow(() ->
                 new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unknown marketplace provider: " + providerKey));
         OrderEvent event = provider.normalizeOrderEvent(rawPayload);
-        return attribute(userId, providerKey, event);
+        return attribute(brandId, providerKey, event);
     }
 
     /**
      * Core pipeline over a normalized event. Public so a poller/webhook can call
      * it directly with an already-normalized event.
      */
-    public JsonNode attribute(UUID userId, String platform, OrderEvent event) {
+    public JsonNode attribute(UUID brandId, String platform, OrderEvent event) {
         ObjectNode result = shape.objectMapper().createObjectNode();
         result.put("orderId", event.getExternalOrderId());
 
@@ -67,7 +67,7 @@ public class AttributionService {
             return result;
         }
 
-        JsonNode coupon = resolveCouponByCode(userId, event.getCouponCode());
+        JsonNode coupon = resolveCouponByCode(brandId, event.getCouponCode());
         if (coupon == null) {
             result.put("outcome", "unattributed");
             result.put("reason", "no coupon matches code " + event.getCouponCode());
@@ -77,11 +77,11 @@ public class AttributionService {
         String status = event.getStatus() == null ? "purchase" : event.getStatus().toLowerCase(Locale.ROOT);
         boolean isReversal = status.equals("refunded") || status.equals("cancelled") || status.equals("canceled");
 
-        JsonNode existing = findExistingAttribution(userId, coupon.get("id").asText(),
+        JsonNode existing = findExistingAttribution(brandId, coupon.get("id").asText(),
                 event.getExternalOrderId(), event.getExternalOrderLineId());
 
         if (isReversal) {
-            return handleReversal(userId, coupon, event, existing, result);
+            return handleReversal(brandId, coupon, event, existing, result);
         }
 
         if (existing != null) {
@@ -90,12 +90,12 @@ public class AttributionService {
             return result;
         }
 
-        return handlePurchase(userId, coupon, platform, event, result);
+        return handlePurchase(brandId, coupon, platform, event, result);
     }
 
     // ---- purchase ------------------------------------------------------
 
-    private JsonNode handlePurchase(UUID userId, JsonNode coupon, String platform,
+    private JsonNode handlePurchase(UUID brandId, JsonNode coupon, String platform,
                                     OrderEvent event, ObjectNode result) {
         BigDecimal sale = event.getSaleAmount() == null ? BigDecimal.ZERO : event.getSaleAmount();
         BigDecimal discount = event.getDiscountAmount() == null ? BigDecimal.ZERO : event.getDiscountAmount();
@@ -103,7 +103,7 @@ public class AttributionService {
         String currency = event.getCurrency() == null ? "USD" : event.getCurrency();
 
         ObjectNode attribution = shape.objectMapper().createObjectNode();
-        attribution.put("userId", userId.toString());
+        attribution.put("brandId", brandId.toString());
         attribution.put("campaignCodeId", coupon.get("id").asText());
         attribution.put("campaignId", coupon.get("campaignId").asText());
         attribution.put("creatorId", coupon.get("creatorId").asText());
@@ -131,7 +131,7 @@ public class AttributionService {
         JsonNode savedAttribution = dao.post("/influencer-sale-attributions", attribution);
 
         ObjectNode commissionRow = shape.objectMapper().createObjectNode();
-        commissionRow.put("userId", userId.toString());
+        commissionRow.put("brandId", brandId.toString());
         commissionRow.put("attributionId", savedAttribution.get("id").asText());
         commissionRow.put("creatorId", coupon.get("creatorId").asText());
         commissionRow.put("campaignId", coupon.get("campaignId").asText());
@@ -150,7 +150,7 @@ public class AttributionService {
 
     // ---- refund / cancel ----------------------------------------------
 
-    private JsonNode handleReversal(UUID userId, JsonNode coupon, OrderEvent event,
+    private JsonNode handleReversal(UUID brandId, JsonNode coupon, OrderEvent event,
                                     JsonNode existing, ObjectNode result) {
         if (existing == null) {
             result.put("outcome", "reversal_no_match");
@@ -165,7 +165,7 @@ public class AttributionService {
 
         // Void the related commission(s).
         Map<String, String> q = new LinkedHashMap<>();
-        q.put("userId", userId.toString());
+        q.put("brandId", brandId.toString());
         JsonNode commissions = dao.get("/influencer-commissions", q);
         String clawedId = null;
         if (commissions != null && commissions.isArray()) {
@@ -232,9 +232,9 @@ public class AttributionService {
         }
     }
 
-    private JsonNode resolveCouponByCode(UUID userId, String code) {
+    private JsonNode resolveCouponByCode(UUID brandId, String code) {
         Map<String, String> q = new LinkedHashMap<>();
-        q.put("userId", userId.toString());
+        q.put("brandId", brandId.toString());
         JsonNode codes = dao.get("/influencer-campaign-codes", q);
         if (codes == null || !codes.isArray()) {
             return null;
@@ -247,7 +247,7 @@ public class AttributionService {
         return null;
     }
 
-    private JsonNode findExistingAttribution(UUID userId, String campaignCodeId, String orderId, String orderLineId) {
+    private JsonNode findExistingAttribution(UUID brandId, String campaignCodeId, String orderId, String orderLineId) {
         Map<String, String> q = new LinkedHashMap<>();
         q.put("campaignCodeId", campaignCodeId);
         JsonNode rows = dao.get("/influencer-sale-attributions", q);

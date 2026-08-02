@@ -38,7 +38,7 @@ public class LandingService {
      * public_slug is generated on first create. On save, (re)assigns a public_slug
      * to each of the campaign's coupons so their landing pages resolve.
      */
-    public JsonNode saveTemplate(UUID userId, ObjectNode payload) {
+    public JsonNode saveTemplate(UUID brandId, ObjectNode payload) {
         UUID campaignId = uuid(payload, "campaignId");
         if (campaignId == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "campaignId is required");
@@ -46,14 +46,14 @@ public class LandingService {
 
         // Look up an existing template for this campaign.
         Map<String, String> q = new LinkedHashMap<>();
-        q.put("userId", userId.toString());
+        q.put("brandId", brandId.toString());
         q.put("campaignId", campaignId.toString());
         JsonNode existingList = dao.get("/landing-templates", q);
         JsonNode existing = existingList != null && existingList.isArray() && existingList.size() > 0
                 ? existingList.get(0) : null;
 
         ObjectNode body = shape.objectMapper().createObjectNode();
-        body.put("userId", userId.toString());
+        body.put("brandId", brandId.toString());
         body.put("campaignId", campaignId.toString());
         body.put("name", textOr(payload, "name", "Landing page"));
         body.put("status", textOr(payload, "status", "draft"));
@@ -69,7 +69,7 @@ public class LandingService {
         }
 
         // Assign a per-coupon public_slug to every coupon on this campaign.
-        assignCouponSlugs(userId, campaignId, saved.get("publicSlug").asText());
+        assignCouponSlugs(brandId, campaignId, saved.get("publicSlug").asText());
         return shape.landingTemplate(saved);
     }
 
@@ -85,25 +85,77 @@ public class LandingService {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Landing page not found");
         }
         JsonNode template = templates.get(0);
-        UUID userId = UUID.fromString(template.get("userId").asText());
+        UUID brandId = UUID.fromString(template.get("brandId").asText());
         UUID campaignId = UUID.fromString(template.get("campaignId").asText());
 
         // Find the coupon for this creator slug on the campaign.
-        JsonNode coupon = resolveCoupon(userId, campaignId, creatorSlug);
+        JsonNode coupon = resolveCoupon(brandId, campaignId, creatorSlug);
         if (coupon == null) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "No coupon for this creator");
         }
 
         // Record the landing view (click funnel step) — best effort.
-        recordView(userId, coupon.get("id").asText(), referrer, userAgent);
+        recordView(brandId, coupon.get("id").asText(), referrer, userAgent);
 
-        Map<String, String> tokens = buildTokens(userId, coupon);
+        Map<String, String> tokens = buildTokens(brandId, coupon);
         return renderHtml(template, coupon, tokens);
+    }
+
+    /**
+     * Render a preview of a landing template WITHOUT persisting it and WITHOUT
+     * recording a landing_page_view. Renders the caller's current (possibly
+     * unsaved) blocks, personalized for a chosen coupon — or a synthetic sample
+     * coupon when none is picked. Content preview (brand-only).
+     *
+     * Payload: { campaignId, name, blocks:[...], couponId? }
+     */
+    public String previewTemplate(UUID brandId, ObjectNode payload) {
+        JsonNode coupon = resolvePreviewCoupon(brandId, payload);
+
+        ObjectNode template = shape.objectMapper().createObjectNode();
+        template.put("name", textOr(payload, "name", "Landing page"));
+        JsonNode blocks = payload.get("blocks");
+        template.set("blocks", blocks != null && blocks.isArray() ? blocks : shape.objectMapper().createArrayNode());
+
+        Map<String, String> tokens = buildTokens(brandId, coupon);
+        return renderHtml(template, coupon, tokens);
+    }
+
+    /**
+     * Pick the coupon to personalize a preview with: the requested couponId (if it
+     * belongs to this user), else the first coupon on the campaign, else a
+     * synthetic sample so the preview always renders.
+     */
+    private JsonNode resolvePreviewCoupon(UUID brandId, ObjectNode payload) {
+        UUID couponId = uuid(payload, "couponId");
+        if (couponId != null) {
+            JsonNode c = dao.get("/influencer-campaign-codes/" + couponId, null);
+            if (c != null && c.hasNonNull("brandId") && c.get("brandId").asText().equals(brandId.toString())) {
+                return c;
+            }
+        }
+        UUID campaignId = uuid(payload, "campaignId");
+        if (campaignId != null) {
+            Map<String, String> q = new LinkedHashMap<>();
+            q.put("brandId", brandId.toString());
+            q.put("campaignId", campaignId.toString());
+            JsonNode coupons = dao.get("/influencer-campaign-codes", q);
+            if (coupons != null && coupons.isArray() && coupons.size() > 0) {
+                return coupons.get(0);
+            }
+        }
+        // Synthetic sample coupon so the preview is never empty.
+        ObjectNode sample = shape.objectMapper().createObjectNode();
+        sample.put("code", "SAMPLE20");
+        sample.put("discountType", "percent");
+        sample.put("discountValue", "20");
+        sample.put("landingUrl", "#");
+        return sample;
     }
 
     // ---- token / render ------------------------------------------------
 
-    private Map<String, String> buildTokens(UUID userId, JsonNode coupon) {
+    private Map<String, String> buildTokens(UUID brandId, JsonNode coupon) {
         Map<String, String> tokens = new LinkedHashMap<>();
         tokens.put("coupon.code", text(coupon, "code"));
         tokens.put("discount", describeDiscount(coupon));
@@ -191,9 +243,9 @@ public class LandingService {
 
     // ---- helpers -------------------------------------------------------
 
-    private void assignCouponSlugs(UUID userId, UUID campaignId, String templateSlug) {
+    private void assignCouponSlugs(UUID brandId, UUID campaignId, String templateSlug) {
         Map<String, String> q = new LinkedHashMap<>();
-        q.put("userId", userId.toString());
+        q.put("brandId", brandId.toString());
         q.put("campaignId", campaignId.toString());
         JsonNode coupons = dao.get("/influencer-campaign-codes", q);
         if (coupons == null || !coupons.isArray()) {
@@ -214,9 +266,9 @@ public class LandingService {
         }
     }
 
-    private JsonNode resolveCoupon(UUID userId, UUID campaignId, String creatorSlug) {
+    private JsonNode resolveCoupon(UUID brandId, UUID campaignId, String creatorSlug) {
         Map<String, String> q = new LinkedHashMap<>();
-        q.put("userId", userId.toString());
+        q.put("brandId", brandId.toString());
         q.put("campaignId", campaignId.toString());
         JsonNode coupons = dao.get("/influencer-campaign-codes", q);
         if (coupons == null || !coupons.isArray()) {
@@ -230,10 +282,10 @@ public class LandingService {
         return null;
     }
 
-    private void recordView(UUID userId, String couponId, String referrer, String userAgent) {
+    private void recordView(UUID brandId, String couponId, String referrer, String userAgent) {
         try {
             ObjectNode view = shape.objectMapper().createObjectNode();
-            view.put("userId", userId.toString());
+            view.put("brandId", brandId.toString());
             view.put("campaignCodeId", couponId);
             if (referrer != null) view.put("referrer", referrer);
             if (userAgent != null) view.put("userAgent", userAgent);

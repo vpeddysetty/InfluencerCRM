@@ -36,7 +36,12 @@ public class AuthController {
     @PostMapping("/logout")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void logout(@Valid @RequestBody LogoutRequest request) {
-        authService.logout(request.accessToken());
+        authService.logout(request.refreshToken());
+    }
+
+    @PostMapping("/refresh")
+    public AuthService.AuthResponse refresh(@Valid @RequestBody RefreshRequest request) {
+        return authService.refresh(request.refreshToken());
     }
 
     @PostMapping("/google/signup")
@@ -90,7 +95,10 @@ public class AuthController {
             @NotBlank String password) {
     }
 
-    public record LogoutRequest(@NotBlank String accessToken) {
+    public record LogoutRequest(@NotBlank String refreshToken) {
+    }
+
+    public record RefreshRequest(@NotBlank String refreshToken) {
     }
 
     public record SocialSignupRequest(

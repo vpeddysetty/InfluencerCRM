@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.influencer.webe.client.AgentMappingClient;
 import com.influencer.webe.client.DaoGatewayClient;
+import com.influencer.webe.security.Permission;
 import com.influencer.webe.service.RequestUserResolver;
 import com.influencer.webe.service.ResponseShapeService;
 import org.springframework.http.HttpStatus;
@@ -39,12 +40,12 @@ public class ImportBatchesController {
 
     @GetMapping
     public JsonNode list(@RequestHeader(value = "Authorization", required = false) String authorization,
-                         @RequestParam(required = false) UUID userId,
+                         @RequestParam(required = false) UUID brandId,
                          @RequestParam(required = false) Integer page,
                          @RequestParam(required = false) Integer size) {
-        UUID resolvedUserId = requestUserResolver.resolveUserId(authorization, userId);
+        UUID resolvedBrandId = requestUserResolver.requirePermissionForBrand(authorization, Permission.CAMPAIGN_READ);
         Map<String, String> query = new LinkedHashMap<>();
-        query.put("userId", resolvedUserId.toString());
+        query.put("brandId", resolvedBrandId.toString());
         return responseShapeService.importBatchesList(daoGatewayClient.get("/import-batches", query), page, size);
     }
 
@@ -77,11 +78,11 @@ public class ImportBatchesController {
 
     @PostMapping("/discover")
     public JsonNode discover(@RequestHeader(value = "Authorization", required = false) String authorization,
-                             @RequestParam(required = false) UUID userId,
+                             @RequestParam(required = false) UUID brandId,
                              @RequestPart("file") MultipartFile file) throws IOException {
-        UUID resolvedUserId = requestUserResolver.resolveUserId(authorization, userId);
+        UUID resolvedBrandId = requestUserResolver.resolveBrandId(authorization, brandId);
         Map<String, String> fields = new LinkedHashMap<>();
-        fields.put("userId", resolvedUserId.toString());
+        fields.put("brandId", resolvedBrandId.toString());
         return responseShapeService.importDiscoverResult(daoGatewayClient.postMultipart(
                 "/import-batches/discover",
                 fields,
@@ -93,11 +94,11 @@ public class ImportBatchesController {
 
     @PostMapping("/discover-multi")
     public JsonNode discoverMulti(@RequestHeader(value = "Authorization", required = false) String authorization,
-                                  @RequestParam(required = false) UUID userId,
+                                  @RequestParam(required = false) UUID brandId,
                                   @RequestPart("files") MultipartFile[] files) throws IOException {
-        UUID resolvedUserId = requestUserResolver.resolveUserId(authorization, userId);
+        UUID resolvedBrandId = requestUserResolver.resolveBrandId(authorization, brandId);
         Map<String, String> fields = new LinkedHashMap<>();
-        fields.put("userId", resolvedUserId.toString());
+        fields.put("brandId", resolvedBrandId.toString());
 
         List<DaoGatewayClient.MultipartFilePart> fileParts = new ArrayList<>();
         if (files != null) {
@@ -136,23 +137,23 @@ public class ImportBatchesController {
 
     @DeleteMapping("/{id}")
     public void delete(@RequestHeader(value = "Authorization", required = false) String authorization,
-                       @RequestParam(required = false) UUID userId,
+                       @RequestParam(required = false) UUID brandId,
                        @PathVariable UUID id) {
-        deleteOwnedImportBatch(authorization, userId, id);
+        deleteOwnedImportBatch(authorization, brandId, id);
     }
 
     @PostMapping("/{id}/delete")
     public void deleteViaPost(@RequestHeader(value = "Authorization", required = false) String authorization,
-                              @RequestParam(required = false) UUID userId,
+                              @RequestParam(required = false) UUID brandId,
                               @PathVariable UUID id) {
-        deleteOwnedImportBatch(authorization, userId, id);
+        deleteOwnedImportBatch(authorization, brandId, id);
     }
 
-    private void deleteOwnedImportBatch(String authorization, UUID userId, UUID id) {
-        UUID resolvedUserId = requestUserResolver.resolveUserId(authorization, userId);
+    private void deleteOwnedImportBatch(String authorization, UUID brandId, UUID id) {
+        UUID resolvedBrandId = requestUserResolver.resolveBrandId(authorization, brandId);
         JsonNode existing = daoGatewayClient.get("/import-batches/" + id, null);
-        String ownerId = existing != null && existing.hasNonNull("userId") ? existing.get("userId").asText() : null;
-        if (ownerId == null || !resolvedUserId.toString().equals(ownerId)) {
+        String ownerId = existing != null && existing.hasNonNull("brandId") ? existing.get("brandId").asText() : null;
+        if (ownerId == null || !resolvedBrandId.toString().equals(ownerId)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Import batch does not belong to authenticated user");
         }
         daoGatewayClient.delete("/import-batches/" + id);

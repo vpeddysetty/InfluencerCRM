@@ -29,6 +29,7 @@ function ContentPage({
   onSaveTemplate,
   onReloadCoupons,
   onDraftContent,
+  onPreviewLanding,
 }) {
   const [campaignId, setCampaignId] = useState('')
   const [briefs, setBriefs] = useState([])
@@ -50,6 +51,9 @@ function ContentPage({
   const [savingTemplate, setSavingTemplate] = useState(false)
   const [templateFeedback, setTemplateFeedback] = useState({ type: '', message: '' })
   const [pageCoupons, setPageCoupons] = useState(coupons)
+  const [previewHtml, setPreviewHtml] = useState('')
+  const [previewCouponId, setPreviewCouponId] = useState('')
+  const [previewing, setPreviewing] = useState(false)
 
   const currentBrief = useMemo(
     () => briefs.find((b) => b.campaignId === campaignId) || null,
@@ -226,7 +230,31 @@ function ContentPage({
     }
   }
 
-  const campaignCoupons = (pageCoupons.length ? pageCoupons : coupons).filter((c) => c.campaignId === campaignId && c.publicSlug)
+  const previewLanding = async () => {
+    if (!campaignId) {
+      setTemplateFeedback({ type: 'error', message: 'Pick a campaign first.' })
+      return
+    }
+    setPreviewing(true)
+    setTemplateFeedback({ type: '', message: '' })
+    try {
+      const html = await onPreviewLanding({
+        campaignId,
+        name: templateName.trim() || 'Landing page',
+        blocks,
+        couponId: previewCouponId || undefined,
+      })
+      setPreviewHtml(html)
+    } catch (error) {
+      setTemplateFeedback({ type: 'error', message: error instanceof Error ? error.message : 'Unable to preview.' })
+    } finally {
+      setPreviewing(false)
+    }
+  }
+
+  // Coupons on this campaign (for the preview creator picker + share links).
+  const allCampaignCoupons = (pageCoupons.length ? pageCoupons : coupons).filter((c) => c.campaignId === campaignId)
+  const campaignCoupons = allCampaignCoupons.filter((c) => c.publicSlug)
 
   return (
     <article className="card mds-surface mds-prose form-card page-stack">
@@ -347,7 +375,25 @@ function ContentPage({
             <button type="button" className="primary-btn" onClick={saveTemplate} disabled={savingTemplate}>
               {savingTemplate ? 'Saving…' : currentTemplate ? 'Update landing page' : 'Create landing page'}
             </button>
+            <button type="button" className="ghost-btn" onClick={previewLanding} disabled={previewing}>
+              {previewing ? 'Rendering…' : '👁 Preview'}
+            </button>
           </div>
+
+          <label className="auth-label">Preview as creator</label>
+          <select value={previewCouponId} onChange={(e) => setPreviewCouponId(e.target.value)}>
+            <option value="">{allCampaignCoupons.length ? 'Auto (first coupon on campaign)' : 'Sample data'}</option>
+            {allCampaignCoupons.map((c) => (
+              <option key={c.id} value={c.id}>{c.code}</option>
+            ))}
+          </select>
+          <MdsNote>Preview shows the page exactly as a visitor sees it — tokens like {'{{creator.name}}'} and {'{{discount}}'} are filled in. It reflects your current unsaved edits and does not record a visit.</MdsNote>
+
+          {previewHtml ? (
+            <div className="landing-preview">
+              <iframe title="Landing preview" className="landing-preview-frame" srcDoc={previewHtml} sandbox="" />
+            </div>
+          ) : null}
 
           {campaignCoupons.length ? (
             <>

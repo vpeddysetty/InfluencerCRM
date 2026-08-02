@@ -9,17 +9,12 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
-import java.security.SecureRandom;
-import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
@@ -246,31 +241,18 @@ public class OAuthProfileService {
         return field != null && field.isTextual() && !field.asText().isBlank() ? field.asText() : defaultValue;
     }
 
+    /**
+     * Builds the client used to call Google's and Facebook's token and userinfo endpoints.
+     *
+     * <p>This previously installed a trust-all {@code X509TrustManager}, disabling certificate
+     * verification on requests that carry OAuth client secrets and access tokens over the public
+     * internet. Those providers present ordinary CA-issued certificates, so the JVM's default trust
+     * store is both correct and sufficient — there is no self-signed case to accommodate here.
+     */
     private HttpClient buildHttpClient() {
-        try {
-            SSLContext sslContext = SSLContext.getInstance("TLS");
-            sslContext.init(null, new TrustManager[]{new X509TrustManager() {
-                @Override
-                public void checkClientTrusted(X509Certificate[] chain, String authType) {
-                }
-
-                @Override
-                public void checkServerTrusted(X509Certificate[] chain, String authType) {
-                }
-
-                @Override
-                public X509Certificate[] getAcceptedIssuers() {
-                    return new X509Certificate[0];
-                }
-            }}, new SecureRandom());
-
-            return HttpClient.newBuilder()
-                    .sslContext(sslContext)
-                    .connectTimeout(Duration.ofSeconds(10))
-                    .build();
-        } catch (Exception exception) {
-            throw new IllegalStateException("Unable to create HTTP client", exception);
-        }
+        return HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(10))
+                .build();
     }
 
     @FunctionalInterface

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.influencer.webe.service.CouponService;
 import com.influencer.webe.service.MarketplaceService;
+import com.influencer.webe.security.Permission;
 import com.influencer.webe.service.RequestUserResolver;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
@@ -34,16 +35,16 @@ public class CouponController {
     @ResponseStatus(HttpStatus.CREATED)
     public JsonNode generate(@RequestHeader(value = "Authorization", required = false) String authorization,
                              @RequestBody ObjectNode payload) {
-        UUID userId = requestUserResolver.resolveUserId(authorization, getUuid(payload, "userId"));
-        return couponService.generateOne(userId, payload);
+        UUID brandId = requestUserResolver.requirePermissionForBrand(authorization, Permission.COUPON_WRITE);
+        return couponService.generateOne(brandId, payload);
     }
 
     @PostMapping("/generate-bulk")
     @ResponseStatus(HttpStatus.CREATED)
     public JsonNode generateBulk(@RequestHeader(value = "Authorization", required = false) String authorization,
                                  @RequestBody ObjectNode payload) {
-        UUID userId = requestUserResolver.resolveUserId(authorization, getUuid(payload, "userId"));
-        return couponService.generateBulk(userId, payload);
+        UUID brandId = requestUserResolver.requirePermissionForBrand(authorization, Permission.COUPON_WRITE);
+        return couponService.generateBulk(brandId, payload);
     }
 
     /**
@@ -54,9 +55,9 @@ public class CouponController {
     public JsonNode push(@RequestHeader(value = "Authorization", required = false) String authorization,
                          @PathVariable UUID id,
                          @RequestBody(required = false) ObjectNode payload) {
-        UUID userId = requestUserResolver.resolveUserId(authorization, getUuid(payload, "userId"));
+        UUID brandId = requestUserResolver.requirePermissionForBrand(authorization, Permission.COUPON_PUSH);
         UUID connectionId = getUuid(payload, "connectionId");
-        return marketplaceService.pushCoupon(userId, id, connectionId);
+        return marketplaceService.pushCoupon(brandId, id, connectionId);
     }
 
     /**
@@ -67,8 +68,8 @@ public class CouponController {
     public JsonNode personalize(@RequestHeader(value = "Authorization", required = false) String authorization,
                                 @PathVariable UUID id,
                                 @RequestBody ObjectNode payload) {
-        UUID userId = requestUserResolver.resolveUserId(authorization, getUuid(payload, "userId"));
-        return couponService.personalize(userId, id, payload);
+        UUID brandId = requestUserResolver.requirePermissionForBrand(authorization, Permission.COUPON_WRITE);
+        return couponService.personalize(brandId, id, payload);
     }
 
     /**
@@ -80,8 +81,8 @@ public class CouponController {
                                           @PathVariable UUID id,
                                           @PathVariable String decision,
                                           @RequestBody(required = false) ObjectNode payload) {
-        UUID userId = requestUserResolver.resolveUserId(authorization, getUuid(payload, "userId"));
-        return couponService.decidePersonalization(userId, id, decision);
+        UUID brandId = requestUserResolver.resolveBrandId(authorization, getUuid(payload, "brandId"));
+        return couponService.decidePersonalization(brandId, id, decision);
     }
 
     private UUID getUuid(ObjectNode payload, String fieldName) {

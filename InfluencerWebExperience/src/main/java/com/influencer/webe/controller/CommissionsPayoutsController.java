@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.influencer.webe.client.DaoGatewayClient;
 import com.influencer.webe.service.PayoutService;
+import com.influencer.webe.security.Permission;
 import com.influencer.webe.service.RequestUserResolver;
 import com.influencer.webe.service.ResponseShapeService;
 import org.springframework.http.HttpStatus;
@@ -39,15 +40,15 @@ public class CommissionsPayoutsController {
     // ---- commissions ---------------------------------------------------
     @GetMapping("/influencer-commissions")
     public JsonNode listCommissions(@RequestHeader(value = "Authorization", required = false) String authorization,
-                                    @RequestParam(required = false) UUID userId,
+                                    @RequestParam(required = false) UUID brandId,
                                     @RequestParam(required = false) UUID creatorId,
                                     @RequestParam(required = false) UUID payoutId,
                                     @RequestParam(required = false) String status,
                                     @RequestParam(required = false) Integer page,
                                     @RequestParam(required = false) Integer size) {
-        UUID resolved = requestUserResolver.resolveUserId(authorization, userId);
+        UUID resolved = requestUserResolver.requirePermissionForBrand(authorization, Permission.COMMISSION_READ);
         Map<String, String> query = new LinkedHashMap<>();
-        query.put("userId", resolved.toString());
+        query.put("brandId", resolved.toString());
         query.put("creatorId", creatorId == null ? null : creatorId.toString());
         query.put("payoutId", payoutId == null ? null : payoutId.toString());
         query.put("status", status);
@@ -62,7 +63,7 @@ public class CommissionsPayoutsController {
     @PostMapping("/influencer-commissions")
     public JsonNode createCommission(@RequestHeader(value = "Authorization", required = false) String authorization,
                                      @RequestBody ObjectNode payload) {
-        payload.put("userId", requestUserResolver.resolveUserId(authorization, getUuid(payload, "userId")).toString());
+        payload.put("brandId", requestUserResolver.requirePermissionForBrand(authorization, Permission.COMMISSION_APPROVE).toString());
         return shape.commission(dao.post("/influencer-commissions", payload));
     }
 
@@ -70,7 +71,7 @@ public class CommissionsPayoutsController {
     public JsonNode updateCommission(@RequestHeader(value = "Authorization", required = false) String authorization,
                                      @PathVariable UUID id,
                                      @RequestBody ObjectNode payload) {
-        payload.put("userId", requestUserResolver.resolveUserId(authorization, getUuid(payload, "userId")).toString());
+        payload.put("brandId", requestUserResolver.requirePermissionForBrand(authorization, Permission.COMMISSION_APPROVE).toString());
         return shape.commission(dao.put("/influencer-commissions/" + id, payload));
     }
 
@@ -82,14 +83,14 @@ public class CommissionsPayoutsController {
     // ---- payouts -------------------------------------------------------
     @GetMapping("/influencer-payouts")
     public JsonNode listPayouts(@RequestHeader(value = "Authorization", required = false) String authorization,
-                                @RequestParam(required = false) UUID userId,
+                                @RequestParam(required = false) UUID brandId,
                                 @RequestParam(required = false) UUID creatorId,
                                 @RequestParam(required = false) String status,
                                 @RequestParam(required = false) Integer page,
                                 @RequestParam(required = false) Integer size) {
-        UUID resolved = requestUserResolver.resolveUserId(authorization, userId);
+        UUID resolved = requestUserResolver.requirePermissionForBrand(authorization, Permission.PAYOUT_READ);
         Map<String, String> query = new LinkedHashMap<>();
-        query.put("userId", resolved.toString());
+        query.put("brandId", resolved.toString());
         query.put("creatorId", creatorId == null ? null : creatorId.toString());
         query.put("status", status);
         return shape.payoutsList(dao.get("/influencer-payouts", query), page, size);
@@ -103,7 +104,7 @@ public class CommissionsPayoutsController {
     @PostMapping("/influencer-payouts")
     public JsonNode createPayout(@RequestHeader(value = "Authorization", required = false) String authorization,
                                  @RequestBody ObjectNode payload) {
-        payload.put("userId", requestUserResolver.resolveUserId(authorization, getUuid(payload, "userId")).toString());
+        payload.put("brandId", requestUserResolver.requirePermissionForBrand(authorization, Permission.PAYOUT_CREATE).toString());
         return shape.payout(dao.post("/influencer-payouts", payload));
     }
 
@@ -111,7 +112,7 @@ public class CommissionsPayoutsController {
     public JsonNode updatePayout(@RequestHeader(value = "Authorization", required = false) String authorization,
                                  @PathVariable UUID id,
                                  @RequestBody ObjectNode payload) {
-        payload.put("userId", requestUserResolver.resolveUserId(authorization, getUuid(payload, "userId")).toString());
+        payload.put("brandId", requestUserResolver.requirePermissionForBrand(authorization, Permission.PAYOUT_APPROVE).toString());
         return shape.payout(dao.put("/influencer-payouts/" + id, payload));
     }
 
@@ -123,16 +124,16 @@ public class CommissionsPayoutsController {
     // ---- daily attribution stats (dashboard rollup) --------------------
     @GetMapping("/daily-attribution-stats")
     public JsonNode listDailyStats(@RequestHeader(value = "Authorization", required = false) String authorization,
-                                   @RequestParam(required = false) UUID userId,
+                                   @RequestParam(required = false) UUID brandId,
                                    @RequestParam(required = false) UUID creatorId,
                                    @RequestParam(required = false) UUID campaignId,
                                    @RequestParam(required = false) String from,
                                    @RequestParam(required = false) String to,
                                    @RequestParam(required = false) Integer page,
                                    @RequestParam(required = false) Integer size) {
-        UUID resolved = requestUserResolver.resolveUserId(authorization, userId);
+        UUID resolved = requestUserResolver.requirePermissionForBrand(authorization, Permission.ATTRIBUTION_READ);
         Map<String, String> query = new LinkedHashMap<>();
-        query.put("userId", resolved.toString());
+        query.put("brandId", resolved.toString());
         query.put("creatorId", creatorId == null ? null : creatorId.toString());
         query.put("campaignId", campaignId == null ? null : campaignId.toString());
         query.put("from", from);
@@ -150,21 +151,21 @@ public class CommissionsPayoutsController {
     public JsonNode approveCommission(@RequestHeader(value = "Authorization", required = false) String authorization,
                                       @PathVariable UUID id,
                                       @RequestBody(required = false) ObjectNode payload) {
-        UUID userId = requestUserResolver.resolveUserId(authorization, getUuid(payload, "userId"));
-        return payoutService.approveCommission(userId, id);
+        UUID brandId = requestUserResolver.requirePermissionForBrand(authorization, Permission.COMMISSION_APPROVE);
+        return payoutService.approveCommission(brandId, id);
     }
 
     @PostMapping("/influencer-payouts/create")
     @ResponseStatus(HttpStatus.CREATED)
     public JsonNode createPayoutBatch(@RequestHeader(value = "Authorization", required = false) String authorization,
                                       @RequestBody ObjectNode payload) {
-        UUID userId = requestUserResolver.resolveUserId(authorization, getUuid(payload, "userId"));
+        UUID brandId = requestUserResolver.requirePermissionForBrand(authorization, Permission.PAYOUT_CREATE);
         UUID creatorId = getUuid(payload, "creatorId");
         if (creatorId == null) {
             throw new org.springframework.web.server.ResponseStatusException(HttpStatus.BAD_REQUEST, "creatorId is required");
         }
         String providerKey = payload.hasNonNull("providerKey") ? payload.get("providerKey").asText() : "manual";
-        return payoutService.createPayout(userId, creatorId, providerKey);
+        return payoutService.createPayout(brandId, creatorId, providerKey);
     }
 
     private UUID getUuid(ObjectNode payload, String fieldName) {

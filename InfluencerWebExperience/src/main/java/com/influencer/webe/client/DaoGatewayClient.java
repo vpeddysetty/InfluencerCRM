@@ -7,9 +7,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ResponseStatusException;
 
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
 import java.io.IOException;
 import java.io.ByteArrayOutputStream;
 import java.net.URI;
@@ -18,8 +15,6 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
-import java.security.SecureRandom;
-import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -28,18 +23,32 @@ import java.util.Map;
 
 @Component
 public class DaoGatewayClient {
+    private static final String SERVICE_TOKEN_HEADER = "X-Service-Token";
+
     private final WebExperienceProperties properties;
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
 
-    public DaoGatewayClient(WebExperienceProperties properties, ObjectMapper objectMapper) {
+    public DaoGatewayClient(WebExperienceProperties properties, ObjectMapper objectMapper, DaoHttpClientFactory httpClientFactory) {
         this.properties = properties;
         this.objectMapper = objectMapper;
-        this.httpClient = buildHttpClient();
+        this.httpClient = httpClientFactory.create();
+    }
+
+    /**
+     * Stamps the service credential the DAO requires. Without it the DAO rejects the call, which is
+     * what stops the DAO from being an unauthenticated CRUD API over the whole database.
+     */
+    private HttpRequest.Builder authorized(HttpRequest.Builder builder) {
+        String serviceToken = properties.getDaoServiceToken();
+        if (serviceToken != null && !serviceToken.isBlank()) {
+            builder.header(SERVICE_TOKEN_HEADER, serviceToken);
+        }
+        return builder;
     }
 
     public JsonNode get(String path, Map<String, String> query) {
-        HttpRequest request = HttpRequest.newBuilder()
+        HttpRequest request = authorized(HttpRequest.newBuilder())
                 .uri(buildUri(path, query))
                 .timeout(Duration.ofSeconds(20))
                 .GET()
@@ -48,7 +57,7 @@ public class DaoGatewayClient {
     }
 
     public JsonNode post(String path, JsonNode payload) {
-        HttpRequest request = HttpRequest.newBuilder()
+        HttpRequest request = authorized(HttpRequest.newBuilder())
                 .uri(buildUri(path, null))
                 .timeout(Duration.ofSeconds(20))
                 .header("Content-Type", "application/json")
@@ -58,7 +67,7 @@ public class DaoGatewayClient {
     }
 
     public JsonNode put(String path, JsonNode payload) {
-        HttpRequest request = HttpRequest.newBuilder()
+        HttpRequest request = authorized(HttpRequest.newBuilder())
                 .uri(buildUri(path, null))
                 .timeout(Duration.ofSeconds(20))
                 .header("Content-Type", "application/json")
@@ -68,7 +77,7 @@ public class DaoGatewayClient {
     }
 
     public JsonNode patch(String path, JsonNode payload) {
-        HttpRequest request = HttpRequest.newBuilder()
+        HttpRequest request = authorized(HttpRequest.newBuilder())
                 .uri(buildUri(path, null))
                 .timeout(Duration.ofSeconds(20))
                 .header("Content-Type", "application/json")
@@ -78,7 +87,7 @@ public class DaoGatewayClient {
     }
 
     public void delete(String path) {
-        HttpRequest request = HttpRequest.newBuilder()
+        HttpRequest request = authorized(HttpRequest.newBuilder())
                 .uri(buildUri(path, null))
                 .timeout(Duration.ofSeconds(20))
                 .DELETE()
@@ -91,7 +100,7 @@ public class DaoGatewayClient {
         List<MultipartFilePart> files = List.of(new MultipartFilePart(fileFieldName, fileName, bytes, contentType));
         byte[] body = MultipartBodyBuilder.build(boundary, fields, files);
 
-        HttpRequest request = HttpRequest.newBuilder()
+        HttpRequest request = authorized(HttpRequest.newBuilder())
                 .uri(buildUri(path, null))
                 .timeout(Duration.ofSeconds(30))
                 .header("Content-Type", "multipart/form-data; boundary=" + boundary)
@@ -104,7 +113,7 @@ public class DaoGatewayClient {
         String boundary = "----WebExperienceBoundary" + System.currentTimeMillis();
         byte[] body = MultipartBodyBuilder.build(boundary, fields, files);
 
-        HttpRequest request = HttpRequest.newBuilder()
+        HttpRequest request = authorized(HttpRequest.newBuilder())
                 .uri(buildUri(path, null))
                 .timeout(Duration.ofSeconds(30))
                 .header("Content-Type", "multipart/form-data; boundary=" + boundary)
@@ -238,33 +247,6 @@ public class DaoGatewayClient {
             return HttpStatus.CONFLICT;
         }
         return HttpStatus.BAD_GATEWAY;
-    }
-
-    private HttpClient buildHttpClient() {
-        try {
-            SSLContext sslContext = SSLContext.getInstance("TLS");
-            sslContext.init(null, new TrustManager[]{new X509TrustManager() {
-                @Override
-                public void checkClientTrusted(X509Certificate[] chain, String authType) {
-                }
-
-                @Override
-                public void checkServerTrusted(X509Certificate[] chain, String authType) {
-                }
-
-                @Override
-                public X509Certificate[] getAcceptedIssuers() {
-                    return new X509Certificate[0];
-                }
-            }}, new SecureRandom());
-
-            return HttpClient.newBuilder()
-                    .sslContext(sslContext)
-                    .connectTimeout(Duration.ofSeconds(10))
-                    .build();
-        } catch (Exception exception) {
-            throw new IllegalStateException("Unable to create HTTP client", exception);
-        }
     }
 
     private static class MultipartBodyBuilder {

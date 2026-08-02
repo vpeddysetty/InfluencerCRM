@@ -3,6 +3,7 @@ package com.influencer.webe.controller;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.influencer.webe.client.DaoGatewayClient;
+import com.influencer.webe.security.Permission;
 import com.influencer.webe.service.RequestUserResolver;
 import com.influencer.webe.service.ResponseShapeService;
 import org.springframework.web.bind.annotation.*;
@@ -28,13 +29,13 @@ public class CampaignsController {
 
     @GetMapping
     public JsonNode list(@RequestHeader(value = "Authorization", required = false) String authorization,
-                         @RequestParam(required = false) UUID userId,
+                         @RequestParam(required = false) UUID brandId,
                          @RequestParam(required = false) String campaignType,
                          @RequestParam(required = false) Integer page,
                          @RequestParam(required = false) Integer size) {
-        UUID resolvedUserId = requestUserResolver.resolveUserId(authorization, userId);
+        UUID resolvedBrandId = requestUserResolver.requirePermissionForBrand(authorization, Permission.CAMPAIGN_READ);
         Map<String, String> query = new LinkedHashMap<>();
-        query.put("userId", resolvedUserId.toString());
+        query.put("brandId", resolvedBrandId.toString());
         query.put("campaignType", campaignType);
         return responseShapeService.campaignsList(daoGatewayClient.get("/campaigns", query), page, size);
     }
@@ -47,8 +48,8 @@ public class CampaignsController {
     @PostMapping
     public JsonNode create(@RequestHeader(value = "Authorization", required = false) String authorization,
                            @RequestBody ObjectNode payload) {
-        UUID resolvedUserId = requestUserResolver.resolveUserId(authorization, getUuid(payload, "userId"));
-        payload.put("userId", resolvedUserId.toString());
+        UUID resolvedBrandId = requestUserResolver.requirePermissionForBrand(authorization, Permission.CAMPAIGN_WRITE);
+        payload.put("brandId", resolvedBrandId.toString());
         return responseShapeService.campaign(daoGatewayClient.post("/campaigns", payload));
     }
 
@@ -56,8 +57,8 @@ public class CampaignsController {
     public JsonNode update(@RequestHeader(value = "Authorization", required = false) String authorization,
                            @PathVariable UUID id,
                            @RequestBody ObjectNode payload) {
-        UUID resolvedUserId = requestUserResolver.resolveUserId(authorization, getUuid(payload, "userId"));
-        payload.put("userId", resolvedUserId.toString());
+        UUID resolvedBrandId = requestUserResolver.requirePermissionForBrand(authorization, Permission.CAMPAIGN_WRITE);
+        payload.put("brandId", resolvedBrandId.toString());
         return responseShapeService.campaign(daoGatewayClient.put("/campaigns/" + id, payload));
     }
 

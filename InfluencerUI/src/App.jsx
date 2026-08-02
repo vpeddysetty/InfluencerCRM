@@ -12,6 +12,7 @@ import DashboardPage from './pages/DashboardPage'
 import PayoutsPage from './pages/PayoutsPage'
 import ContentPage from './pages/ContentPage'
 import WorkspaceLayout from './components/WorkspaceLayout'
+import { SessionProvider } from './shell/SessionContext'
 import {
   createCampaign,
   createCreator,
@@ -57,10 +58,15 @@ import {
   updateCampaignBrief,
   listLandingTemplates,
   saveLandingTemplate,
+  previewLandingTemplate,
   draftContent,
   login,
   previewImportBatch,
   logout,
+  setAuthHandlers,
+  setActiveBrandId,
+  listBrands,
+  switchBrand,
   signup,
   updateCampaign,
   updateImportColumnMapping,
@@ -68,7 +74,10 @@ import {
 } from './api'
 import { createImportMappingJson, createImportMappingJsonFromAgent, parseSpreadsheetFile, DEFAULT_BOARD_STAGES } from './constants'
 
-const STORAGE_KEY = 'tejdux_ui_state_v1'
+// v3: tenancy moved from the user to the active brand. A v2 snapshot has no brandId, so its
+// cached domain rows belong to an unknown tenant — versioning the key discards them rather than
+// risk showing one brand's data under another's name.
+const STORAGE_KEY = 'tejdux_ui_state_v3'
 const CAMPAIGN_TYPE_OPTIONS = [
   { value: 'product seeding', label: 'Product Seeding' },
   { value: 'sponsored content', label: 'Sponsored Content' },
@@ -91,6 +100,29 @@ const DEFAULT_IMPORT_SUMMARY = {
   hydrateResult: null,
   diagnostics: null,
   message: 'Upload CSV, XLS, or XLSX to preview mapped source columns.',
+}
+
+/**
+ * Reads the permission list out of the access token.
+ *
+ * Purely for deciding what to show — the server re-checks every action, so a tampered token
+ * buys nothing here beyond a UI that offers links the API will refuse.
+ */
+function readPermissionsFromToken(accessToken) {
+  if (!accessToken) {
+    return []
+  }
+  try {
+    const payload = accessToken.split('.')[1]
+    if (!payload) {
+      return []
+    }
+    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/')
+    const claims = JSON.parse(atob(normalized))
+    return Array.isArray(claims.perms) ? claims.perms : []
+  } catch {
+    return []
+  }
 }
 
 function loadPersistedState() {
@@ -279,7 +311,17 @@ function App() {
   const [brandName, setBrandName] = useState(persistedState?.brandName ?? 'tejdux.io')
   const [userName, setUserName] = useState(persistedState?.userName ?? '')
   const [authToken, setAuthToken] = useState(persistedState?.authToken ?? '')
+  const [refreshToken, setRefreshToken] = useState(persistedState?.refreshToken ?? '')
   const [userId, setUserId] = useState(persistedState?.userId ?? '')
+  // Active brand plus the set the user may switch to. Solo accounts have exactly one entry,
+  // which is why the switcher can be hidden without needing a separate code path.
+  const [brandId, setBrandId] = useState(persistedState?.brandId ?? '')
+  const [accountId, setAccountId] = useState(persistedState?.accountId ?? '')
+  const [role, setRole] = useState(persistedState?.role ?? '')
+  const [availableBrands, setAvailableBrands] = useState(persistedState?.availableBrands ?? [])
+  // Derived from the token rather than stored, so it can never drift out of step with the
+  // credential the server will actually evaluate.
+  const permissions = readPermissionsFromToken(authToken)
   const [authError, setAuthError] = useState('')
   const [workspaceError, setWorkspaceError] = useState('')
 
@@ -395,7 +437,12 @@ function App() {
       brandName,
       userName,
       authToken,
+      refreshToken,
       userId,
+      brandId,
+      accountId,
+      role,
+      availableBrands,
       campaigns,
       creators,
       campaignForm,
@@ -418,7 +465,12 @@ function App() {
     brandName,
     userName,
     authToken,
+    refreshToken,
     userId,
+    brandId,
+    accountId,
+    role,
+    availableBrands,
     campaigns,
     creators,
     campaignForm,
@@ -434,6 +486,56 @@ function App() {
     coupons,
     marketplaceConnections,
   ])
+
+  // Let the API layer renew an expired access token behind the scenes. Without this a user is
+  // silently logged out the moment the short-lived access token expires mid-session.
+  useEffect(() => {
+    setAuthHandlers({
+      getRefreshToken: () => refreshToken,
+      onRefreshed: (authResponse) => {
+        setAuthToken(authResponse?.accessToken || '')
+        setRefreshToken(authResponse?.refreshToken || '')
+        applyBrandFromAuth(authResponse)
+      },
+      onSessionExpired: () => {
+        setIsLoggedIn(false)
+        setAuthToken('')
+        setRefreshToken('')
+        setUserId('')
+        setBrandId('')
+        setAvailableBrands([])
+        setActiveBrandId('')
+        setAuthError('Your session expired. Please sign in again.')
+      },
+    })
+  }, [refreshToken])
+
+  // Restore the API layer's brand after a page reload: module state does not survive it,
+  // so without this the first request would go out with no brand header.
+  useEffect(() => {
+    setActiveBrandId(brandId)
+  }, [brandId])
+
+  // Load the brands this user may switch between. Solo accounts get exactly one entry and
+  // the switcher stays hidden — same code path, different data.
+  useEffect(() => {
+    if (!isLoggedIn || !authToken) {
+      return
+    }
+    let isActive = true
+    listBrands(authToken)
+      .then((brands) => {
+        if (isActive) {
+          setAvailableBrands(Array.isArray(brands) ? brands : [])
+        }
+      })
+      .catch(() => {
+        // Non-fatal: the workspace still works on the active brand from the token.
+      })
+    return () => {
+      isActive = false
+    }
+  }, [isLoggedIn, authToken, brandId])
 
   useEffect(() => {
     if (!isLoggedIn || !authToken) {
@@ -484,10 +586,55 @@ function App() {
       setBrandName(authResponse.brandName || company)
       setUserId(authResponse.userId || '')
       setAuthToken(authResponse.accessToken || '')
+      setRefreshToken(authResponse.refreshToken || '')
+      applyBrandFromAuth(authResponse)
       setIsLoggedIn(true)
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : 'Authentication failed.')
       throw error
+    }
+  }
+
+  // Captures the active brand from an auth/refresh/switch response. Called before any
+  // workspace fetch so requests never go out under a stale brand.
+  const applyBrandFromAuth = (authResponse) => {
+    const nextBrandId = authResponse?.brandId || ''
+    setBrandId(nextBrandId)
+    setAccountId(authResponse?.accountId || '')
+    setRole(authResponse?.role || '')
+    if (authResponse?.brandName) {
+      setBrandName(authResponse.brandName)
+    }
+    // Set the header source synchronously — a later effect would let the first
+    // workspace request escape without the brand header.
+    setActiveBrandId(nextBrandId)
+  }
+
+  const handleSwitchBrand = async (nextBrandId) => {
+    if (!nextBrandId || nextBrandId === brandId) {
+      return
+    }
+    try {
+      setWorkspaceError('')
+      // The server re-mints the token: role and permissions are per-brand, so the
+      // current token cannot simply be reused against a different brand.
+      const switched = await switchBrand(authToken, nextBrandId)
+      setAuthToken(switched.accessToken || '')
+      applyBrandFromAuth(switched)
+
+      // Cached rows belong to the previous brand; clear them rather than briefly
+      // rendering one brand's data under another's name.
+      setCampaigns([])
+      setCreators([])
+      setWorkflowBoards([])
+      setWorkflowBoardStages([])
+      setWorkflowCards([])
+      setCoupons([])
+      setImportBatches([])
+      setMarketplaceConnections([])
+      setActiveBoardId('')
+    } catch (error) {
+      setWorkspaceError(error instanceof Error ? error.message : 'Unable to switch brand.')
     }
   }
 
@@ -498,6 +645,8 @@ function App() {
     setBrandName(authResponse.brandName || '')
     setUserId(authResponse.userId || '')
     setAuthToken(authResponse.accessToken || '')
+    setRefreshToken(authResponse.refreshToken || '')
+    applyBrandFromAuth(authResponse)
     setIsLoggedIn(true)
   }
 
@@ -1022,6 +1171,7 @@ function App() {
   const saveLandingTemplateRecord = async (payload) => saveLandingTemplate(authToken, { userId, ...payload })
   const loadCouponsForContent = async () => listCoupons(authToken)
   const draftContentRecord = async (payload) => draftContent(authToken, payload)
+  const previewLandingRecord = async (payload) => previewLandingTemplate(authToken, { userId, ...payload })
 
   const updateCampaignRecord = async (id, payload) => {
     const existing = campaigns.find((campaign) => campaign.id === id)
@@ -1316,8 +1466,9 @@ function App() {
 
   const handleLogout = async () => {
     try {
-      if (authToken) {
-        await logout(authToken)
+      // Logout revokes the refresh token; the access token stays valid until it expires.
+      if (refreshToken) {
+        await logout(refreshToken)
       }
     } catch {
       // Ignore logout API failures and clear local session state anyway.
@@ -1325,7 +1476,13 @@ function App() {
 
     setIsLoggedIn(false)
     setAuthToken('')
+    setRefreshToken('')
     setUserId('')
+    setBrandId('')
+    setAccountId('')
+    setRole('')
+    setAvailableBrands([])
+    setActiveBrandId('')
     setWorkspaceError('')
     setAuthError('')
   }
@@ -1352,12 +1509,33 @@ function App() {
           <Route
             path="/"
             element={
-              <WorkspaceLayout
-                brandName={brandName}
-                userName={userName}
-                onLogout={handleLogout}
-                workspaceError={workspaceError}
-              />
+              <SessionProvider
+                value={{
+                  userId,
+                  userName,
+                  email: '',
+                  authToken,
+                  accountId,
+                  brandId,
+                  brandName,
+                  availableBrands,
+                  onSwitchBrand: handleSwitchBrand,
+                  role,
+                  permissions,
+                }}
+              >
+                <WorkspaceLayout
+                  brandName={brandName}
+                  userName={userName}
+                  onLogout={handleLogout}
+                  workspaceError={workspaceError}
+                  brands={availableBrands}
+                  activeBrandId={brandId}
+                  onSwitchBrand={handleSwitchBrand}
+                  role={role}
+                  permissions={permissions}
+                />
+              </SessionProvider>
             }
           >
             <Route index element={<Navigate to="/import" replace />} />
@@ -1495,6 +1673,7 @@ function App() {
                   onSaveTemplate={saveLandingTemplateRecord}
                   onReloadCoupons={loadCouponsForContent}
                   onDraftContent={draftContentRecord}
+                  onPreviewLanding={previewLandingRecord}
                 />
               }
             />

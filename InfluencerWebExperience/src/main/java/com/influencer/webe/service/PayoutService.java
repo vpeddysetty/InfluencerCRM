@@ -49,9 +49,9 @@ public class PayoutService {
     }
 
     /** Move a commission pending → approved (the payout eligibility gate). */
-    public JsonNode approveCommission(UUID userId, UUID commissionId) {
+    public JsonNode approveCommission(UUID brandId, UUID commissionId) {
         JsonNode commission = dao.get("/influencer-commissions/" + commissionId, null);
-        requireOwner(commission, userId, "commission");
+        requireOwner(commission, brandId, "commission");
         String status = text(commission, "status");
         if (!"pending".equalsIgnoreCase(status)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
@@ -68,13 +68,13 @@ public class PayoutService {
      * Sums them, creates the payout, executes it through the provider, then marks
      * the commissions {@code paid} and links them to the payout.
      */
-    public JsonNode createPayout(UUID userId, UUID creatorId, String providerKey) {
+    public JsonNode createPayout(UUID brandId, UUID creatorId, String providerKey) {
         PayoutProvider provider = registry.find(providerKey == null ? "manual" : providerKey).orElseThrow(() ->
                 new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unknown payout provider: " + providerKey));
 
         // Collect this creator's approved commissions.
         Map<String, String> q = new LinkedHashMap<>();
-        q.put("userId", userId.toString());
+        q.put("brandId", brandId.toString());
         q.put("status", "approved");
         JsonNode commissions = dao.get("/influencer-commissions", q);
 
@@ -100,7 +100,7 @@ public class PayoutService {
 
         // Create the payout row (draft).
         ObjectNode payoutPayload = shape.objectMapper().createObjectNode();
-        payoutPayload.put("userId", userId.toString());
+        payoutPayload.put("brandId", brandId.toString());
         payoutPayload.put("creatorId", creatorId.toString());
         payoutPayload.put("totalAmount", total.toPlainString());
         payoutPayload.put("currency", currency);
@@ -139,11 +139,11 @@ public class PayoutService {
 
     // ---- helpers -------------------------------------------------------
 
-    private void requireOwner(JsonNode row, UUID userId, String label) {
+    private void requireOwner(JsonNode row, UUID brandId, String label) {
         if (row == null || row.isNull() || !row.hasNonNull("id")) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, label + " not found");
         }
-        if (!row.hasNonNull("userId") || !row.get("userId").asText().equals(userId.toString())) {
+        if (!row.hasNonNull("brandId") || !row.get("brandId").asText().equals(brandId.toString())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not your " + label);
         }
     }

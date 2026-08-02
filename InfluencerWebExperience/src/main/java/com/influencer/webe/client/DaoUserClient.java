@@ -11,32 +11,37 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.security.SecureRandom;
-import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
-
 @Component
 public class DaoUserClient {
+    private static final String SERVICE_TOKEN_HEADER = "X-Service-Token";
+
     private final WebExperienceProperties properties;
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
 
-    public DaoUserClient(WebExperienceProperties properties, ObjectMapper objectMapper) {
+    public DaoUserClient(WebExperienceProperties properties, ObjectMapper objectMapper, DaoHttpClientFactory httpClientFactory) {
         this.properties = properties;
         this.objectMapper = objectMapper;
-        this.httpClient = buildHttpClient();
+        this.httpClient = httpClientFactory.create();
+    }
+
+    /** Stamps the service credential the DAO requires on every outbound call. */
+    private HttpRequest.Builder authorized(HttpRequest.Builder builder) {
+        String serviceToken = properties.getDaoServiceToken();
+        if (serviceToken != null && !serviceToken.isBlank()) {
+            builder.header(SERVICE_TOKEN_HEADER, serviceToken);
+        }
+        return builder;
     }
 
     public List<UserRecord> listUsers() {
-        HttpRequest request = HttpRequest.newBuilder()
+        HttpRequest request = authorized(HttpRequest.newBuilder())
                 .uri(URI.create(properties.getDaoBaseUrl() + "/users"))
                 .timeout(Duration.ofSeconds(10))
                 .GET()
@@ -49,7 +54,7 @@ public class DaoUserClient {
         if (normalizedEmail == null || normalizedEmail.isBlank()) {
             return Optional.empty();
         }
-        HttpRequest request = HttpRequest.newBuilder()
+        HttpRequest request = authorized(HttpRequest.newBuilder())
                 .uri(URI.create(properties.getDaoBaseUrl() + "/users/by-email?email=" + normalizedEmail))
                 .timeout(Duration.ofSeconds(10))
                 .GET()
@@ -71,8 +76,34 @@ public class DaoUserClient {
         }
     }
 
+    public Optional<UserRecord> findById(UUID id) {
+        if (id == null) {
+            return Optional.empty();
+        }
+        HttpRequest request = authorized(HttpRequest.newBuilder())
+                .uri(URI.create(properties.getDaoBaseUrl() + "/users/" + id))
+                .timeout(Duration.ofSeconds(10))
+                .GET()
+                .build();
+        try {
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() == 404) {
+                return Optional.empty();
+            }
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "DAO user lookup failed with status " + response.statusCode() + ": " + response.body());
+            }
+            return Optional.of(objectMapper.readValue(response.body(), UserRecord.class));
+        } catch (IOException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Unable to call DAO users endpoint", exception);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "DAO call interrupted", exception);
+        }
+    }
+
     public UserRecord createUser(UserPayload payload) {
-        return sendUser(HttpRequest.newBuilder()
+        return sendUser(authorized(HttpRequest.newBuilder())
                 .uri(URI.create(properties.getDaoBaseUrl() + "/users"))
                 .timeout(Duration.ofSeconds(10))
                 .header("Content-Type", "application/json")
@@ -81,7 +112,7 @@ public class DaoUserClient {
     }
 
     public UserRecord updateUser(UUID id, UserPayload payload) {
-        return sendUser(HttpRequest.newBuilder()
+        return sendUser(authorized(HttpRequest.newBuilder())
                 .uri(URI.create(properties.getDaoBaseUrl() + "/users/" + id))
                 .timeout(Duration.ofSeconds(10))
                 .header("Content-Type", "application/json")
@@ -124,33 +155,6 @@ public class DaoUserClient {
             return objectMapper.writeValueAsString(value);
         } catch (Exception exception) {
             throw new IllegalStateException("Unable to serialize request", exception);
-        }
-    }
-
-    private HttpClient buildHttpClient() {
-        try {
-            SSLContext sslContext = SSLContext.getInstance("TLS");
-            sslContext.init(null, new TrustManager[]{new X509TrustManager() {
-                @Override
-                public void checkClientTrusted(X509Certificate[] chain, String authType) {
-                }
-
-                @Override
-                public void checkServerTrusted(X509Certificate[] chain, String authType) {
-                }
-
-                @Override
-                public X509Certificate[] getAcceptedIssuers() {
-                    return new X509Certificate[0];
-                }
-            }}, new SecureRandom());
-
-            return HttpClient.newBuilder()
-                    .sslContext(sslContext)
-                    .connectTimeout(Duration.ofSeconds(10))
-                    .build();
-        } catch (Exception exception) {
-            throw new IllegalStateException("Unable to create HTTP client", exception);
         }
     }
 

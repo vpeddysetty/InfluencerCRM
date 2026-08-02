@@ -8,6 +8,13 @@ public class WebExperienceProperties {
     private String agentBaseUrl;
     private String uiBaseUrl;
     private long sessionTtlMinutes = 720;
+    private long accessTokenTtlMinutes = 30;
+    private long refreshTokenTtlMinutes = 43200;
+    private String jwtSigningKey;
+    private String daoServiceToken;
+    private boolean daoTlsVerificationEnabled = true;
+    private String daoTrustStore;
+    private String daoTrustStorePassword;
     private final Provider oauth = new Provider();
 
     public String getDaoBaseUrl() {
@@ -40,6 +47,65 @@ public class WebExperienceProperties {
 
     public void setSessionTtlMinutes(long sessionTtlMinutes) {
         this.sessionTtlMinutes = sessionTtlMinutes;
+    }
+
+    public long getAccessTokenTtlMinutes() {
+        return accessTokenTtlMinutes;
+    }
+
+    public void setAccessTokenTtlMinutes(long accessTokenTtlMinutes) {
+        this.accessTokenTtlMinutes = accessTokenTtlMinutes;
+    }
+
+    public long getRefreshTokenTtlMinutes() {
+        return refreshTokenTtlMinutes;
+    }
+
+    public void setRefreshTokenTtlMinutes(long refreshTokenTtlMinutes) {
+        this.refreshTokenTtlMinutes = refreshTokenTtlMinutes;
+    }
+
+    /** RSA JWK (JSON, including the private key) used to sign access tokens. */
+    public String getJwtSigningKey() {
+        return jwtSigningKey;
+    }
+
+    public void setJwtSigningKey(String jwtSigningKey) {
+        this.jwtSigningKey = jwtSigningKey;
+    }
+
+    /** Shared secret presented to the DAO so it can reject non-service traffic. */
+    public String getDaoServiceToken() {
+        return daoServiceToken;
+    }
+
+    public void setDaoServiceToken(String daoServiceToken) {
+        this.daoServiceToken = daoServiceToken;
+    }
+
+    public boolean isDaoTlsVerificationEnabled() {
+        return daoTlsVerificationEnabled;
+    }
+
+    public void setDaoTlsVerificationEnabled(boolean daoTlsVerificationEnabled) {
+        this.daoTlsVerificationEnabled = daoTlsVerificationEnabled;
+    }
+
+    /** Path to a truststore containing the DAO's certificate (supports the local self-signed cert). */
+    public String getDaoTrustStore() {
+        return daoTrustStore;
+    }
+
+    public void setDaoTrustStore(String daoTrustStore) {
+        this.daoTrustStore = daoTrustStore;
+    }
+
+    public String getDaoTrustStorePassword() {
+        return daoTrustStorePassword;
+    }
+
+    public void setDaoTrustStorePassword(String daoTrustStorePassword) {
+        this.daoTrustStorePassword = daoTrustStorePassword;
     }
 
     public Provider getOauth() {

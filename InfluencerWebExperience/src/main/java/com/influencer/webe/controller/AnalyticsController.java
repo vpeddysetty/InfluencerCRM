@@ -2,6 +2,7 @@ package com.influencer.webe.controller;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.influencer.webe.service.AnalyticsService;
+import com.influencer.webe.security.Permission;
 import com.influencer.webe.service.RequestUserResolver;
 import org.springframework.web.bind.annotation.*;
 
@@ -25,8 +26,8 @@ public class AnalyticsController {
 
     @GetMapping("/influencer-revenue")
     public JsonNode influencerRevenue(@RequestHeader(value = "Authorization", required = false) String authorization,
-                                      @RequestParam(required = false) UUID userId) {
-        UUID resolved = requestUserResolver.resolveUserId(authorization, userId);
+                                      @RequestParam(required = false) UUID brandId) {
+        UUID resolved = requestUserResolver.requirePermissionForBrand(authorization, Permission.ATTRIBUTION_READ);
         return analyticsService.influencerRevenue(resolved);
     }
 }

@@ -48,9 +48,9 @@ public class CouponService {
      * {@code code} if supplied, otherwise expands {@code codePattern}, otherwise
      * falls back to a randomized code. Enforces per-tenant uniqueness.
      */
-    public JsonNode generateOne(UUID userId, ObjectNode request) {
-        Set<String> existing = loadExistingCodes(userId);
-        ObjectNode created = buildAndPersist(userId, request, existing);
+    public JsonNode generateOne(UUID brandId, ObjectNode request) {
+        Set<String> existing = loadExistingCodes(brandId);
+        ObjectNode created = buildAndPersist(brandId, request, existing);
         return shape.campaignCode(created);
     }
 
@@ -60,12 +60,12 @@ public class CouponService {
      * plus a {@code creators} array of {creatorId, creatorName, campaignCreatorId}.
      * Codes are de-duplicated within the batch and against existing tenant codes.
      */
-    public JsonNode generateBulk(UUID userId, ObjectNode request) {
+    public JsonNode generateBulk(UUID brandId, ObjectNode request) {
         JsonNode creators = request.get("creators");
         if (creators == null || !creators.isArray() || creators.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "creators array is required for bulk generation");
         }
-        Set<String> existing = loadExistingCodes(userId);
+        Set<String> existing = loadExistingCodes(brandId);
 
         var out = shape.objectMapper().createArrayNode();
         for (JsonNode creator : creators) {
@@ -81,7 +81,7 @@ public class CouponService {
             if (creator.hasNonNull("campaignCreatorId")) {
                 perCreator.put("campaignCreatorId", creator.get("campaignCreatorId").asText());
             }
-            ObjectNode created = buildAndPersist(userId, perCreator, existing);
+            ObjectNode created = buildAndPersist(brandId, perCreator, existing);
             out.add(shape.campaignCode(created));
         }
         return out;
@@ -91,9 +91,9 @@ public class CouponService {
      * Set creator personalization (blurb + optional embed) on a coupon and mark it
      * pending brand approval. Content Phase 3.
      */
-    public JsonNode personalize(UUID userId, UUID couponId, ObjectNode request) {
+    public JsonNode personalize(UUID brandId, UUID couponId, ObjectNode request) {
         JsonNode coupon = dao.get("/influencer-campaign-codes/" + couponId, null);
-        requireOwner(coupon, userId);
+        requireOwner(coupon, brandId);
         ObjectNode update = ((ObjectNode) coupon).deepCopy();
         update.put("personalBlurb", textOr(request, "personalBlurb", ""));
         update.put("embedUrl", textOr(request, "embedUrl", ""));
@@ -102,9 +102,9 @@ public class CouponService {
     }
 
     /** Brand approve/reject a coupon's pending personalization. Content Phase 3. */
-    public JsonNode decidePersonalization(UUID userId, UUID couponId, String decision) {
+    public JsonNode decidePersonalization(UUID brandId, UUID couponId, String decision) {
         JsonNode coupon = dao.get("/influencer-campaign-codes/" + couponId, null);
-        requireOwner(coupon, userId);
+        requireOwner(coupon, brandId);
         String status;
         if ("approve".equalsIgnoreCase(decision)) {
             status = "approved";
@@ -118,23 +118,23 @@ public class CouponService {
         return shape.campaignCode(dao.put("/influencer-campaign-codes/" + couponId, update));
     }
 
-    private void requireOwner(JsonNode coupon, UUID userId) {
+    private void requireOwner(JsonNode coupon, UUID brandId) {
         if (coupon == null || coupon.isNull() || !coupon.hasNonNull("id")) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "coupon not found");
         }
-        if (!coupon.hasNonNull("userId") || !coupon.get("userId").asText().equals(userId.toString())) {
+        if (!coupon.hasNonNull("brandId") || !coupon.get("brandId").asText().equals(brandId.toString())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not your coupon");
         }
     }
 
     // ---- internals -----------------------------------------------------
 
-    private ObjectNode buildAndPersist(UUID userId, ObjectNode request, Set<String> existing) {
+    private ObjectNode buildAndPersist(UUID brandId, ObjectNode request, Set<String> existing) {
         String code = resolveCode(request, existing);
         existing.add(code.toUpperCase(Locale.ROOT)); // reserve within this batch
 
         ObjectNode payload = shape.objectMapper().createObjectNode();
-        payload.put("userId", userId.toString());
+        payload.put("brandId", brandId.toString());
         copyIfPresent(request, payload, "campaignId");
         copyIfPresent(request, payload, "creatorId");
         copyIfPresent(request, payload, "campaignCreatorId");
@@ -232,9 +232,9 @@ public class CouponService {
         return Double.toString(d).replace(".", "");
     }
 
-    private Set<String> loadExistingCodes(UUID userId) {
+    private Set<String> loadExistingCodes(UUID brandId) {
         Map<String, String> query = new LinkedHashMap<>();
-        query.put("userId", userId.toString());
+        query.put("brandId", brandId.toString());
         JsonNode existing = dao.get("/influencer-campaign-codes", query);
         Set<String> codes = new HashSet<>();
         if (existing != null && existing.isArray()) {

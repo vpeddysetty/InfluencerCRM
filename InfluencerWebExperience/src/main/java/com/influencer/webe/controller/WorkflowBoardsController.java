@@ -3,6 +3,7 @@ package com.influencer.webe.controller;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.influencer.webe.client.DaoGatewayClient;
+import com.influencer.webe.security.Permission;
 import com.influencer.webe.service.RequestUserResolver;
 import com.influencer.webe.service.ResponseShapeService;
 import org.springframework.web.bind.annotation.*;
@@ -29,12 +30,12 @@ public class WorkflowBoardsController {
     // ---- boards --------------------------------------------------------
     @GetMapping("/workflow-boards")
     public JsonNode listBoards(@RequestHeader(value = "Authorization", required = false) String authorization,
-                               @RequestParam(required = false) UUID userId,
+                               @RequestParam(required = false) UUID brandId,
                                @RequestParam(required = false) Integer page,
                                @RequestParam(required = false) Integer size) {
-        UUID resolvedUserId = requestUserResolver.resolveUserId(authorization, userId);
+        UUID resolvedBrandId = requestUserResolver.requirePermissionForBrand(authorization, Permission.WORKFLOW_READ);
         Map<String, String> query = new LinkedHashMap<>();
-        query.put("userId", resolvedUserId.toString());
+        query.put("brandId", resolvedBrandId.toString());
         return responseShapeService.workflowBoardsList(daoGatewayClient.get("/workflow-boards", query), page, size);
     }
 
@@ -46,7 +47,7 @@ public class WorkflowBoardsController {
     @PostMapping("/workflow-boards")
     public JsonNode createBoard(@RequestHeader(value = "Authorization", required = false) String authorization,
                                 @RequestBody ObjectNode payload) {
-        payload.put("userId", requestUserResolver.resolveUserId(authorization, getUuid(payload, "userId")).toString());
+        payload.put("brandId", requestUserResolver.requirePermissionForBrand(authorization, Permission.WORKFLOW_WRITE).toString());
         return responseShapeService.workflowBoard(daoGatewayClient.post("/workflow-boards", payload));
     }
 
@@ -54,7 +55,7 @@ public class WorkflowBoardsController {
     public JsonNode updateBoard(@RequestHeader(value = "Authorization", required = false) String authorization,
                                 @PathVariable UUID id,
                                 @RequestBody ObjectNode payload) {
-        payload.put("userId", requestUserResolver.resolveUserId(authorization, getUuid(payload, "userId")).toString());
+        payload.put("brandId", requestUserResolver.requirePermissionForBrand(authorization, Permission.WORKFLOW_WRITE).toString());
         return responseShapeService.workflowBoard(daoGatewayClient.put("/workflow-boards/" + id, payload));
     }
 
@@ -66,13 +67,13 @@ public class WorkflowBoardsController {
     // ---- board stages --------------------------------------------------
     @GetMapping("/workflow-board-stages")
     public JsonNode listStages(@RequestHeader(value = "Authorization", required = false) String authorization,
-                               @RequestParam(required = false) UUID userId,
+                               @RequestParam(required = false) UUID brandId,
                                @RequestParam(required = false) UUID boardId,
                                @RequestParam(required = false) Integer page,
                                @RequestParam(required = false) Integer size) {
-        UUID resolvedUserId = requestUserResolver.resolveUserId(authorization, userId);
+        UUID resolvedBrandId = requestUserResolver.requirePermissionForBrand(authorization, Permission.WORKFLOW_READ);
         Map<String, String> query = new LinkedHashMap<>();
-        query.put("userId", resolvedUserId.toString());
+        query.put("brandId", resolvedBrandId.toString());
         query.put("boardId", boardId == null ? null : boardId.toString());
         return responseShapeService.workflowBoardStagesList(daoGatewayClient.get("/workflow-board-stages", query), page, size);
     }
@@ -80,21 +81,21 @@ public class WorkflowBoardsController {
     @PutMapping("/workflow-board-stages/replace")
     public JsonNode replaceStages(@RequestHeader(value = "Authorization", required = false) String authorization,
                                   @RequestBody ObjectNode payload) {
-        payload.put("userId", requestUserResolver.resolveUserId(authorization, getUuid(payload, "userId")).toString());
+        payload.put("brandId", requestUserResolver.requirePermissionForBrand(authorization, Permission.WORKFLOW_WRITE).toString());
         return responseShapeService.workflowBoardStagesList(daoGatewayClient.put("/workflow-board-stages/replace", payload), null, null);
     }
 
     // ---- workflow cards (campaign<->creator relationship tasks) ----------
     @GetMapping("/workflow-cards")
     public JsonNode listCards(@RequestHeader(value = "Authorization", required = false) String authorization,
-                              @RequestParam(required = false) UUID userId,
+                              @RequestParam(required = false) UUID brandId,
                               @RequestParam(required = false) UUID boardId,
                               @RequestParam(required = false) String board,
                               @RequestParam(required = false) Integer page,
                               @RequestParam(required = false) Integer size) {
-        UUID resolvedUserId = requestUserResolver.resolveUserId(authorization, userId);
+        UUID resolvedBrandId = requestUserResolver.requirePermissionForBrand(authorization, Permission.WORKFLOW_READ);
         Map<String, String> query = new LinkedHashMap<>();
-        query.put("userId", resolvedUserId.toString());
+        query.put("brandId", resolvedBrandId.toString());
         query.put("boardId", boardId == null ? null : boardId.toString());
         query.put("board", board);
         return responseShapeService.workflowCardsList(daoGatewayClient.get("/workflow-cards", query), page, size);
@@ -108,7 +109,7 @@ public class WorkflowBoardsController {
     @PostMapping("/workflow-cards")
     public JsonNode createCard(@RequestHeader(value = "Authorization", required = false) String authorization,
                                @RequestBody ObjectNode payload) {
-        payload.put("userId", requestUserResolver.resolveUserId(authorization, getUuid(payload, "userId")).toString());
+        payload.put("brandId", requestUserResolver.requirePermissionForBrand(authorization, Permission.WORKFLOW_WRITE).toString());
         return responseShapeService.workflowCard(daoGatewayClient.post("/workflow-cards", payload));
     }
 
@@ -116,7 +117,7 @@ public class WorkflowBoardsController {
     public JsonNode updateCard(@RequestHeader(value = "Authorization", required = false) String authorization,
                                @PathVariable UUID id,
                                @RequestBody ObjectNode payload) {
-        payload.put("userId", requestUserResolver.resolveUserId(authorization, getUuid(payload, "userId")).toString());
+        payload.put("brandId", requestUserResolver.requirePermissionForBrand(authorization, Permission.WORKFLOW_WRITE).toString());
         return responseShapeService.workflowCard(daoGatewayClient.put("/workflow-cards/" + id, payload));
     }
 

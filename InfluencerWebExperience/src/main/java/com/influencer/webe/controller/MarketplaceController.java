@@ -44,12 +44,12 @@ public class MarketplaceController {
     @ResponseStatus(HttpStatus.CREATED)
     public JsonNode connect(@RequestHeader(value = "Authorization", required = false) String authorization,
                             @RequestBody ObjectNode payload) {
-        UUID userId = requestUserResolver.resolveUserId(authorization, getUuid(payload, "userId"));
+        UUID brandId = requestUserResolver.resolveBrandId(authorization, getUuid(payload, "brandId"));
         String providerKey = payload.hasNonNull("providerKey") ? payload.get("providerKey").asText() : null;
         if (providerKey == null || providerKey.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "providerKey is required");
         }
-        return marketplaceService.connect(userId, providerKey, extractCredentials(payload));
+        return marketplaceService.connect(brandId, providerKey, extractCredentials(payload));
     }
 
     private Map<String, String> extractCredentials(ObjectNode payload) {

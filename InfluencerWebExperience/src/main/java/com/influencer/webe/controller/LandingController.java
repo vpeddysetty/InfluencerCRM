@@ -40,13 +40,13 @@ public class LandingController {
     // ---- brand-authenticated template management -----------------------
     @GetMapping("/api/landing-templates")
     public JsonNode list(@RequestHeader(value = "Authorization", required = false) String authorization,
-                         @RequestParam(required = false) UUID userId,
+                         @RequestParam(required = false) UUID brandId,
                          @RequestParam(required = false) UUID campaignId,
                          @RequestParam(required = false) Integer page,
                          @RequestParam(required = false) Integer size) {
-        UUID resolved = requestUserResolver.resolveUserId(authorization, userId);
+        UUID resolved = requestUserResolver.resolveBrandId(authorization, brandId);
         Map<String, String> query = new LinkedHashMap<>();
-        query.put("userId", resolved.toString());
+        query.put("brandId", resolved.toString());
         query.put("campaignId", campaignId == null ? null : campaignId.toString());
         return shape.landingTemplatesList(dao.get("/landing-templates", query), page, size);
     }
@@ -55,18 +55,30 @@ public class LandingController {
     @PostMapping("/api/landing-templates/save")
     public JsonNode save(@RequestHeader(value = "Authorization", required = false) String authorization,
                          @RequestBody ObjectNode payload) {
-        UUID userId = requestUserResolver.resolveUserId(authorization, getUuid(payload, "userId"));
-        return landingService.saveTemplate(userId, payload);
+        UUID brandId = requestUserResolver.resolveBrandId(authorization, getUuid(payload, "brandId"));
+        return landingService.saveTemplate(brandId, payload);
+    }
+
+    /**
+     * Preview the current (possibly unsaved) landing blocks, personalized for a
+     * chosen coupon. Brand-auth'd; does NOT persist and does NOT record a view.
+     * Returns rendered HTML for the builder's live preview.
+     */
+    @PostMapping(value = "/api/landing-templates/preview", produces = MediaType.TEXT_HTML_VALUE)
+    public String preview(@RequestHeader(value = "Authorization", required = false) String authorization,
+                          @RequestBody ObjectNode payload) {
+        UUID brandId = requestUserResolver.resolveBrandId(authorization, getUuid(payload, "brandId"));
+        return landingService.previewTemplate(brandId, payload);
     }
 
     /** Landing-page views (click funnel) for the tenant or a specific coupon. */
     @GetMapping("/api/landing-page-views")
     public JsonNode views(@RequestHeader(value = "Authorization", required = false) String authorization,
-                          @RequestParam(required = false) UUID userId,
+                          @RequestParam(required = false) UUID brandId,
                           @RequestParam(required = false) UUID campaignCodeId) {
-        UUID resolved = requestUserResolver.resolveUserId(authorization, userId);
+        UUID resolved = requestUserResolver.resolveBrandId(authorization, brandId);
         Map<String, String> query = new LinkedHashMap<>();
-        query.put("userId", resolved.toString());
+        query.put("brandId", resolved.toString());
         query.put("campaignCodeId", campaignCodeId == null ? null : campaignCodeId.toString());
         return dao.get("/landing-page-views", query);
     }

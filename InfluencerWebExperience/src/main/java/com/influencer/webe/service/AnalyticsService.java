@@ -31,10 +31,10 @@ public class AnalyticsService {
         this.shape = shape;
     }
 
-    public JsonNode influencerRevenue(UUID userId) {
-        JsonNode attributions = listForUser(userId, "/influencer-sale-attributions");
-        JsonNode creators = listForUser(userId, "/creators");
-        JsonNode cards = listForUser(userId, "/workflow-cards");
+    public JsonNode influencerRevenue(UUID brandId) {
+        JsonNode attributions = listForUser(brandId, "/influencer-sale-attributions");
+        JsonNode creators = listForUser(brandId, "/creators");
+        JsonNode cards = listForUser(brandId, "/workflow-cards");
 
         Map<String, String> creatorNames = new LinkedHashMap<>();
         if (creators != null && creators.isArray()) {
@@ -158,9 +158,9 @@ public class AnalyticsService {
         BigDecimal refunds = BigDecimal.ZERO;
     }
 
-    private JsonNode listForUser(UUID userId, String path) {
+    private JsonNode listForUser(UUID brandId, String path) {
         Map<String, String> q = new LinkedHashMap<>();
-        q.put("userId", userId.toString());
+        q.put("brandId", brandId.toString());
         return dao.get(path, q);
     }
 
