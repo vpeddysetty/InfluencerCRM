@@ -6,6 +6,9 @@ function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit, onSocialLogin, authE
   const navigate = useNavigate()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [socialProvider, setSocialProvider] = useState('')
+  // 'brand' | 'agency'. Creators are CRM records owned by a brand, not accounts that sign in,
+  // so they are deliberately not an option here — see docs/identity-signup-alignment.md.
+  const [accountType, setAccountType] = useState('brand')
   const submitTimerRef = useRef(null)
 
   useEffect(() => {
@@ -45,7 +48,7 @@ function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit, onSocialLogin, authE
     // There is no result to await and no route to push: the redirect replaces this page. The
     // spinner stays on deliberately — it is the last thing rendered before the browser leaves.
     setSocialProvider(provider)
-    onSocialLogin(provider, { brandName })
+    onSocialLogin(provider, { brandName, accountType: isSignUp ? accountType : '' })
   }
 
   return (
@@ -86,7 +89,9 @@ function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit, onSocialLogin, authE
           <h2>{isSignUp ? 'Create your operator workspace' : 'Welcome back to tejdux.io'}</h2>
           <p className="helper">
             {isSignUp
-              ? 'Set up your workspace profile details.'
+              ? accountType === 'agency'
+                ? 'Set up an agency workspace. You can add client brands once you are in.'
+                : 'Set up your workspace profile details.'
               : 'Log in with your user name or email and password.'}
           </p>
         </div>
@@ -120,14 +125,54 @@ function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit, onSocialLogin, authE
               </label>
             ) : null}
             {isSignUp ? (
+              <fieldset className="auth-accounttype">
+                <legend className="auth-label">Workspace type</legend>
+                <div className="auth-accounttype-options">
+                  <label
+                    className={`auth-accounttype-option${accountType === 'brand' ? ' selected' : ''}`}
+                  >
+                    <input
+                      type="radio"
+                      name="accountType"
+                      value="brand"
+                      checked={accountType === 'brand'}
+                      onChange={() => setAccountType('brand')}
+                    />
+                    <span className="auth-accounttype-title">Brand</span>
+                    <span className="auth-accounttype-hint">
+                      One brand you run yourself.
+                    </span>
+                  </label>
+                  <label
+                    className={`auth-accounttype-option${accountType === 'agency' ? ' selected' : ''}`}
+                  >
+                    <input
+                      type="radio"
+                      name="accountType"
+                      value="agency"
+                      checked={accountType === 'agency'}
+                      onChange={() => setAccountType('agency')}
+                    />
+                    <span className="auth-accounttype-title">Agency</span>
+                    <span className="auth-accounttype-hint">
+                      Several client brands, switched between in one login.
+                    </span>
+                  </label>
+                </div>
+              </fieldset>
+            ) : null}
+            {isSignUp ? (
               <label>
-                <span className="auth-label">Brand or startup</span>
+                {/* An agency's first brand is its own name; client brands are added afterwards. */}
+                <span className="auth-label">
+                  {accountType === 'agency' ? 'Agency name' : 'Brand or startup'}
+                </span>
                 <div className="auth-input-wrap">
                   <span className="auth-input-icon" aria-hidden="true">#</span>
                   <input
                     name="brand"
                     type="text"
-                    placeholder="tejdux.io"
+                    placeholder={accountType === 'agency' ? 'Northstar Agency' : 'tejdux.io'}
                     defaultValue="tejdux.io"
                     required
                   />

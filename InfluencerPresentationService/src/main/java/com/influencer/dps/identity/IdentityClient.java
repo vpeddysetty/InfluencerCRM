@@ -47,11 +47,16 @@ public class IdentityClient {
         return post("/api/auth/login", Map.of("email", email, "password", password), null);
     }
 
-    public JsonNode signup(String email, String password, String brandName) {
+    public JsonNode signup(String email, String password, String brandName, String accountType) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("email", email);
         body.put("password", password);
         body.put("brandName", brandName);
+        // Omitted rather than sent as null when absent: the BFF defaults it, and the signup
+        // payload now rejects unknown/unusable properties rather than ignoring them.
+        if (accountType != null && !accountType.isBlank()) {
+            body.put("accountType", accountType);
+        }
         return post("/api/auth/signup", body, null);
     }
 

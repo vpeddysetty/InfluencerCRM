@@ -2,6 +2,7 @@ package com.influencer.webe.identity.application;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.influencer.webe.identity.infrastructure.DaoTenancyClient;
 import com.influencer.webe.identity.infrastructure.DaoUserClient;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -9,11 +10,13 @@ import org.springframework.stereotype.Service;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
 public class AuthService {
     private final DaoUserClient daoUserClient;
+    private final DaoTenancyClient daoTenancyClient;
     private final OAuthProfileService oauthProfileService;
     private final SessionService sessionService;
     private final ObjectMapper objectMapper;
@@ -21,17 +24,42 @@ public class AuthService {
 
     public AuthService(
             DaoUserClient daoUserClient,
+            DaoTenancyClient daoTenancyClient,
             OAuthProfileService oauthProfileService,
             SessionService sessionService,
             ObjectMapper objectMapper) {
         this.daoUserClient = daoUserClient;
+        this.daoTenancyClient = daoTenancyClient;
         this.oauthProfileService = oauthProfileService;
         this.sessionService = sessionService;
         this.objectMapper = objectMapper;
     }
 
+    /** The account types a signup may ask for. Mirrors the database check constraint. */
+    public static final String ACCOUNT_TYPE_BRAND = "brand";
+    public static final String ACCOUNT_TYPE_AGENCY = "agency";
+    private static final Set<String> SIGNUP_ACCOUNT_TYPES = Set.of(ACCOUNT_TYPE_BRAND, ACCOUNT_TYPE_AGENCY);
+
     public AuthResponse signup(String email, String password, String brandName) {
+        return signup(email, password, brandName, ACCOUNT_TYPE_BRAND);
+    }
+
+    /**
+     * Creates a user and their workspace.
+     *
+     * <p>Provisioning itself still happens in the {@code provision_tenancy_for_user} trigger, which
+     * can only produce a {@code brand} account. An agency signup therefore promotes the account
+     * immediately afterwards, inside this same call, so the caller sees one atomic-looking
+     * operation. Roadmap Stage 2 moves provisioning here and removes the second write.
+     *
+     * <p>An unrecognised account type is rejected rather than defaulted. Silently downgrading an
+     * {@code agency} request to a {@code brand} account is what the previous behaviour did, and it
+     * left a caller unable to tell a typo from success.
+     */
+    public AuthResponse signup(String email, String password, String brandName, String accountType) {
         String normalizedEmail = normalizeEmail(email);
+        String resolvedType = normalizeAccountType(accountType);
+
         if (daoUserClient.findByEmail(normalizedEmail).isPresent()) {
             throw new IllegalArgumentException("Email already exists");
         }
@@ -48,8 +76,37 @@ public class AuthService {
                 null);
 
         DaoUserClient.UserRecord createdUser = daoUserClient.createUser(payload);
+        if (ACCOUNT_TYPE_AGENCY.equals(resolvedType)) {
+            promoteToAgency(createdUser.id());
+        }
+
         SessionService.SessionInfo session = sessionService.createSession(createdUser.id(), createdUser.email(), "password");
         return AuthResponse.from(createdUser, session);
+    }
+
+    private String normalizeAccountType(String accountType) {
+        if (accountType == null || accountType.isBlank()) {
+            return ACCOUNT_TYPE_BRAND;
+        }
+        String normalized = accountType.trim().toLowerCase();
+        if (!SIGNUP_ACCOUNT_TYPES.contains(normalized)) {
+            throw new IllegalArgumentException(
+                    "accountType must be one of " + SIGNUP_ACCOUNT_TYPES + " (creators do not sign up)");
+        }
+        return normalized;
+    }
+
+    /**
+     * Promotes the account the trigger just provisioned for this user.
+     *
+     * <p>Resolved via {@code legacyUserId} because that is the only link back to the freshly
+     * provisioned account at this point — the user record itself carries no account id.
+     */
+    private void promoteToAgency(UUID userId) {
+        UUID accountId = daoTenancyClient.findAccountIdForUser(userId)
+                .orElseThrow(() -> new IllegalStateException(
+                        "No account was provisioned for the new user; cannot create an agency workspace"));
+        daoTenancyClient.promoteAccountType(accountId, ACCOUNT_TYPE_AGENCY);
     }
 
     public AuthResponse login(String email, String password) {

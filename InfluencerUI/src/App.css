@@ -257,6 +257,64 @@
   gap: 11px;
 }
 
+/* Workspace type (brand | agency). Cards rather than a <select>: the choice decides how the
+   account is shaped and cannot be changed from this screen afterwards, so both options and
+   their consequences are worth showing at once. */
+.auth-accounttype {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.auth-accounttype-options {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+.auth-accounttype-option {
+  display: grid;
+  gap: 2px;
+  cursor: pointer;
+  border: 1px solid rgba(148, 163, 184, 0.5);
+  background: rgba(255, 255, 255, 0.94);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.auth-accounttype-option.selected {
+  border-color: #1e40af;
+  background: rgba(30, 64, 175, 0.06);
+  box-shadow: 0 6px 14px rgba(30, 64, 175, 0.14);
+}
+
+/* The card itself is the control; the native radio is redundant to sighted users but stays in
+   the accessibility tree and keeps keyboard and form semantics intact. */
+.auth-accounttype-option input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.auth-accounttype-option:focus-within {
+  outline: 2px solid #1e40af;
+  outline-offset: 2px;
+}
+
+.auth-accounttype-title {
+  font-weight: 700;
+  color: #0f172a;
+  font-size: 0.94rem;
+}
+
+.auth-accounttype-hint {
+  color: #64748b;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
 .auth-form label,
 .inline-form {
   display: grid;

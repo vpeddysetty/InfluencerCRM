@@ -1,5 +1,6 @@
 package com.influencer.webe.identity.api;
 
+import com.fasterxml.jackson.annotation.JsonAnySetter;
 import com.influencer.webe.identity.application.AuthService;
 import com.influencer.webe.identity.application.OAuthFlowService;
 import com.influencer.webe.identity.application.OAuthHandoffService;
@@ -30,7 +31,7 @@ public class AuthController {
     @PostMapping("/signup")
     @ResponseStatus(HttpStatus.CREATED)
     public AuthService.AuthResponse signup(@Valid @RequestBody BrandSignupRequest request) {
-        return authService.signup(request.email(), request.password(), request.brandName());
+        return authService.signup(request.email(), request.password(), request.brandName(), request.accountType());
     }
 
     @PostMapping("/login")
@@ -103,10 +104,30 @@ public class AuthController {
         return oauthFlowService.completeFacebook(code, state);
     }
 
+    /**
+     * A signup request.
+     *
+     * <p>{@code accountType} is optional and defaults to {@code brand}, so existing clients are
+     * unaffected. Unknown properties are rejected: this payload previously accepted — and silently
+     * ignored — fields like {@code role}, which meant a caller asking for something the endpoint
+     * does not support received a 200 and a different account than they asked for.
+     *
+     * <p>{@code @JsonIgnoreProperties(ignoreUnknown = false)} would not achieve this: Spring Boot
+     * disables {@code FAIL_ON_UNKNOWN_PROPERTIES} globally, and that annotation only declines to
+     * re-enable it. {@code @JsonAnySetter} is what actually sees the leftover field, so the
+     * rejection is explicit rather than a mapper setting a future config change could silently
+     * undo.
+     */
     public record BrandSignupRequest(
             @Email @NotBlank String email,
             @NotBlank String password,
-            String brandName) {
+            String brandName,
+            String accountType) {
+
+        @JsonAnySetter
+        void rejectUnknown(String name, Object value) {
+            throw new IllegalArgumentException("Unrecognised signup field: " + name);
+        }
     }
 
     public record LoginRequest(

@@ -97,9 +97,12 @@ export class PresentationGateway {
     return this.#apply(await this.#call('/dps/auth/login', { method: 'POST', body: { email, password } }))
   }
 
-  async signup({ email, password, brandName }) {
+  async signup({ email, password, brandName, accountType }) {
     return this.#apply(
-      await this.#call('/dps/auth/signup', { method: 'POST', body: { email, password, brandName } }),
+      await this.#call('/dps/auth/signup', {
+        method: 'POST',
+        body: { email, password, brandName, accountType },
+      }),
     )
   }
 

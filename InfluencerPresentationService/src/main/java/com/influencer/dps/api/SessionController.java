@@ -1,5 +1,6 @@
 package com.influencer.dps.api;
 
+import com.fasterxml.jackson.annotation.JsonAnySetter;
 import com.influencer.dps.config.DpsProperties;
 import com.influencer.dps.session.UiSession;
 import com.influencer.dps.session.UiSessionService;
@@ -63,7 +64,8 @@ public class SessionController {
     @PostMapping("/auth/signup")
     @ResponseStatus(HttpStatus.CREATED)
     public ResponseEntity<SessionView> signup(@Valid @RequestBody SignupRequest request) {
-        UiSession session = sessionService.signup(request.email(), request.password(), request.brandName());
+        UiSession session = sessionService.signup(
+                request.email(), request.password(), request.brandName(), request.accountType());
         return withSessionCookie(session, SessionView.of(session));
     }
 
@@ -281,9 +283,25 @@ public class SessionController {
     public record LoginRequest(@Email @NotBlank String email, @NotBlank String password) {
     }
 
+    /**
+     * {@code accountType} selects a solo brand workspace or an agency one. Optional — the BFF
+     * defaults it to {@code brand}, and it validates the value, so this layer forwards rather than
+     * duplicating a rule that would then have two places to drift apart.
+     *
+     * <p>Unknown fields are rejected here as well as at the BFF. This record deserializes first, so
+     * without its own guard an unrecognised property is dropped at this boundary and the BFF's
+     * check never sees it — the caller would get a 200 for a request the platform does not
+     * actually support.
+     */
     public record SignupRequest(@Email @NotBlank String email,
                                 @NotBlank String password,
-                                String brandName) {
+                                String brandName,
+                                String accountType) {
+
+        @JsonAnySetter
+        void rejectUnknown(String name, Object value) {
+            throw new IllegalArgumentException("Unrecognised signup field: " + name);
+        }
     }
 
     public record SwitchBrandRequest(UUID brandId) {

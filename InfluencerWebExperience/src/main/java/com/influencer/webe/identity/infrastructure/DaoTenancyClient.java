@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -69,6 +70,32 @@ public class DaoTenancyClient {
 
     public JsonNode members(UUID accountId) {
         return gatewayClient.get("/tenancy/accounts/" + accountId + "/members", Map.of());
+    }
+
+    /**
+     * The account provisioned for a user.
+     *
+     * <p>Empty rather than throwing when there is none: the caller decides whether a missing
+     * account is a failure, and at signup time it is.
+     */
+    public Optional<UUID> findAccountIdForUser(UUID userId) {
+        JsonNode response = gatewayClient.get("/tenancy/users/" + userId + "/account", null);
+        String id = response == null ? null : text(response, "id");
+        return id == null || id.isBlank() ? Optional.empty() : Optional.of(UUID.fromString(id));
+    }
+
+    /**
+     * Sets an account's type after it has been provisioned.
+     *
+     * <p>Needed only because the provisioning trigger can create a {@code brand} account and
+     * nothing else, so an agency signup creates then promotes. Disappears when provisioning moves
+     * into the application (roadmap Stage 2).
+     */
+    public JsonNode promoteAccountType(UUID accountId, String accountType) {
+        return gatewayClient.patch("/tenancy/accounts/" + accountId,
+                com.fasterxml.jackson.databind.node.JsonNodeFactory.instance
+                        .objectNode()
+                        .put("accountType", accountType));
     }
 
     private String text(JsonNode node, String field) {

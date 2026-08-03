@@ -589,13 +589,16 @@ function App() {
     const name = String(form.get('fullName') || inferredName || 'Brand Operator')
     const company = String(form.get('brand') || 'tejdux.io')
     const password = String(form.get('password') || '')
+    // The landing page's workspace-type radio. Absent on the login tab, and defaulted rather
+    // than sent blank so the server's own default stays the single source of that rule.
+    const accountType = String(form.get('accountType') || 'brand')
 
     try {
       setAuthError('')
       setWorkspaceError('')
 
       const authResponse = isSignUp
-        ? await signup({ email, password, brandName: company })
+        ? await signup({ email, password, brandName: company, accountType })
         : await login({ email, password })
 
       setUserName(name)
@@ -677,9 +680,19 @@ function App() {
    * A full-page navigation also sidesteps popup blockers, and lands the user back on the shell
    * authenticated instead of on an intermediate page.
    */
-  const handleSocialLogin = (provider, { brandName: socialBrandName = '' } = {}) => {
+  const handleSocialLogin = (provider, { brandName: socialBrandName = '', accountType = '' } = {}) => {
     setAuthError('')
     setWorkspaceError('')
+
+    // Federated sign-up always creates a brand workspace: carrying the type would mean threading
+    // it through the signed OAuth state and both provider callbacks, which is roadmap Stage 1
+    // follow-up work. Say so rather than letting an agency selection be silently dropped.
+    if (accountType === 'agency') {
+      setAuthError(
+        'Agency workspaces are created with email and password for now. Use the form above, then add client brands once you are in.',
+      )
+      return
+    }
 
     const query = socialBrandName ? `?brandName=${encodeURIComponent(socialBrandName)}` : ''
     window.location.assign(`${DPS_BASE_URL}/dps/auth/oauth/${provider}/start${query}`)

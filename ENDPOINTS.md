@@ -10,7 +10,9 @@ Base module: InfluencerWebExperience
 - GET /health
 
 ### Auth
-- POST /api/auth/signup
+- POST /api/auth/signup — body `{ email, password, brandName, accountType? }`.
+  `accountType` is `brand` (default) or `agency`; any other value, or an unrecognised
+  field, is a 400 rather than being silently ignored.
 - POST /api/auth/login
 - POST /api/auth/logout
 - POST /api/auth/google/signup
@@ -92,6 +94,16 @@ Base module: InfluencerDAO
 - POST /users
 - PUT /users/{id}
 - DELETE /users/{id}
+
+### Tenancy
+- GET /tenancy/users/{userId}/brands
+- GET /tenancy/users/{userId}/account — the account provisioned for a user, via `legacy_user_id`
+- GET /tenancy/brands/{id}
+- GET /tenancy/accounts/{accountId}/brands
+- GET /tenancy/accounts/{accountId}/members
+- POST /tenancy/brands
+- PUT /tenancy/brands/{id}
+- PATCH /tenancy/accounts/{id} — sets `accountType` (`brand` | `agency`) and/or `name`
 
 ### Campaigns
 - GET /campaigns

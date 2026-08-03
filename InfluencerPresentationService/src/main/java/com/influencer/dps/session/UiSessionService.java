@@ -50,8 +50,8 @@ public class UiSessionService {
         return establish(identityClient.login(email, password));
     }
 
-    public UiSession signup(String email, String password, String brandName) {
-        return establish(identityClient.signup(email, password, brandName));
+    public UiSession signup(String email, String password, String brandName, String accountType) {
+        return establish(identityClient.signup(email, password, brandName, accountType));
     }
 
     /**
