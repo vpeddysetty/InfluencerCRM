@@ -63,6 +63,8 @@ The PRD reads as though it were greenfield. A material portion is built and test
 | Creator metrics from platform APIs | **Not built** | Needs app registrations — the long pole (§10.2) |
 | AI classification & scoring | **Not built** | `creators.brand_safety_score` column exists, unused |
 | Per-brand vetting rules | **Not built** | No `vetting_status` yet — Phase C2 |
+| Authenticity / fake-follower signals | **Not built** | Not in platform APIs — build/buy/defer (§10.3) |
+| Post-approval health monitoring | **Not built** | No metric history kept today — Phase C3 |
 | Social publishing | **Not built** | `coupon:push` exists for marketplaces, not social posts |
 | Publishing as a creator's handle | **Not built** | Most security-sensitive item here — Phase F |
 | Brand ↔ creator co-editing | **Not built** | Foundation exists — confirmed `creator_identity_links` (§6.1) |
@@ -311,6 +313,152 @@ against current data and showing the counts is cheap and prevents the worst fail
 **Auto-approval is not built, and the schema does not anticipate it.** If it is wanted later, that is
 a deliberate decision with its own review — not a flag someone finds and flips.
 
+#### What a vetting rule can read — the attribute catalogue
+
+Researched against what Modash, HypeAuditor, Upfluence and CreatorIQ actually expose (sources at the
+foot of this section). Four groups, because they have very different acquisition costs and very
+different legal weight.
+
+**Group 1 — Reach and activity.** Cheap, available from every platform API, uncontroversial.
+
+| Attribute | Column | Notes |
+|---|---|---|
+| Follower count | `follower_count` ✅ | Exists |
+| Engagement rate | `engagement_rate` ✅ | Exists. `(likes + comments) / followers` |
+| Average views | `average_views` ✅ | Exists. The honest metric for video platforms |
+| Last active | `last_active_at` ✅ | Exists. Dormancy is a real disqualifier |
+| Post frequency | **new** | Posts per 30 days |
+| Follower growth trend | **new** | 30/90-day delta — feeds Phase C3 |
+
+**Group 2 — Authenticity.** The differentiator. This is what separates a vetting tool from a
+contact list, and the industry has converged on it.
+
+| Attribute | Column | Notes |
+|---|---|---|
+| Audience quality score | **new** `audience_quality_score` | 0–100, the HypeAuditor/Modash convention. ≥70 is the common acceptance floor |
+| Estimated fake-follower % | **new** `fake_follower_pct` | Industry studies put the average near 37 %, and highest in the 100k–500k tier — the band brands most want |
+| Engagement authenticity | **new** `engagement_authenticity` | Engagement that does not track follower growth is the clearest fraud signal |
+| Follower-growth anomalies | **new** `growth_anomaly_flags` | Sudden spikes without corresponding content |
+| Audience-type mix | **new**, inside `audience_demographics` | Real / mass-follower / suspicious / influencer. An audience >40 % other influencers is a red flag |
+
+**Group 3 — Audience demographics.** Approved for rule use (decision #14). Stored in the existing
+`audience_demographics` JSONB rather than as columns, because the shape varies per platform and this
+avoids a migration per field.
+
+| Attribute | Shape |
+|---|---|
+| Age brackets | `{"13-17": 0.04, "18-24": 0.38, …}` |
+| Gender split | `{"female": 0.62, "male": 0.36, "other": 0.02}` |
+| Geography | Country and city percentages |
+| Language | Primary audience languages |
+| Interests / affinities | Platform-derived affinity categories |
+
+**Group 4 — Brand safety and history.** Content risk, distinct from audience fraud.
+
+| Attribute | Column | Notes |
+|---|---|---|
+| Brand safety score | `brand_safety_score` ✅ | Exists, unused |
+| Risk flags | **new** `risk_flags` | Adult, alcohol, gambling, politics, controversy |
+| Recent brand mentions | **new** | Competitor detection — Modash offers a 180-day window |
+| Disclosure compliance | **new** | Whether past sponsored posts were properly disclosed. A creator who does not disclose is a regulatory liability, not just a brand-fit question |
+| Content-niche alignment | `niche`, `content_categories` ✅ | Exist |
+
+#### Demographic rules are allowed, with two constraints
+
+Decision #14 permits rules against Group 3. Two things follow, and they are engineering
+requirements rather than caveats:
+
+**These are audience attributes, not the creator's.** A rule reads *"this creator's followers are
+70 % aged 18–24"*, never *"this creator is 22"*. The distinction is the difference between campaign
+targeting and screening a person by protected characteristics. **No creator-personal demographic
+fields should exist on the schema at all** — the safest way to guarantee a rule cannot filter on
+them is for the data never to be collected.
+
+**Every demographic rejection is auditable.** C2.5 already records the rule that fired. Given
+demographic rules, that record is what answers a regulator or a creator asking why they were
+declined. This is not extra work — it is the reason C2.5 was specified before this decision was
+taken.
+
+#### Where the data comes from
+
+Group 1 and Group 3 come from platform APIs (Phase C). **Groups 2 and 4 largely do not exist in
+platform APIs at all** — fake-follower estimation and brand-safety classification are the products
+that Modash and HypeAuditor sell.
+
+That is a build-or-buy decision this roadmap does not resolve, and it is worth surfacing now because
+it affects sequencing (§10.10):
+
+- **Buy** — integrate a vetting API. Fastest, industry-grade accuracy, and a per-lookup cost that
+  scales with creator volume.
+- **Build** — derive coarse signals from raw API data. Cheaper per lookup, materially less accurate,
+  and follower-quality analysis is genuinely hard.
+- **Defer** — ship Groups 1, 3 and 4 first, add Group 2 once volume justifies it.
+
+I would **defer, then buy**. Groups 1 and 3 alone support useful rules on day one, and by the time
+Group 2 matters there will be real volume to price a vendor against. Building fake-follower
+detection in-house would be competing with companies whose entire product is that one problem.
+
+**Sources:**
+[ContentGrip — how to vet influencers](https://www.contentgrip.com/how-to-vet-influencers/) ·
+[ContentGrip — fraud detection](https://www.contentgrip.com/influencer-marketing-fraud-detection/) ·
+[InfluenceFlow — vetting tools and authenticity checks](https://influenceflow.io/resources/influencer-vetting-tools-and-authenticity-checks-essential-guide-for-2026/) ·
+[Archive — creator vetting tools](https://archive.com/blog/creator-vetting-tools-screen-influencers) ·
+[Modash vs HypeAuditor](https://www.impulze.ai/post/modash-vs-hypeauditor) ·
+[Influencer analytics tools compared](https://influencerfee.com/blog/influencer-analytics-tools-comparison/)
+
+---
+
+### Phase C3 — Creator health monitoring ▸ the relationship after approval
+
+Vetting is a gate; this is what happens after someone is through it. A creator approved at 50k
+followers who quietly declines to 5k is a live problem, and today nothing would notice.
+
+| Step | Change |
+|---|---|
+| C3.1 | Scheduled metric refresh per creator — cadence by tier, not uniform |
+| C3.2 | `creator.creator_metric_snapshots` — append-only history, one row per fetch |
+| C3.3 | Decline detection against configurable per-brand thresholds |
+| C3.4 | `CreatorHealthAlert` event → alert surfaced to the owning brand |
+| C3.5 | Alert queue: acknowledge, snooze, or act — with the reason recorded |
+| C3.6 | Trend view on the creator record — the graph, not just the current number |
+
+**Alerts inform a decision; they never take one.** Decided 2026-08-02. A drop in standing raises a
+flag for the brand or agency, and a human decides whether to keep, pause or end the relationship.
+Nothing auto-revokes.
+
+The reasoning is the same asymmetry as auto-approval, and it is stronger here. A creator mid-campaign
+has delivered work, may be owed money, and may have declined other offers to take this one. Silently
+revoking their access because a number moved would be both a commercial and a contractual mistake —
+and metrics dip for legitimate reasons: platform algorithm changes, a break, a seasonal niche, or
+one viral post inflating the previous baseline.
+
+**Snapshots, not overwrites.** C3.2 keeps history rather than updating `follower_count` in place.
+Without it there is no trend, no way to distinguish a slide from a correction, and no evidence when a
+brand asks why an alert fired. The current value stays on `creators` for fast reads; the series lives
+alongside it.
+
+**What warrants an alert** — per brand, since a 20 % drop means different things at 5k and 5M:
+
+```
+follower_count       ↓ >20 % over 30 days
+engagement_rate      ↓ >30 % over 30 days
+last_active_at       > 45 days ago
+audience_quality     ↓ below the brand's floor
+risk_flags           any new flag appears        ← always alerts, regardless of thresholds
+```
+
+**Alert fatigue is the failure mode to design against.** An alert nobody reads is worse than no
+alert, because it looks like coverage. Hence per-brand thresholds rather than platform defaults,
+snooze on C3.5, and grouping — one digest for a roster, not fifteen notifications.
+
+**Reuses the existing outbox.** `CreatorHealthAlert` joins `CommissionAccrued` in
+`shared.domain_events`; no new infrastructure.
+
+**Cadence, since this costs API quota.** Refreshing 10,000 creators daily is a lot of calls to buy.
+Weekly for active-campaign creators, monthly for the rest, on demand from the creator record — and
+because Group 2 attributes may come from a paid vendor (§C2), refresh frequency is a direct cost
+line, not just a scheduling choice.
+
 ---
 
 ### Phase D — Stage-driven automation ▸ bidirectional, so larger than it looks
@@ -368,8 +516,8 @@ InfluenCRM hosting engine behind its CDN. A brand cannot point a domain at their
 keeps SSL renewal, cache invalidation and rollback in one place where they can be made to work
 reliably.
 
-**No permanent free tier.** `/s/{slug}` is time-limited, not a forever home. That is a real
-constraint on the build, not just pricing:
+**No permanent free tier — two months.** `/s/{slug}` is time-limited, not a forever home. That is a
+real constraint on the build, not just pricing:
 
 - Pages need a `hosting_expires_at`, and the renderer must handle expiry deliberately — a clear
   "this page has expired" response, never a 404 that looks like a bug or a page that silently keeps
@@ -377,6 +525,19 @@ constraint on the build, not just pricing:
 - Expiry warnings belong in the outbox as scheduled events, not a cron job scanning tables.
 - Promotions extend `hosting_expires_at`; the model is an expiry date the platform can move, not a
   boolean `is_free`. A campaign-based promotion is then a bulk update, not a schema change.
+
+**Two months from first publish, not from signup.** Decided 2026-08-02. A brand that signs up,
+explores for six weeks and then publishes should get the full window on the thing being trialled —
+starting the clock at signup means the trial expires while they are still learning the builder.
+`hosting_expires_at` is therefore set on the first `Published` transition and left null before it.
+
+**Warn at 30, 7 and 1 days**, to the brand owner, via the outbox. My default unless you want
+otherwise (§10.7 previously; now settled).
+
+**At expiry the page is unpublished, not deleted.** It stops serving at its public URL and returns a
+clear expiry response; the row, its blocks and its assets stay. Re-publishing after payment is then a
+stage change rather than a rebuild — deleting a brand's work because a trial lapsed is the kind of
+thing that ends a customer relationship permanently.
 
 **Consequence:** Phase E is no longer optional. With a permanent free tier it would have been
 "nice to have"; with expiry, every brand that wants a page to outlive its trial needs a domain
@@ -586,13 +747,13 @@ A (builder) ─► B (assets) ─► D (automation) ─► E (domains)
       │             ╲                          F (social) ◄── needs the apps
       └─► G (co-editing)                             ▲
                                                      │
-      C (onboarding) ─► C2 (vetting) ─────────────────┘
+      C (onboarding) ─► C2 (vetting) ─► C3 (health) ──┘
               ▲
               └── needs the apps
 ```
 
 **Two independent tracks.** A → B → D → E is the page's life: build it, fill it, move it through
-stages, publish it to a domain. C → C2 is the creator's: onboard, score, vet. They meet only at
+stages, publish it to a domain. C → C2 → C3 is the creator's: onboard, score, vet, then watch. They meet only at
 Phase F, where a vetted creator publishes a finished page. Different people can run them in parallel
 — C touches `agent_service` and the `creator` schema and never opens the builder.
 
@@ -652,31 +813,33 @@ All confirmed 2026-08-02.
 | 8 | Kanban direction? | **Bidirectional.** Cards are writable | §4 |
 | 9 | Who pays the registrar? | **The brand or agency**, directly. No reselling | Phase E |
 | 10 | Who hosts? | **InfluenCRM.** Brands cannot self-host | Phase E |
-| 11 | Permanent free tier? | **No.** Time-limited, extensible by promotion | Phase E |
+| 11 | Free tier length? | **Two months**, from first publish. Extensible by promotion | Phase E |
 | 12 | Who publishes to social? | **Page context decides** — brand, or creator when a creator is on the campaign | Phase F |
+| 13 | Monitor creators after approval? | **Yes.** Decline raises an alert; a human decides | Phase C3 |
+| 14 | Can rules read audience demographics? | **Yes**, audience attributes only — never the creator's own | Phase C2 |
 
-Two of these were argued against and overruled; both are recorded with the reasoning intact, because
-it governs how they get built rather than whether:
+Two were argued against and overruled; both are recorded with the reasoning intact, because it
+governs how they get built rather than whether:
 
 - **#8 bidirectional Kanban** — I proposed a one-way projection. Since both directions are wanted,
   §4 specifies the four rules and the reconciliation job that keep two writable state machines from
   diverging, and Phase D itemises the extra work.
-- **#12 posting as a creator** — not argued against, but it is the most security-sensitive decision
-  here, so Phase F specifies per-brand consent, separate token stores, and creator pre-approval of
-  content rather than treating it as a routing detail.
+- **#12 posting as a creator** — not argued against, but the most security-sensitive decision here,
+  so Phase F specifies per-brand consent, separate token stores, and creator pre-approval of content
+  rather than treating it as a routing detail.
 
 ---
 
 ## 10. Open questions
 
-Far fewer than before. Ordered by when an answer is needed.
+Three left, none blocking the first phase.
 
 ### Needed before Phase A ships
 
 **10.1 — Confirm the existing `landing_templates` rows can be dropped.**
 §6.2 assumes they are demo data. The verification query is there; if any slug has real traffic, the
-answer is `status = 'legacy'` and read-only rather than deletion. This is a five-minute check that
-prevents deleting something a partner has linked to.
+answer is `status = 'legacy'` and read-only rather than deletion. A five-minute check that prevents
+deleting something a partner has linked to.
 
 ### Needed before Phase C starts — and the long pole
 
@@ -687,46 +850,22 @@ the longest lead time in the whole roadmap and it is not code.** If no apps are 
 should start that this week regardless of which phase is being built, because Phase C *and* Phase F
 both block on it.
 
-**10.3 — Which platform first?**
-Instagram is assumed. Each additional platform is its own API shape, token lifecycle, rate limit and
-policy surface.
+Instagram is assumed first unless you say otherwise; each additional platform is its own API shape,
+token lifecycle, rate limit and policy surface.
 
 ### Needed before Phase C2 ships
 
-**10.4 — What can a vetting rule actually read?**
-The rule engine's power is bounded by its inputs. Follower count and niche are obvious; is a brand
-allowed to write rules against audience demographics — age, gender, location? That is legitimate for
-campaign fit and also the kind of automated filter that attracts scrutiny. Worth deciding
-deliberately, and worth recording per brand, since C2.5's audit trail is what answers "why was I
-rejected?".
+**10.3 — Build, buy, or defer the authenticity signals (Group 2)?**
+Fake-follower estimation and audience-quality scoring are not in platform APIs — they are what Modash
+and HypeAuditor sell. My recommendation is **defer, then buy**: Groups 1, 3 and 4 support useful
+rules on day one, and by the time Group 2 matters there will be real volume to price a vendor
+against. Building it in-house means competing with companies whose entire product is that one
+problem. The reason to decide before C2 ships is that the rules UI should not advertise fields the
+platform cannot populate.
 
-**10.5 — Do rules re-run on refreshed metrics?**
-A creator approved at 50k followers who drops to 5k: does a rule re-evaluate and reject them? I would
-say no — re-run rules only for creators still in a pending state, and surface a *flag* for approved
-creators rather than silently revoking access someone is mid-campaign on.
+### Settled since the last revision
 
-### Needed before Phase E ships
-
-**10.6 — How long is the free tier, and what happens at expiry?**
-"A few months" needs a number, because `hosting_expires_at` is a column. And the behaviour at expiry
-is a product decision with a real user consequence: a clear expiry page, a redirect, or an
-unpublish. My recommendation is an expiry page that stays crawlable and tells the visitor where the
-brand went — a hard 404 makes the platform look broken rather than the trial look over.
-
-**10.7 — Who is warned before expiry, and when?**
-Scheduled events are easy; the policy is the question. 30/7/1 days to the brand owner would be my
-default.
-
-### Needed before Phase F ships
-
-**10.8 — Is creator consent per campaign or standing per brand?**
-Phase F assumes standing per brand and revocable. Per campaign is more conservative and more
-friction. This matters because it is the difference between a creator authorising a relationship and
-authorising every future post in it.
-
-### Not blocking anything
-
-**10.9 — Are the eight page stages fixed, or per-brand?**
-Boards already support custom stages. If page stages are also customisable, D.6's mapping becomes
-user-configured rather than a default. Fixed is fine to start; this is easy to add later and hard to
-remove.
+- Free-tier length, start point, warnings and expiry behaviour → Phase E
+- Demographic rules and their two constraints → Phase C2
+- Post-approval monitoring and what warrants an alert → Phase C3
+- Which vetting attributes to capture, researched against competitors → Phase C2
