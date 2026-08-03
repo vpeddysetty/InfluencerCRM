@@ -842,26 +842,23 @@ governs how they get built rather than whether:
 
 ## 10. Open questions
 
-Two left, neither blocking the first phase.
+One left, and it does not block Phase A.
 
-### Needed before Phase A ships
+### The long pole — and the only thing worth acting on this week
 
-**10.1 — Confirm the existing `landing_templates` rows can be dropped.**
-§6.2 assumes they are demo data. The verification query is there; if any slug has real traffic, the
-answer is `status = 'legacy'` and read-only rather than deletion. A five-minute check that prevents
-deleting something a partner has linked to.
+**10.1 — Platform developer app registration. → instructions in
+[platform-app-registration.md](platform-app-registration.md)**
 
-### Needed before Phase C starts — and the long pole
+Phase C reads metrics from Instagram Graph, TikTok, YouTube Data and Facebook Graph; Phase F
+publishes through the same apps. Meta's review takes **2–4 weeks and resets if a reviewer requests
+changes**; TikTok's takes **5–10 business days** with no expedited option.
 
-**10.2 — Which platform developer apps exist today, and under whose account?**
-Phase C reads metrics from Instagram Graph, TikTok, YouTube Data and Facebook Graph. Every one needs
-a registered app and, for Instagram and TikTok, a review that can take weeks. **This is very likely
-the longest lead time in the whole roadmap and it is not code.** If no apps are registered, someone
-should start that this week regardless of which phase is being built, because Phase C *and* Phase F
-both block on it.
+**This is the longest lead time in the roadmap and none of it is code.** Started now, approvals land
+roughly when Phase C needs them. Started when the code is ready, a month of finished work sits idle.
+Phases A, B, D, E and G are unaffected and proceed in parallel.
 
-Instagram is assumed first unless you say otherwise; each additional platform is its own API shape,
-token lifecycle, rate limit and policy surface.
+The linked document has the step-by-step for each platform, the exact permissions to request, the
+reviewer-facing description of our use case, and a status tracker.
 
 ### Answered — kept for the reasoning
 
@@ -882,6 +879,10 @@ C2.8 captures those complaints as structured data, without which the trigger can
 
 ### Settled since the last revision
 
+- Existing `landing_templates` rows → verified as test fixtures only (12 rows, 17 views, all from
+  one E2E run on 2026-08-01) and cleared by
+  `schema/migrations/2026_08_02_landing_builder_reset.sql`, which guards against real customer data
+  at run time rather than trusting the check
 - Free-tier length, start point, warnings and expiry behaviour → Phase E
 - Demographic rules and their two constraints → Phase C2
 - Post-approval monitoring and what warrants an alert → Phase C3

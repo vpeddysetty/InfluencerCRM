@@ -23,3 +23,4 @@
 \i /docker-entrypoint-initdb.d/migrations/2026_08_02_stage2_app_owned_provisioning.sql
 \i /docker-entrypoint-initdb.d/migrations/2026_08_02_stage3_member_invitations.sql
 \i /docker-entrypoint-initdb.d/migrations/2026_08_02_stage4_creator_identity.sql
+\i /docker-entrypoint-initdb.d/migrations/2026_08_02_landing_builder_reset.sql
