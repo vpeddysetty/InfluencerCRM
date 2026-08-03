@@ -8,12 +8,16 @@
 
 ## The short version
 
-**Buy.** Not because building is expensive — with Claude, the code is genuinely cheap. Because
-**the data required to build it cannot be legitimately obtained.**
+**Build the coarse in-house signals now; engage a vendor only if brands report follower-quality
+problems.** Do not build Group 2 proper — not because it is expensive, but because **the data
+required cannot be legitimately obtained.** Instagram exposes no follower-list endpoint, so the
+training data does not exist to be bought, scraped safely, or generated.
 
-That is a different objection from "it would take too long", and it is not one that engineering
-velocity solves. The rest of this document shows the numbers anyway, because the cost comparison is
-worth having on record and because it changes if the platforms ever change.
+That is a different objection from "it would take too long", and engineering velocity does not solve
+it. Claude compresses roughly 75 % of the code and none of the data problem.
+
+Full decision in §5. The cost numbers are recorded anyway, because they matter if the platforms ever
+change their access model.
 
 ---
 
@@ -171,36 +175,94 @@ behind it — publishing a made-up quality score would be worse than publishing 
 
 ---
 
-## 5. Recommendation
+## 5. Decision — 2026-08-02
 
-**Defer, then buy — unchanged, and now for a firmer reason than before.**
+**Start with our own signal. Bring in a vendor when brands report follower-quality problems.**
+
+The trigger is **complaints, not volume**. That is a better test than the ~60,000-reports/year
+threshold I originally proposed, and worth saying why: volume is a proxy for "the signal probably
+isn't good enough", whereas a brand telling you a creator's followers were fake is direct evidence
+that it wasn't. Paying a vendor before anyone has complained is buying insurance against a problem
+that may not exist at this scale — and if our own signals turn out to be adequate, that subscription
+is never needed at all.
 
 | Phase | Action |
 |---|---|
 | **Now** | Ship Groups 1, 3, 4. Build the coarse in-house signals with Claude (§4) |
-| **C2 rules UI** | Design so a vendor score is an optional input, absent by default. Do not advertise a field that cannot be populated |
-| **At ~500 vetted creators/mo** | Trial HypeAuditor Basic — $299/mo, cancellable, real accuracy comparison against our own signals |
-| **At ~3,000/mo** | Move to Modash Discovery at a better per-report rate |
-| **At ~60,000/yr** | Revisit build, if and only if follower-level data has become legitimately obtainable |
+| **Now** | Capture follower-quality complaints as structured data (§5.1) — without this the trigger cannot fire |
+| **C2 rules UI** | Vendor score is an optional input, absent by default. Do not advertise a field that cannot be populated |
+| **On complaints** | Trial HypeAuditor Basic at $299/mo, cancellable. Compare against our signals on the *complained-about* creators first |
+| **If the trial proves out** | Modash Discovery at higher volume for a better per-report rate |
+| **Never, realistically** | Build — unless follower-level data becomes legitimately obtainable (§6) |
 
-**Integrate behind a port.** `AudienceAuthenticityPort` with a no-op default, our in-house
-implementation, and a vendor adapter. The rules engine reads a score and does not know its origin —
-which makes trialling a vendor a config change, and swapping one a day's work rather than a
-migration.
+### 5.1 The trigger has to be measurable, or it will not fire
+
+"Wait for complaints" fails quietly if complaints arrive as support emails nobody counts. Someone
+will have a vague sense that a few brands grumbled, and the decision gets made on mood. Two small
+pieces of work make it real, and both belong in Phase C2:
+
+**Capture the complaint against the creator record.** A brand disputing a creator's audience quality
+files a `creator_quality_report` — the creator, the brand, what they observed, and what our own
+signal said at the time. That last field is the valuable one: it turns every complaint into a
+labelled example of our signal being wrong.
+
+**Set the threshold in advance.** My suggestion: **three complaints in a quarter, or any single
+complaint on a creator our signal rated clean.** The second matters more than the first — one
+confident wrong answer is worse evidence of a broken signal than three flags on borderline
+creators, because it means we were not merely uncertain, we were incorrect.
+
+Deciding the number now avoids relitigating it later while someone is annoyed about a specific
+creator.
+
+### 5.2 What the complaint log buys beyond the trigger
+
+The reason to do this even if a vendor is never engaged: **it is the ground truth §3.2 said we could
+not obtain.** Every complaint is a labelled instance — this creator, these signals, brand says the
+audience was fake. A few dozen of those is enough to tune in-house thresholds against real outcomes
+rather than intuition.
+
+It will not train a fake-follower classifier; that still needs follower-level data. But it is the
+difference between "our engagement-anomaly threshold is 30 % because that felt reasonable" and
+"30 % because below it we missed four creators brands later disputed".
+
+### 5.3 Integrate behind a port regardless
+
+`AudienceAuthenticityPort` with three implementations: no-op, our in-house signal, and a vendor
+adapter. The rules engine reads a score without knowing its origin.
+
+Worth building **now**, while there is only one implementation, precisely because the decision is to
+defer. A vendor trial then costs a config change and a day's adapter work, rather than reopening the
+rules engine at the moment someone is already unhappy about a bad creator. The cheapest time to make
+something swappable is before you need to swap it.
 
 ---
 
 ## 6. What would change this
 
-Honest triggers to revisit, so this is a decision with an expiry rather than a permanent verdict:
+Triggers to revisit, so this is a decision with an expiry rather than a permanent verdict.
 
-1. **A platform exposes follower-level data** to vetted partners. Unlikely — the trend is the
-   opposite — but it would remove the blocker entirely.
-2. **Volume passes ~60,000 reports/year.** Buying stops being obviously cheaper.
-3. **Vendor accuracy proves poor** in the §5 trial. If a paid score is no better than our coarse
-   signal, stop paying for it — that trial is the point.
-4. **A creator-connected model becomes the norm.** If most creators authorise the platform for
-   first-party insights, we get audience data legitimately and the calculus flips.
+**Toward engaging a vendor:**
+
+1. **Brands complain about follower quality** — the primary trigger (§5). Threshold: three
+   complaints in a quarter, or one on a creator our signal rated clean.
+2. **A brand demands an industry-recognised score** as a condition of a deal. Enterprise buyers
+   sometimes require a named vendor's audit specifically; that is a sales requirement rather than a
+   technical one, and no amount of in-house signal satisfies it.
+3. **A creator-connected model becomes the norm.** If most creators authorise first-party insights,
+   audience data becomes legitimately available and both build and buy get easier.
+
+**Toward dropping the vendor again:**
+
+4. **Vendor accuracy proves no better than ours** in the §5 trial. That trial is a comparison, not a
+   formality — if a paid score does not beat our coarse signal on creators brands actually disputed,
+   stop paying for it.
+
+**Toward building after all:**
+
+5. **A platform exposes follower-level data** to vetted partners. Unlikely — the trend is the
+   opposite — but it is the only thing that removes the blocker.
+6. **Volume passes ~60,000 reports/year** *and* #5 has happened. Volume alone is not sufficient,
+   which is the correction this revision makes: without the data, no volume justifies a build.
 
 ---
 
@@ -218,6 +280,11 @@ Honest triggers to revisit, so this is a decision with an expiry rather than a p
 Claude makes the build **~75 % cheaper in engineering and 0 % more feasible**, because the
 constraint is data access rather than development speed. That is worth stating plainly: a faster
 way to write code does not change what data a platform will give you.
+
+**The decision is neither column.** It is: build what our own data supports, measure whether that is
+enough, and pay a vendor only when brands tell us it is not. The complaint log (§5.1) is what turns
+that from a sentiment into a threshold — and it produces the ground truth §3.2 said we otherwise
+could not obtain.
 
 **Sources:**
 [HypeAuditor pricing](https://hypeauditor.com/pricing/) ·

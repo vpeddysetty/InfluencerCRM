@@ -63,7 +63,7 @@ The PRD reads as though it were greenfield. A material portion is built and test
 | Creator metrics from platform APIs | **Not built** | Needs app registrations — the long pole (§10.2) |
 | AI classification & scoring | **Not built** | `creators.brand_safety_score` column exists, unused |
 | Per-brand vetting rules | **Not built** | No `vetting_status` yet — Phase C2 |
-| Authenticity / fake-follower signals | **Not built** | Not in platform APIs — build/buy/defer (§10.3) |
+| Authenticity / fake-follower signals | **Not built** | Coarse in-house signal first; vendor on complaint ([analysis](group2-build-vs-buy.md)) |
 | Post-approval health monitoring | **Not built** | No metric history kept today — Phase C3 |
 | Social publishing | **Not built** | `coupon:push` exists for marketplaces, not social posts |
 | Publishing as a creator's handle | **Not built** | Most security-sensitive item here — Phase F |
@@ -286,6 +286,7 @@ running gaming have genuinely different thresholds, and hard-coding either is wr
 | C2.5 | `creator.vetting_events` — every automated and manual decision, with the rule that fired |
 | C2.6 | Review queue for anything a rule did not resolve |
 | C2.7 | `CreatorApproved` → welcome package (brief, guidelines, asset access) |
+| C2.8 | `creator.creator_quality_reports` — a brand disputes a creator's audience quality |
 
 **Rules may reject and advance. They may never approve.** Decided 2026-08-02.
 
@@ -312,6 +313,12 @@ against current data and showing the counts is cheap and prevents the worst fail
 
 **Auto-approval is not built, and the schema does not anticipate it.** If it is wanted later, that is
 a deliberate decision with its own review — not a flag someone finds and flips.
+
+**C2.8 is small and easy to skip, and should not be.** It records what our own signal said at the
+time of the complaint, which turns each dispute into a labelled example of the signal being wrong.
+That is both the trigger for engaging a vendor and the only ground truth available for tuning
+in-house thresholds — see [group2-build-vs-buy.md](group2-build-vs-buy.md) §5.1. Without it, "wait
+for complaints" degrades into someone half-remembering that a few brands grumbled.
 
 #### What a vetting rule can read — the attribute catalogue
 
@@ -819,6 +826,7 @@ All confirmed 2026-08-02.
 | 12 | Who publishes to social? | **Page context decides** — brand, or creator when a creator is on the campaign | Phase F |
 | 13 | Monitor creators after approval? | **Yes.** Decline raises an alert; a human decides | Phase C3 |
 | 14 | Can rules read audience demographics? | **Yes**, audience attributes only — never the creator's own | Phase C2 |
+| 15 | Group 2 authenticity signals? | **Own signal first**; vendor only when brands complain | [analysis](group2-build-vs-buy.md) |
 
 Two were argued against and overruled; both are recorded with the reasoning intact, because it
 governs how they get built rather than whether:
@@ -834,7 +842,7 @@ governs how they get built rather than whether:
 
 ## 10. Open questions
 
-Three left, none blocking the first phase.
+Two left, neither blocking the first phase.
 
 ### Needed before Phase A ships
 
@@ -855,7 +863,7 @@ both block on it.
 Instagram is assumed first unless you say otherwise; each additional platform is its own API shape,
 token lifecycle, rate limit and policy surface.
 
-### Needed before Phase C2 ships
+### Answered — kept for the reasoning
 
 **10.3 — Build, buy, or defer the authenticity signals (Group 2)? → analysed, see
 [group2-build-vs-buy.md](group2-build-vs-buy.md)**
@@ -868,9 +876,9 @@ year one *and only if the data existed*, with $15–25k/yr maintenance after.
 
 Claude compresses roughly 75 % of the build's engineering and none of its data problem.
 
-**Still yours to decide:** whether to accept that recommendation, and whether to build the coarse
-in-house signals meanwhile (§4 of that document) — comment-quality analysis is a genuine LLM strength
-and is ~87 % accurate as a standalone fraud signal without needing follower data.
+**Decided 2026-08-02: start with our own signal; engage a vendor when brands complain about follower
+quality.** Threshold is three complaints in a quarter, or one on a creator our signal rated clean.
+C2.8 captures those complaints as structured data, without which the trigger cannot fire.
 
 ### Settled since the last revision
 
@@ -878,3 +886,4 @@ and is ~87 % accurate as a standalone fraud signal without needing follower data
 - Demographic rules and their two constraints → Phase C2
 - Post-approval monitoring and what warrants an alert → Phase C3
 - Which vetting attributes to capture, researched against competitors → Phase C2
+- Group 2 build vs buy, and the trigger for revisiting → [group2-build-vs-buy.md](group2-build-vs-buy.md)
