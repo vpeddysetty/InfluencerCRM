@@ -52,7 +52,29 @@ public class SecurityConfig {
             // for 60 seconds, consumed on first read, and issued only to the provider's redirect.
             // Same reasoning as /api/auth/refresh, which is public for the same structural reason.
             "/api/auth/oauth/handoff",
-            "/api/webhooks/**"            // marketplace callbacks — authenticated by provider signature
+            "/api/webhooks/**",           // marketplace callbacks — authenticated by provider signature
+            // Creator portal sign-in. A creator has no account, no brand and no account_role, so
+            // they can never present the operator JWT this chain expects — these routes are how
+            // they obtain their own portal token instead. Listed individually rather than as
+            // /api/creator-portal/**, which would also expose the claim and collaboration routes
+            // that must stay behind a creator session.
+            "/api/creator-portal/auth/signup",
+            "/api/creator-portal/auth/login",
+            "/api/creator-portal/auth/logout"
+    };
+
+    /**
+     * Creator-portal routes authenticated by {@code X-Creator-Token} rather than the operator JWT.
+     *
+     * <p>Permitted by this filter chain and then checked inside the controller, which resolves the
+     * portal session itself. The alternative — teaching {@code JwtAuthenticationFilter} about a
+     * second credential type — would put creator rules inside the operator auth path, which is
+     * precisely where they must not be.
+     */
+    private static final String[] CREATOR_PORTAL_PATHS = {
+            "/api/creator-portal/me",
+            "/api/creator-portal/collaborations",
+            "/api/creator-portal/claims"
     };
 
     /**
@@ -96,6 +118,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, PUBLIC_GET_PATHS).permitAll()
                         .requestMatchers(HttpMethod.POST, PUBLIC_POST_PATHS).permitAll()
                         .requestMatchers(PUBLIC_OAUTH_PATHS).permitAll()
+                        // Authenticated by the controller against the creator session store, not
+                        // by this chain — see CREATOR_PORTAL_PATHS.
+                        .requestMatchers(CREATOR_PORTAL_PATHS).permitAll()
                         .anyRequest().authenticated())
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
                 .exceptionHandling(handling -> handling

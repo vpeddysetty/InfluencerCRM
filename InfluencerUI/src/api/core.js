@@ -164,6 +164,43 @@ export async function listAccountMembers(token) {
   return request('/api/brands/members', { token })
 }
 
+// ---- member invitations (roadmap Stage 3) ----
+
+// The token comes back exactly once, here. Only its hash is stored, so it cannot be read
+// again — losing it means re-inviting.
+export async function inviteMember(token, { email, role, brandId }) {
+  return request('/api/brands/members/invite', {
+    method: 'POST',
+    token,
+    body: { email, role, brandId: brandId || null },
+  })
+}
+
+export async function listInvitations(token) {
+  const payload = await request('/api/brands/members/invitations', { token })
+  return unwrapList(payload)
+}
+
+export async function revokeInvitation(token, id) {
+  return request(`/api/brands/members/invitations/${id}/revoke`, { method: 'POST', token, body: {} })
+}
+
+export async function acceptInvitation(token, invitationToken) {
+  return request('/api/brands/members/invitations/accept', {
+    method: 'POST',
+    token,
+    body: { token: invitationToken },
+  })
+}
+
+export async function updateMemberRole(token, userId, role) {
+  return request(`/api/brands/members/${userId}`, { method: 'PUT', token, body: { role } })
+}
+
+export async function removeMember(token, userId) {
+  return request(`/api/brands/members/${userId}`, { method: 'DELETE', token })
+}
+
 export async function refreshSession(refreshToken) {
   return request('/api/auth/refresh', { method: 'POST', body: { refreshToken }, skipRefresh: true })
 }

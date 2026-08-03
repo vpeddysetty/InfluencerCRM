@@ -1,4 +1,15 @@
 -- =============================================================
+-- SUPERSEDED 2026-08-02 by tests/seed_demo_accounts.sh (roadmap Stage 3).
+--
+-- This script exists only as the record of what the platform used to require. Everything below
+-- is now doable through the product: member invitations mean a user can be added to someone
+-- else's account without deleting the solo account their signup created and re-parenting them.
+--
+-- Prefer:  bash tests/seed_demo_accounts.sh
+-- Keep this file for reference; do not extend it.
+-- =============================================================
+
+-- =============================================================
 -- Seed: demo accounts for manual validation
 -- Date: 2026-08-02
 -- Purpose:

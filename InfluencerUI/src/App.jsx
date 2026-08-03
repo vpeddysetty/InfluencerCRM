@@ -10,6 +10,7 @@ import CouponsPage from './pages/CouponsPage'
 import MarketplacePage from './pages/MarketplacePage'
 import DashboardPage from './pages/DashboardPage'
 import PayoutsPage from './pages/PayoutsPage'
+import MembersPage from './pages/MembersPage'
 import ContentPage from './pages/ContentPage'
 import WorkspaceLayout from './components/WorkspaceLayout'
 import { SessionProvider } from './shell/SessionContext'
@@ -53,6 +54,12 @@ import {
   listPayouts,
   createPayoutBatch,
   listPayoutProviders,
+  listAccountMembers,
+  listInvitations,
+  inviteMember,
+  revokeInvitation,
+  updateMemberRole,
+  removeMember,
   listCampaignBriefs,
   createCampaignBrief,
   updateCampaignBrief,
@@ -1145,6 +1152,18 @@ function App() {
   const approveCommissionRecord = async (id) => approveCommission(authToken, id)
   const createPayoutRecord = async (payload) => createPayoutBatch(authToken, { userId, ...payload })
 
+  // ---- account members & invitations (roadmap Stage 3) -----------------
+  const loadMembers = async () => {
+    const rows = await listAccountMembers(authToken)
+    return Array.isArray(rows) ? rows : rows?.items || []
+  }
+  const loadInvitations = async () => listInvitations(authToken)
+  const inviteMemberRecord = async (payload) => inviteMember(authToken, payload)
+  const revokeInvitationRecord = async (id) => revokeInvitation(authToken, id)
+  const updateMemberRoleRecord = async (memberUserId, role) =>
+    updateMemberRole(authToken, memberUserId, role)
+  const removeMemberRecord = async (memberUserId) => removeMember(authToken, memberUserId)
+
   // ---- content: campaign briefs ---------------------------------------
   const loadCampaignBriefs = async () => listCampaignBriefs(authToken)
   const saveCampaignBrief = async (id, payload) => {
@@ -1642,6 +1661,21 @@ function App() {
                   onLoadProviders={loadPayoutProviders}
                   onApproveCommission={approveCommissionRecord}
                   onCreatePayout={createPayoutRecord}
+                />
+              }
+            />
+            <Route
+              path="members"
+              element={
+                <MembersPage
+                  currentUserId={userId}
+                  canManageMembers={permissions.includes('member:invite')}
+                  onLoadMembers={loadMembers}
+                  onLoadInvitations={loadInvitations}
+                  onInvite={inviteMemberRecord}
+                  onRevokeInvitation={revokeInvitationRecord}
+                  onUpdateRole={updateMemberRoleRecord}
+                  onRemoveMember={removeMemberRecord}
                 />
               }
             />

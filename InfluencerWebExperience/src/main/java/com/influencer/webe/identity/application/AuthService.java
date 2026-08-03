@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.influencer.webe.identity.infrastructure.DaoTenancyClient;
 import com.influencer.webe.identity.infrastructure.DaoUserClient;
+import com.influencer.webe.security.AccountRole;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
@@ -45,15 +46,16 @@ public class AuthService {
     }
 
     /**
-     * Creates a user and their workspace.
+     * Creates a user and provisions their workspace.
      *
-     * <p>Provisioning itself still happens in the {@code provision_tenancy_for_user} trigger, which
-     * can only produce a {@code brand} account. An agency signup therefore promotes the account
-     * immediately afterwards, inside this same call, so the caller sees one atomic-looking
-     * operation. Roadmap Stage 2 moves provisioning here and removes the second write.
+     * <p>Provisioning is an explicit call (roadmap Stage 2). It used to happen in the
+     * {@code provision_tenancy_for_user} trigger, which could only produce a {@code brand} account
+     * and was invisible to anyone reading this class — an agency signup therefore had to create and
+     * then promote. Deciding the account's shape here means one write, one place to read, and a
+     * rule that can be unit-tested.
      *
      * <p>An unrecognised account type is rejected rather than defaulted. Silently downgrading an
-     * {@code agency} request to a {@code brand} account is what the previous behaviour did, and it
+     * {@code agency} request to a {@code brand} account is what the original behaviour did, and it
      * left a caller unable to tell a typo from success.
      */
     public AuthResponse signup(String email, String password, String brandName, String accountType) {
@@ -76,12 +78,27 @@ public class AuthService {
                 null);
 
         DaoUserClient.UserRecord createdUser = daoUserClient.createUser(payload);
-        if (ACCOUNT_TYPE_AGENCY.equals(resolvedType)) {
-            promoteToAgency(createdUser.id());
-        }
+        provisionWorkspace(createdUser, brandName, resolvedType);
 
         SessionService.SessionInfo session = sessionService.createSession(createdUser.id(), createdUser.email(), "password");
         return AuthResponse.from(createdUser, session);
+    }
+
+    /**
+     * Gives a newly created user an account, a first brand and an owning membership.
+     *
+     * <p>The workspace name falls back to the local part of the email, matching what the trigger
+     * did — an account named after a blank field would be worse than one named after the user.
+     *
+     * <p>A self-signup is always {@code OWNER} of what they just created, for both account types.
+     * {@code OWNER} is a superset of {@code ADMIN}: handing a founder {@code ADMIN} would give them
+     * fewer rights over their own account, not more.
+     */
+    private void provisionWorkspace(DaoUserClient.UserRecord user, String brandName, String accountType) {
+        String workspaceName = blankToNull(brandName) != null
+                ? brandName.trim()
+                : user.email().split("@")[0];
+        daoTenancyClient.provisionWorkspace(user.id(), workspaceName, accountType, AccountRole.OWNER.name());
     }
 
     private String normalizeAccountType(String accountType) {
@@ -96,18 +113,6 @@ public class AuthService {
         return normalized;
     }
 
-    /**
-     * Promotes the account the trigger just provisioned for this user.
-     *
-     * <p>Resolved via {@code legacyUserId} because that is the only link back to the freshly
-     * provisioned account at this point — the user record itself carries no account id.
-     */
-    private void promoteToAgency(UUID userId) {
-        UUID accountId = daoTenancyClient.findAccountIdForUser(userId)
-                .orElseThrow(() -> new IllegalStateException(
-                        "No account was provisioned for the new user; cannot create an agency workspace"));
-        daoTenancyClient.promoteAccountType(accountId, ACCOUNT_TYPE_AGENCY);
-    }
 
     public AuthResponse login(String email, String password) {
         DaoUserClient.UserRecord user = daoUserClient.findByEmail(normalizeEmail(email))
@@ -205,6 +210,14 @@ public class AuthService {
                 Instant.now());
 
         DaoUserClient.UserRecord saved = existing == null ? daoUserClient.createUser(payload) : daoUserClient.updateUser(existing.id(), payload);
+        if (existing == null) {
+            // A federated sign-up creates a user exactly like a password one and needs the same
+            // workspace. This used to happen implicitly in the provisioning trigger; now that
+            // provisioning is explicit, omitting it here would leave every Google sign-up with a
+            // user and no account. Federated accounts are brand workspaces — carrying the type
+            // through the provider redirect is separate work (roadmap Stage 1 follow-up).
+            provisionWorkspace(saved, resolvedBrandName, ACCOUNT_TYPE_BRAND);
+        }
         SessionService.SessionInfo session = sessionService.createSession(saved.id(), saved.email(), provider);
         return AuthResponse.from(saved, session);
     }

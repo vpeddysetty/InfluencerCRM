@@ -22,6 +22,30 @@ Base module: InfluencerWebExperience
 - GET /api/auth/oauth/facebook/start
 - GET /api/auth/oauth/facebook/callback
 
+### Account members & invitations
+- GET /api/brands/members
+- POST /api/brands/members/invite — `{ email, role, brandId? }`; returns the one-time token.
+  `OWNER` cannot be granted this way. Only its hash is stored.
+- GET /api/brands/members/invitations
+- POST /api/brands/members/invitations/accept — `{ token }`, as the signed-in user
+- POST /api/brands/members/invitations/{id}/revoke
+- PUT /api/brands/members/{userId} — change role (not your own)
+- DELETE /api/brands/members/{userId}
+
+### Creator portal
+Creator routes authenticate with `X-Creator-Token`, never the operator JWT — a creator has no
+account, brand or role. Brand-side routes use the normal bearer token.
+- POST /api/creator-portal/auth/signup
+- POST /api/creator-portal/auth/login
+- POST /api/creator-portal/auth/logout
+- GET /api/creator-portal/me
+- GET /api/creator-portal/collaborations — every brand record confirmed as this creator
+- POST /api/creator-portal/claims — assert a brand's creator record is you (unverified)
+- GET /api/creator-portal/claims
+- GET /api/creator-portal/pending-claims — brand side; claims awaiting a decision
+- POST /api/creator-portal/claims/{linkId}/{approve|reject} — brand side
+- POST /api/creator-portal/invite — brand side; links a creator as confirmed
+
 ### Campaigns
 - GET /api/campaigns
 - GET /api/campaigns/{id}
@@ -101,9 +125,26 @@ Base module: InfluencerDAO
 - GET /tenancy/brands/{id}
 - GET /tenancy/accounts/{accountId}/brands
 - GET /tenancy/accounts/{accountId}/members
+- POST /tenancy/provision — account + brand + membership in one transaction; idempotent
 - POST /tenancy/brands
 - PUT /tenancy/brands/{id}
 - PATCH /tenancy/accounts/{id} — sets `accountType` (`brand` | `agency`) and/or `name`
+- PUT /tenancy/accounts/{accountId}/members/{userId} — change role
+- DELETE /tenancy/accounts/{accountId}/members/{userId}
+- POST /tenancy/accounts/{accountId}/invitations
+- GET /tenancy/accounts/{accountId}/invitations
+- GET /tenancy/invitations/by-token/{tokenHash}
+- POST /tenancy/invitations/{id}/accept
+- POST /tenancy/invitations/{id}/revoke
+
+### Creator identities
+- POST /creator-identities
+- GET /creator-identities/by-email
+- GET /creator-identities/{id}
+- POST /creator-identities/{identityId}/links
+- GET /creator-identities/{identityId}/links
+- GET /creator-identities/links/pending
+- POST /creator-identities/links/{linkId}/decision
 
 ### Campaigns
 - GET /campaigns

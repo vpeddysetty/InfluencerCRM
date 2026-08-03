@@ -49,6 +49,9 @@ const CouponsPage = contextPage('mf_commerce/CouponsPage', () => import('../page
 const MarketplacePage = contextPage('mf_commerce/MarketplacePage', () => import('../pages/MarketplacePage'))
 const DashboardPage = contextPage('mf_commerce/DashboardPage', () => import('../pages/DashboardPage'))
 const PayoutsPage = contextPage('mf_finance/PayoutsPage', () => import('../pages/PayoutsPage'))
+// Account administration belongs to the shell, which already owns the session and the account.
+// A plain lazy import rather than contextPage(): there is no identity remote to fall back to.
+const MembersPage = lazy(() => import('../pages/MembersPage'))
 
 export const ROUTE_MANIFEST = [
   {
@@ -124,6 +127,17 @@ export const ROUTE_MANIFEST = [
     permission: 'payout:read',
     component: PayoutsPage,
     apiSlice: 'finance',
+  },
+  {
+    // Account administration rather than a bounded context, so it stays in the shell and is
+    // not a federation candidate. Gated on member:invite, which only OWNER and ADMIN hold —
+    // that is what keeps it out of a marketer's nav without a second rule.
+    context: 'identity',
+    path: '/members',
+    label: 'Members',
+    permission: 'member:invite',
+    component: MembersPage,
+    apiSlice: 'core',
   },
 ]
 

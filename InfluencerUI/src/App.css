@@ -257,6 +257,68 @@
   gap: 11px;
 }
 
+/* Account members (roadmap Stage 3). */
+.members-invite-form {
+  display: grid;
+  grid-template-columns: 2fr 1fr auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.members-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.members-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.members-identity strong {
+  color: #0f172a;
+}
+
+.members-self,
+.members-meta {
+  color: #64748b;
+  font-size: 0.82rem;
+}
+
+/* The invitation token is shown once and never again, so it is set apart from the surrounding
+   copy and made selectable as a single unit rather than reading as body text. */
+.members-token-note {
+  display: grid;
+  gap: 6px;
+}
+
+.members-token {
+  display: block;
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.82rem;
+  background: rgba(15, 23, 42, 0.06);
+  border-radius: 8px;
+  padding: 8px 10px;
+  user-select: all;
+}
+
+@media (max-width: 720px) {
+  .members-invite-form,
+  .members-row {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* Workspace type (brand | agency). Cards rather than a <select>: the choice decides how the
    account is shaped and cannot be changed from this screen afterwards, so both options and
    their consequences are worth showing at once. */

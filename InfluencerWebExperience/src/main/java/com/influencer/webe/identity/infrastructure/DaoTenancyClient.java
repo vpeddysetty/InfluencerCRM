@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.influencer.webe.security.AccountRole;
 import org.springframework.stereotype.Component;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -72,6 +73,76 @@ public class DaoTenancyClient {
         return gatewayClient.get("/tenancy/accounts/" + accountId + "/members", Map.of());
     }
 
+    // ------------------------------------------------------------------ invitations
+
+    public JsonNode createInvitation(UUID accountId, String email, String role, UUID brandId,
+                                     String tokenHash, UUID invitedBy, Instant expiresAt) {
+        var body = com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode()
+                .put("email", email)
+                .put("role", role)
+                .put("tokenHash", tokenHash)
+                .put("invitedBy", invitedBy == null ? null : invitedBy.toString())
+                .put("expiresAt", expiresAt.toString());
+        if (brandId != null) {
+            body.put("brandId", brandId.toString());
+        }
+        return gatewayClient.post("/tenancy/accounts/" + accountId + "/invitations", body);
+    }
+
+    public JsonNode invitations(UUID accountId) {
+        return gatewayClient.get("/tenancy/accounts/" + accountId + "/invitations", Map.of());
+    }
+
+    public JsonNode invitationByTokenHash(String tokenHash) {
+        return gatewayClient.get("/tenancy/invitations/by-token/" + tokenHash, null);
+    }
+
+    public JsonNode acceptInvitation(UUID invitationId, UUID userId) {
+        return gatewayClient.post("/tenancy/invitations/" + invitationId + "/accept",
+                com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode()
+                        .put("userId", userId.toString()));
+    }
+
+    public JsonNode revokeInvitation(UUID invitationId) {
+        return gatewayClient.post("/tenancy/invitations/" + invitationId + "/revoke",
+                com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode());
+    }
+
+    public JsonNode updateMemberRole(UUID accountId, UUID userId, String role) {
+        return gatewayClient.put("/tenancy/accounts/" + accountId + "/members/" + userId,
+                com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode()
+                        .put("role", role));
+    }
+
+    public void removeMember(UUID accountId, UUID userId) {
+        gatewayClient.delete("/tenancy/accounts/" + accountId + "/members/" + userId);
+    }
+
+    /**
+     * Provisions a workspace for a newly created user.
+     *
+     * <p>One call rather than three so the account, brand and membership share a transaction in the
+     * DAO. A user with an account but no membership is a tenant nothing can serve, and splitting
+     * the writes across HTTP calls would make that state reachable on any partial failure.
+     */
+    public Provisioned provisionWorkspace(UUID userId, String workspaceName, String accountType, String role) {
+        JsonNode response = gatewayClient.post("/tenancy/provision",
+                com.fasterxml.jackson.databind.node.JsonNodeFactory.instance
+                        .objectNode()
+                        .put("userId", userId.toString())
+                        .put("workspaceName", workspaceName)
+                        .put("accountType", accountType)
+                        .put("role", role));
+        if (response == null || response.get("accountId") == null) {
+            throw new IllegalStateException("Tenancy provisioning returned no account");
+        }
+        return new Provisioned(
+                UUID.fromString(text(response, "accountId")),
+                UUID.fromString(text(response, "brandId")),
+                text(response, "accountType"),
+                text(response, "role"));
+    }
+
     /**
      * The account provisioned for a user.
      *
@@ -109,5 +180,8 @@ public class DaoTenancyClient {
             UUID accountId,
             String accountType,
             AccountRole role) {
+    }
+
+    public record Provisioned(UUID accountId, UUID brandId, String accountType, String role) {
     }
 }
