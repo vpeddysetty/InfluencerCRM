@@ -394,9 +394,11 @@ it affects sequencing (§10.10):
   and follower-quality analysis is genuinely hard.
 - **Defer** — ship Groups 1, 3 and 4 first, add Group 2 once volume justifies it.
 
-I would **defer, then buy**. Groups 1 and 3 alone support useful rules on day one, and by the time
-Group 2 matters there will be real volume to price a vendor against. Building fake-follower
-detection in-house would be competing with companies whose entire product is that one problem.
+I would **defer, then buy** — analysed in full in
+[group2-build-vs-buy.md](group2-build-vs-buy.md). The decisive point is not cost but access:
+fake-follower detection means examining the followers, and no platform exposes a follower list.
+Groups 1, 3 and 4 support useful rules on day one; coarse in-house signals (comment quality,
+engagement consistency, growth anomalies) can be built from data we legitimately hold.
 
 **Sources:**
 [ContentGrip — how to vet influencers](https://www.contentgrip.com/how-to-vet-influencers/) ·
@@ -855,13 +857,20 @@ token lifecycle, rate limit and policy surface.
 
 ### Needed before Phase C2 ships
 
-**10.3 — Build, buy, or defer the authenticity signals (Group 2)?**
-Fake-follower estimation and audience-quality scoring are not in platform APIs — they are what Modash
-and HypeAuditor sell. My recommendation is **defer, then buy**: Groups 1, 3 and 4 support useful
-rules on day one, and by the time Group 2 matters there will be real volume to price a vendor
-against. Building it in-house means competing with companies whose entire product is that one
-problem. The reason to decide before C2 ships is that the rules UI should not advertise fields the
-platform cannot populate.
+**10.3 — Build, buy, or defer the authenticity signals (Group 2)? → analysed, see
+[group2-build-vs-buy.md](group2-build-vs-buy.md)**
+
+**Recommendation: defer, then buy** — and the reason is firmer than cost. Fake-follower detection
+requires examining the followers, and **Instagram exposes no follower-list endpoint at all**. The
+training data cannot be legitimately obtained, so this is not a problem engineering speed solves.
+Buying costs $3,600–16,200/yr at realistic volume; a Claude-assisted build would cost ~$18k–31k in
+year one *and only if the data existed*, with $15–25k/yr maintenance after.
+
+Claude compresses roughly 75 % of the build's engineering and none of its data problem.
+
+**Still yours to decide:** whether to accept that recommendation, and whether to build the coarse
+in-house signals meanwhile (§4 of that document) — comment-quality analysis is a genuine LLM strength
+and is ~87 % accurate as a standalone fraud signal without needing follower data.
 
 ### Settled since the last revision
 
