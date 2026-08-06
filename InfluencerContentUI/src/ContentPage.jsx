@@ -33,6 +33,8 @@ function ContentPage({
   onPreviewLanding,
   onLoadVersions,
   onRestoreVersion,
+  onLoadAssets,
+  onUploadAsset,
   can,
 }) {
   const [campaignId, setCampaignId] = useState('')
@@ -62,6 +64,7 @@ function ContentPage({
   // old block editor opens in `blocks` so nobody's existing work silently changes shape.
   const [editorMode, setEditorMode] = useState('visual')
   const [versions, setVersions] = useState([])
+  const [mediaAssets, setMediaAssets] = useState([])
 
   const currentBrief = useMemo(
     () => briefs.find((b) => b.campaignId === campaignId) || null,
@@ -130,6 +133,12 @@ function ContentPage({
     refreshVersions()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [campaignId])
+
+  // The asset library is brand-wide, not per campaign, so it loads once.
+  useEffect(() => {
+    refreshAssets()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // When the selected campaign (or its brief) changes, hydrate the form.
   useEffect(() => {
@@ -281,6 +290,25 @@ function ContentPage({
     } finally {
       setPreviewing(false)
     }
+  }
+
+  const refreshAssets = async () => {
+    if (typeof onLoadAssets !== 'function') return
+    try {
+      const list = await onLoadAssets()
+      setMediaAssets(Array.isArray(list) ? list : [])
+    } catch {
+      // The picker degrades to "no assets yet" rather than breaking the builder.
+    }
+  }
+
+  const uploadAsset = async (file) => {
+    if (typeof onUploadAsset !== 'function') return
+    const saved = await onUploadAsset(file)
+    // Prepend rather than refetch: the new asset appears in the picker immediately, and the
+    // server already returned the row we would have re-read.
+    if (saved) setMediaAssets((prev) => [saved, ...prev])
+    return saved
   }
 
   const refreshVersions = async () => {
@@ -484,6 +512,8 @@ function ContentPage({
                 busy={savingTemplate || previewing}
                 versions={versions}
                 onRestore={restoreVersion}
+                assets={mediaAssets}
+                onUploadAsset={uploadAsset}
               />
               {currentTemplate ? (
                 <p className="mds-note">

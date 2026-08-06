@@ -49,6 +49,40 @@ export async function restoreLandingVersion(token, campaignId, versionNo) {
   })
 }
 
+// ---- asset library (Phase B) ----
+
+export async function listAssets(token) {
+  const payload = await request('/api/assets', { token })
+  return unwrapList(payload)
+}
+
+// Multipart, so this bypasses `request` (which sets a JSON content type). The browser must
+// set Content-Type itself to include the multipart boundary — setting it by hand produces a
+// body the server cannot parse.
+export async function uploadAsset(token, file) {
+  const form = new FormData()
+  form.append('file', file)
+  const response = await fetch('/api/assets', {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form,
+  })
+  const text = await response.text()
+  if (!response.ok) {
+    let message = `Upload failed with status ${response.status}`
+    try {
+      const parsed = JSON.parse(text)
+      if (parsed?.message) message = parsed.message
+    } catch { /* non-JSON error body; keep the status message */ }
+    throw new Error(message)
+  }
+  return text ? JSON.parse(text) : null
+}
+
+export async function deleteAsset(token, id) {
+  return request(`/api/assets/${id}`, { method: 'DELETE', token })
+}
+
 // ---- content draft assist (content Phase 4) ----
 
 export async function draftContent(token, payload) {

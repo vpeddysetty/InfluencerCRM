@@ -64,3 +64,6 @@ tests/results.txt
 
 # Locally generated classpath files (see scratchpad start.ps1) - build artifacts, not source.
 cp.txt
+
+# Local asset bytes written by FilesystemAssetStorage. Uploaded content, not source.
+asset-store/

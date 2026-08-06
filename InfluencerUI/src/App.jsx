@@ -68,6 +68,8 @@ import {
   previewLandingTemplate,
   listLandingVersions,
   restoreLandingVersion,
+  listAssets,
+  uploadAsset,
   draftContent,
   login,
   previewImportBatch,
@@ -1177,6 +1179,8 @@ function App() {
   const loadCouponsForContent = async () => listCoupons(authToken)
   const draftContentRecord = async (payload) => draftContent(authToken, payload)
   const previewLandingRecord = async (payload) => previewLandingTemplate(authToken, { userId, ...payload })
+  const loadAssetsRecord = async () => listAssets(authToken)
+  const uploadAssetRecord = async (file) => uploadAsset(authToken, file)
   const loadLandingVersionsRecord = async (campaignId) => listLandingVersions(authToken, campaignId)
   const restoreLandingVersionRecord = async (campaignId, versionNo) =>
     restoreLandingVersion(authToken, campaignId, versionNo)
@@ -1699,6 +1703,8 @@ function App() {
                   onPreviewLanding={previewLandingRecord}
                   onLoadVersions={loadLandingVersionsRecord}
                   onRestoreVersion={restoreLandingVersionRecord}
+                  onLoadAssets={loadAssetsRecord}
+                  onUploadAsset={uploadAssetRecord}
                   can={(permission) => permissions.includes(permission)}
                 />
               }

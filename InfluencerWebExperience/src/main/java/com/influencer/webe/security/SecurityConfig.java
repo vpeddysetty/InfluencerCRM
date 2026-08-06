@@ -35,6 +35,11 @@ public class SecurityConfig {
     private static final String[] PUBLIC_GET_PATHS = {
             "/health",
             "/s/**",                      // public creator landing pages — served to anonymous visitors
+            // Asset bytes referenced BY those landing pages. They must load for anonymous
+            // visitors or every published page renders with broken images. Keys are random
+            // UUIDs under a brand prefix, so an asset cannot be enumerated or guessed — being
+            // shown a page that references it is the only way to learn its URL.
+            "/assets/**",
             // Public keys, by definition. Every JWKS endpoint is unauthenticated; the response
             // contains only public halves and is what lets another service verify tokens itself.
             "/.well-known/jwks.json"
