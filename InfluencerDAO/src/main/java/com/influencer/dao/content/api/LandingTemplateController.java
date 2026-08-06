@@ -60,7 +60,12 @@ public class LandingTemplateController {
         // column — keep the incoming value, else the existing one, else the default.
         existing.setBlocks(firstNonNull(template.getBlocks(), existing.getBlocks(), "[]"));
         existing.setTheme(firstNonNull(template.getTheme(), existing.getTheme(), "{}"));
+        // `document` is nullable by design (NULL = never opened in the visual builder), so
+        // there is no default to fall back to — but a PUT that omits it must still not
+        // erase a document the builder has already written.
+        existing.setDocument(firstNonNull(template.getDocument(), existing.getDocument()));
         existing.setStatus(template.getStatus());
+        existing.setStage(firstNonNull(template.getStage(), existing.getStage(), "draft"));
         return repository.save(existing);
     }
 

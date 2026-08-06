@@ -40,8 +40,21 @@ public class LandingTemplate {
     @JdbcTypeCode(SqlTypes.JSON)
     private String theme;
 
+    /**
+     * GrapesJS document { html, css }. Deliberately nullable with no default: NULL is
+     * the signal that this page has never been opened in the visual builder, which is
+     * what the renderer branches on to fall back to the typed-block `blocks` path.
+     */
+    @Column(name = "document", columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
+    private String document;
+
     @Column(name = "status", nullable = false)
     private String status;
+
+    /** Eight-value page lifecycle; `status` stays the two-value publish gate. */
+    @Column(name = "stage", nullable = false)
+    private String stage;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -66,6 +79,9 @@ public class LandingTemplate {
         }
         if (status == null) {
             status = "draft";
+        }
+        if (stage == null) {
+            stage = "draft";
         }
         if (createdAt == null) {
             createdAt = now;
@@ -150,12 +166,28 @@ public class LandingTemplate {
         this.theme = theme;
     }
 
+    public String getDocument() {
+        return document;
+    }
+
+    public void setDocument(String document) {
+        this.document = document;
+    }
+
     public String getStatus() {
         return status;
     }
 
     public void setStatus(String status) {
         this.status = status;
+    }
+
+    public String getStage() {
+        return stage;
+    }
+
+    public void setStage(String stage) {
+        this.stage = stage;
     }
 
     public Instant getCreatedAt() {

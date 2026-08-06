@@ -29,6 +29,26 @@ export async function previewLandingTemplate(token, payload) {
   return text
 }
 
+// ---- version history (Phase A.5) ----
+
+export async function listLandingVersions(token, campaignId) {
+  const payload = await request(
+    `/api/landing-templates/versions?campaignId=${encodeURIComponent(campaignId)}`,
+    { token },
+  )
+  return unwrapList(payload)
+}
+
+// Restoring writes the old content forward as a NEW version rather than rewinding, so
+// the history of what was undone survives. The restored page comes back as a draft.
+export async function restoreLandingVersion(token, campaignId, versionNo) {
+  return request(`/api/landing-templates/versions/${versionNo}/restore`, {
+    method: 'POST',
+    token,
+    body: { campaignId },
+  })
+}
+
 // ---- content draft assist (content Phase 4) ----
 
 export async function draftContent(token, payload) {

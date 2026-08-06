@@ -66,6 +66,8 @@ import {
   listLandingTemplates,
   saveLandingTemplate,
   previewLandingTemplate,
+  listLandingVersions,
+  restoreLandingVersion,
   draftContent,
   login,
   previewImportBatch,
@@ -1175,6 +1177,9 @@ function App() {
   const loadCouponsForContent = async () => listCoupons(authToken)
   const draftContentRecord = async (payload) => draftContent(authToken, payload)
   const previewLandingRecord = async (payload) => previewLandingTemplate(authToken, { userId, ...payload })
+  const loadLandingVersionsRecord = async (campaignId) => listLandingVersions(authToken, campaignId)
+  const restoreLandingVersionRecord = async (campaignId, versionNo) =>
+    restoreLandingVersion(authToken, campaignId, versionNo)
 
   const updateCampaignRecord = async (id, payload) => {
     const existing = campaigns.find((campaign) => campaign.id === id)
@@ -1692,6 +1697,9 @@ function App() {
                   onReloadCoupons={loadCouponsForContent}
                   onDraftContent={draftContentRecord}
                   onPreviewLanding={previewLandingRecord}
+                  onLoadVersions={loadLandingVersionsRecord}
+                  onRestoreVersion={restoreLandingVersionRecord}
+                  can={(permission) => permissions.includes(permission)}
                 />
               }
             />

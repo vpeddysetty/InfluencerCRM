@@ -29,10 +29,14 @@ import java.util.UUID;
 public class LandingService {
     private final DaoGatewayClient dao;
     private final ResponseShapeService shape;
+    private final LandingDocumentSanitizer sanitizer;
 
-    public LandingService(DaoGatewayClient dao, ResponseShapeService shape) {
+    public LandingService(DaoGatewayClient dao,
+                          ResponseShapeService shape,
+                          LandingDocumentSanitizer sanitizer) {
         this.dao = dao;
         this.shape = shape;
+        this.sanitizer = sanitizer;
     }
 
     /**
@@ -59,7 +63,12 @@ public class LandingService {
         body.put("campaignId", campaignId.toString());
         body.put("name", textOr(payload, "name", "Landing page"));
         body.put("status", textOr(payload, "status", "draft"));
-        stringifyJsonb(payload, body, "blocks", "theme");
+        // `document` is the GrapesJS output; omitted by the legacy block editor, which is
+        // exactly why it must not be defaulted here — see the column comment.
+        stringifyJsonb(payload, body, "blocks", "theme", "document");
+        String stage = textOr(payload, "stage", existing != null ? textOr(existing, "stage", "draft") : "draft");
+        requireValidStage(stage);
+        body.put("stage", stage);
 
         JsonNode saved;
         if (existing != null) {
@@ -69,6 +78,11 @@ public class LandingService {
             body.put("publicSlug", generateSlug(campaignId));
             saved = dao.post("/landing-templates", body);
         }
+
+        // Snapshot AFTER the write succeeds: a version for a save that failed would be a
+        // record of something that never existed. Best-effort — history is valuable but
+        // never worth failing the user's save for.
+        snapshotVersion(brandId, saved);
 
         // Assign a per-coupon public_slug to every coupon on this campaign.
         assignCouponSlugs(brandId, campaignId, saved.get("publicSlug").asText());
@@ -104,12 +118,79 @@ public class LandingService {
     }
 
     /**
+     * Render the brand's own landing page at {@code /s/{slug}} — no creator, no coupon.
+     *
+     * <p><b>Why this exists.</b> Before Phase A the only public route was
+     * {@code /s/{slug}/{creator}}, which resolves a coupon and 404s when none matches. A
+     * brand could therefore build and save a page and have no way to view it — the page
+     * was unreachable until a creator coupon existed. That made "build a page and publish
+     * it" impossible on its own, so the builder needed a coupon-free path to be usable.
+     *
+     * <p>Tokens that describe a creator or a coupon have no value here and are rendered as
+     * neutral placeholders rather than left as raw {@code {{coupon.code}}} braces on a
+     * public page.
+     *
+     * <p>Unpublished pages are refused: {@code status} must be {@code published}. A draft
+     * being publicly readable purely because its slug is guessable would make the
+     * draft/published distinction meaningless.
+     */
+    public String renderPublicBrandPage(String templateSlug, String referrer, String userAgent) {
+        Map<String, String> tq = new LinkedHashMap<>();
+        tq.put("publicSlug", templateSlug);
+        JsonNode templates = dao.get("/landing-templates", tq);
+        if (templates == null || !templates.isArray() || templates.size() == 0) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Landing page not found");
+        }
+        JsonNode template = templates.get(0);
+
+        if (!"published".equalsIgnoreCase(textOrDefault(template, "status", "draft"))) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Landing page not found");
+        }
+
+        UUID brandId = UUID.fromString(template.get("brandId").asText());
+        recordBrandView(brandId, referrer, userAgent);
+
+        // A neutral stand-in so a brand page never shows a creator's name or a coupon code
+        // it does not have. Not a real coupon: nothing here is attributable.
+        ObjectNode placeholder = shape.objectMapper().createObjectNode();
+        placeholder.put("landingUrl", "#");
+
+        Map<String, String> tokens = new LinkedHashMap<>();
+        tokens.put("coupon.code", "");
+        tokens.put("discount", "our latest offer");
+        tokens.put("channel", "");
+        tokens.put("creator.name", "our creators");
+
+        return renderHtml(template, placeholder, tokens);
+    }
+
+    /**
+     * Record a brand-page view.
+     *
+     * <p>{@code landing_page_views.campaign_code_id} is the coupon, and a brand page has
+     * none — so the view is recorded without one. Nothing is invented to fill the column:
+     * a fabricated coupon id would corrupt coupon-level funnel reporting, which is the
+     * one thing that table is for.
+     */
+    private void recordBrandView(UUID brandId, String referrer, String userAgent) {
+        try {
+            ObjectNode view = shape.objectMapper().createObjectNode();
+            view.put("brandId", brandId.toString());
+            if (referrer != null) view.put("referrer", referrer);
+            if (userAgent != null) view.put("userAgent", userAgent);
+            dao.post("/landing-page-views", view);
+        } catch (RuntimeException ignored) {
+            // best-effort; never block the page render
+        }
+    }
+
+    /**
      * Render a preview of a landing template WITHOUT persisting it and WITHOUT
      * recording a landing_page_view. Renders the caller's current (possibly
      * unsaved) blocks, personalized for a chosen coupon — or a synthetic sample
      * coupon when none is picked. Content preview (brand-only).
      *
-     * Payload: { campaignId, name, blocks:[...], couponId? }
+     * Payload: { campaignId, name, blocks:[...], document:{html,css}, couponId? }
      */
     public String previewTemplate(UUID brandId, ObjectNode payload) {
         JsonNode coupon = resolvePreviewCoupon(brandId, payload);
@@ -118,6 +199,13 @@ public class LandingService {
         template.put("name", textOr(payload, "name", "Landing page"));
         JsonNode blocks = payload.get("blocks");
         template.set("blocks", blocks != null && blocks.isArray() ? blocks : shape.objectMapper().createArrayNode());
+        // Preview the unsaved builder document when the caller sends one. Without this the
+        // builder's live preview would show the last SAVED state, which is worse than no
+        // preview — it looks like the edit was lost.
+        JsonNode document = payload.get("document");
+        if (document != null && !document.isNull()) {
+            template.set("document", document);
+        }
 
         Map<String, String> tokens = buildTokens(brandId, coupon);
         return renderHtml(template, coupon, tokens);
@@ -177,7 +265,61 @@ public class LandingService {
         return tokens;
     }
 
+    /**
+     * Render a page.
+     *
+     * <p>Two paths, chosen by whether the visual builder has ever written a document:
+     * <ul>
+     *   <li><b>Builder path</b> — sanitized GrapesJS HTML/CSS. Tokens are substituted into
+     *       the HTML with escaped values, so a coupon code containing markup cannot inject.</li>
+     *   <li><b>Legacy path</b> — the original typed-block renderer, unchanged.</li>
+     * </ul>
+     * The fallback is what lets Phase A ship without migrating or breaking a single
+     * existing page: a row with no document renders exactly as it did before.
+     */
     private String renderHtml(JsonNode template, JsonNode coupon, Map<String, String> tokens) {
+        JsonNode document = parseObject(template.get("document"));
+        String builderHtml = text(document, "html");
+        if (sanitizer.hasRenderableHtml(builderHtml)) {
+            return renderBuilderDocument(template, document, coupon, tokens);
+        }
+        return renderLegacyBlocks(template, coupon, tokens);
+    }
+
+    /** GrapesJS document → sanitized standalone HTML page. */
+    private String renderBuilderDocument(JsonNode template, JsonNode document,
+                                         JsonNode coupon, Map<String, String> tokens) {
+        // Substitute BEFORE sanitizing so a token whose value contains markup is neutralized
+        // by the sanitizer too, rather than being injected into already-cleaned HTML.
+        String html = sanitizer.sanitizeHtml(fill(text(document, "html"), tokens));
+        String css = sanitizer.sanitizeCss(text(document, "css"));
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">");
+        sb.append("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
+        sb.append("<title>").append(esc(text(template, "name"))).append("</title>");
+        // A mobile-first baseline under the builder's own CSS: images that never overflow
+        // and sane box-sizing. The builder's rules win by cascade order.
+        sb.append("<style>*,*::before,*::after{box-sizing:border-box}"
+                + "body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#0f172a}"
+                + "img{max-width:100%;height:auto}</style>");
+        if (!css.isBlank()) {
+            sb.append("<style>").append(css).append("</style>");
+        }
+        sb.append("</head><body>").append(html);
+
+        String blurb = text(coupon, "personalBlurb");
+        String pStatus = textOrDefault(coupon, "personalizationStatus", "none");
+        if (blurb != null && !blurb.isBlank() && "approved".equalsIgnoreCase(pStatus)) {
+            sb.append("<p class=\"blurb\" style=\"font-style:italic;color:#334155;padding:0 24px\">")
+              .append(esc(blurb)).append("</p>");
+        }
+        sb.append("</body></html>");
+        return sb.toString();
+    }
+
+    /** The original typed-block renderer. Unchanged behaviour for pre-builder pages. */
+    private String renderLegacyBlocks(JsonNode template, JsonNode coupon, Map<String, String> tokens) {
         StringBuilder sb = new StringBuilder();
         sb.append("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">");
         sb.append("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
@@ -265,6 +407,142 @@ public class LandingService {
             } catch (RuntimeException ignored) {
                 // best-effort; a slug collision or transient error shouldn't fail template save
             }
+        }
+    }
+
+    // ---- stage + version history (Phase A.5) ---------------------------
+
+    /**
+     * The eight page stages. Held here as well as in the DB check constraint because a
+     * 400 with a readable message is a better failure than a constraint violation
+     * surfacing as a 500 three hops down.
+     */
+    private static final java.util.Set<String> STAGES = java.util.Set.of(
+            "draft", "review", "approved", "creator_assigned",
+            "content_needed", "ready_to_publish", "published", "performance_tracking");
+
+    private void requireValidStage(String stage) {
+        if (!STAGES.contains(stage)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Unknown stage '" + stage + "'. Expected one of " + new java.util.TreeSet<>(STAGES));
+        }
+    }
+
+    /**
+     * Append a snapshot of the page as it was just saved.
+     *
+     * Best-effort by design: losing a history entry is a far smaller harm than failing a
+     * save the user believes succeeded. A failure here is invisible to the caller, which
+     * is the correct trade for an auxiliary record.
+     */
+    private void snapshotVersion(UUID brandId, JsonNode saved) {
+        try {
+            ObjectNode version = shape.objectMapper().createObjectNode();
+            version.put("landingTemplateId", saved.get("id").asText());
+            version.put("brandId", brandId.toString());
+            version.put("name", textOrDefault(saved, "name", "Landing page"));
+            version.put("stage", textOrDefault(saved, "stage", "draft"));
+            // versionNo is deliberately omitted — the DAO stamps it under the unique
+            // constraint, so two racing saves collide there rather than here.
+            copyJsonbAsString(saved, version, "document", "blocks", "theme");
+            dao.post("/landing-template-versions", version);
+        } catch (RuntimeException ignored) {
+            // history is auxiliary; never fail a save for it
+        }
+    }
+
+    /** Version history for the campaign's page, newest first. */
+    public JsonNode listVersions(UUID brandId, UUID campaignId) {
+        JsonNode template = findTemplate(brandId, campaignId);
+        if (template == null) {
+            return shape.objectMapper().createArrayNode();
+        }
+        Map<String, String> q = new LinkedHashMap<>();
+        q.put("landingTemplateId", template.get("id").asText());
+        JsonNode versions = dao.get("/landing-template-versions", q);
+        return versions == null ? shape.objectMapper().createArrayNode() : versions;
+    }
+
+    /**
+     * Restore a previous version by writing it forward as a new save.
+     *
+     * The restored content becomes the current page AND a new version at the head of the
+     * history. Rewinding by deleting later versions would destroy the record of what was
+     * undone, which is the one thing history exists to preserve.
+     */
+    public JsonNode restoreVersion(UUID brandId, UUID campaignId, int versionNo) {
+        JsonNode template = findTemplate(brandId, campaignId);
+        if (template == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "No landing page for this campaign");
+        }
+        Map<String, String> q = new LinkedHashMap<>();
+        q.put("landingTemplateId", template.get("id").asText());
+        JsonNode versions = dao.get("/landing-template-versions", q);
+        JsonNode target = null;
+        if (versions != null && versions.isArray()) {
+            for (JsonNode v : versions) {
+                if (v.hasNonNull("versionNo") && v.get("versionNo").asInt() == versionNo) {
+                    target = v;
+                    break;
+                }
+            }
+        }
+        if (target == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Version " + versionNo + " not found");
+        }
+
+        ObjectNode restore = shape.objectMapper().createObjectNode();
+        restore.put("campaignId", campaignId.toString());
+        restore.put("name", textOrDefault(target, "name", "Landing page"));
+        // Restoring content must not silently republish: a page rolled back to an older
+        // draft should not inherit "published" from wherever it is now.
+        restore.put("status", "draft");
+        restore.put("stage", textOrDefault(target, "stage", "draft"));
+        putParsed(restore, "document", target.get("document"));
+        putParsed(restore, "blocks", target.get("blocks"));
+        putParsed(restore, "theme", target.get("theme"));
+        return saveTemplate(brandId, restore);
+    }
+
+    private JsonNode findTemplate(UUID brandId, UUID campaignId) {
+        Map<String, String> q = new LinkedHashMap<>();
+        q.put("brandId", brandId.toString());
+        q.put("campaignId", campaignId.toString());
+        JsonNode list = dao.get("/landing-templates", q);
+        return list != null && list.isArray() && list.size() > 0 ? list.get(0) : null;
+    }
+
+    /**
+     * Copy a jsonb field across as a STRING, matching how the DAO entity maps it.
+     * The DAO may hand these back either already-parsed or as text depending on the hop,
+     * so both shapes are normalized here rather than at each call site.
+     */
+    private void copyJsonbAsString(JsonNode from, ObjectNode to, String... fields) {
+        for (String field : fields) {
+            JsonNode node = from.get(field);
+            if (node == null || node.isNull()) {
+                continue;
+            }
+            try {
+                to.put(field, node.isTextual() ? node.asText()
+                        : shape.objectMapper().writeValueAsString(node));
+            } catch (Exception ignored) {
+                // skip this field; the snapshot is still worth writing without it
+            }
+        }
+    }
+
+    /** Set a field as real JSON, accepting either a parsed node or a JSON string. */
+    private void putParsed(ObjectNode target, String field, JsonNode value) {
+        if (value == null || value.isNull()) {
+            return;
+        }
+        try {
+            target.set(field, value.isTextual()
+                    ? shape.objectMapper().readTree(value.asText())
+                    : value);
+        } catch (Exception ignored) {
+            // malformed stored JSON: leave the field unset rather than propagating junk
         }
     }
 
@@ -359,6 +637,29 @@ public class LandingService {
             }
         }
         return shape.objectMapper().createArrayNode();
+    }
+
+    /**
+     * Normalize a jsonb field to an object node, accepting either a parsed object or a
+     * JSON string. The DAO hands `document` back as text on some hops and as an object on
+     * others (the entity maps it as String); both shapes have to work.
+     */
+    private JsonNode parseObject(JsonNode node) {
+        if (node == null || node.isNull()) {
+            return shape.objectMapper().createObjectNode();
+        }
+        if (node.isObject()) {
+            return node;
+        }
+        if (node.isTextual()) {
+            try {
+                JsonNode parsed = shape.objectMapper().readTree(node.asText());
+                return parsed.isObject() ? parsed : shape.objectMapper().createObjectNode();
+            } catch (Exception e) {
+                return shape.objectMapper().createObjectNode();
+            }
+        }
+        return shape.objectMapper().createObjectNode();
     }
 
     private UUID uuid(JsonNode payload, String field) {

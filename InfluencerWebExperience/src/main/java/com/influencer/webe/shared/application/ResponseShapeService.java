@@ -328,11 +328,18 @@ public class ResponseShapeService {
 
     public JsonNode landingTemplate(JsonNode source) {
         ObjectNode out = pick(source, "id", "brandId", "campaignId", "publicSlug", "name",
-                "status", "createdAt", "updatedAt");
+                "status", "stage", "createdAt", "updatedAt");
         out.set("blocks", parseJsonOrDefault(source, "blocks", objectMapper.createArrayNode()));
         out.set("theme", parseJsonOrDefault(source, "theme", objectMapper.createObjectNode()));
+        // `document` is passed through as JSON null when absent rather than defaulted to {}:
+        // the builder reads null as "new page, start from a template" and an empty object
+        // as "an existing page that was deliberately cleared". Those are different states.
+        out.set("document", parseJsonOrDefault(source, "document", objectMapper.nullNode()));
         if (!out.has("status")) {
             out.put("status", "draft");
+        }
+        if (!out.has("stage") || out.get("stage").isNull()) {
+            out.put("stage", "draft");
         }
         return out;
     }

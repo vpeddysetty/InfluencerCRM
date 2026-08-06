@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { MdsKicker, MdsSectionRule, MdsNote } from './components/Mds'
+import LandingBuilder from './components/LandingBuilder'
 
 const EMPTY_CONTENT = { summary: '', goals: '', dos: '', donts: '', talkingPoints: '' }
 
@@ -30,6 +31,9 @@ function ContentPage({
   onReloadCoupons,
   onDraftContent,
   onPreviewLanding,
+  onLoadVersions,
+  onRestoreVersion,
+  can,
 }) {
   const [campaignId, setCampaignId] = useState('')
   const [briefs, setBriefs] = useState([])
@@ -54,6 +58,10 @@ function ContentPage({
   const [previewHtml, setPreviewHtml] = useState('')
   const [previewCouponId, setPreviewCouponId] = useState('')
   const [previewing, setPreviewing] = useState(false)
+  // Visual builder (Phase A). `visual` is the default for new pages; a page saved by the
+  // old block editor opens in `blocks` so nobody's existing work silently changes shape.
+  const [editorMode, setEditorMode] = useState('visual')
+  const [versions, setVersions] = useState([])
 
   const currentBrief = useMemo(
     () => briefs.find((b) => b.campaignId === campaignId) || null,
@@ -99,12 +107,29 @@ function ContentPage({
       setTemplateName(t.name || 'Landing page')
       setBlocks(Array.isArray(t.blocks) ? t.blocks : [])
       setTemplateStatus(t.status || 'draft')
+      // Open a page in the editor that produced it. A page with a GrapesJS document opens
+      // visually; one with only typed blocks opens in the block editor, so existing work
+      // never appears to have changed shape on its own.
+      const hasDocument = Boolean(t.document && (t.document.html || t.document.css))
+      const hasBlocks = Array.isArray(t.blocks) && t.blocks.length > 0
+      setEditorMode(hasDocument ? 'visual' : hasBlocks ? 'blocks' : 'visual')
     } else {
       setTemplateName('Landing page')
       setBlocks([])
       setTemplateStatus('draft')
+      setEditorMode('visual')
     }
   }, [campaignId, templates])
+
+  // Version history follows the selected campaign.
+  useEffect(() => {
+    if (!campaignId) {
+      setVersions([])
+      return
+    }
+    refreshVersions()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [campaignId])
 
   // When the selected campaign (or its brief) changes, hydrate the form.
   useEffect(() => {
@@ -203,6 +228,91 @@ function ContentPage({
     return next
   })
   const editBlock = (i, field, value) => setBlocks((prev) => prev.map((b, idx) => (idx === i ? { ...b, [field]: value } : b)))
+
+  /**
+   * Save from the visual builder. Sends `document` (GrapesJS html/css) instead of `blocks`;
+   * the server keeps both columns and renders whichever is present, so switching editors
+   * never destroys the other representation.
+   */
+  const saveBuilderDocument = async (document) => {
+    if (!campaignId) {
+      setTemplateFeedback({ type: 'error', message: 'Pick a campaign first.' })
+      return
+    }
+    setSavingTemplate(true)
+    setTemplateFeedback({ type: '', message: '' })
+    try {
+      const saved = await onSaveTemplate({
+        campaignId,
+        name: templateName.trim() || 'Landing page',
+        document,
+        status: templateStatus,
+      })
+      setTemplates((prev) => {
+        const others = prev.filter((t) => t.id !== saved.id && t.campaignId !== saved.campaignId)
+        return [saved, ...others]
+      })
+      try {
+        const reloaded = await onReloadCoupons()
+        if (Array.isArray(reloaded)) setPageCoupons(reloaded)
+      } catch { /* non-fatal */ }
+      await refreshVersions()
+      setTemplateFeedback({ type: 'success', message: `Landing page saved (slug: ${saved.publicSlug}).` })
+    } catch (error) {
+      setTemplateFeedback({ type: 'error', message: error instanceof Error ? error.message : 'Unable to save landing page.' })
+    } finally {
+      setSavingTemplate(false)
+    }
+  }
+
+  const previewBuilderDocument = async (document) => {
+    if (!campaignId) return
+    setPreviewing(true)
+    try {
+      const html = await onPreviewLanding({
+        campaignId,
+        name: templateName.trim() || 'Landing page',
+        document,
+        couponId: previewCouponId || undefined,
+      })
+      setPreviewHtml(html)
+    } catch (error) {
+      setTemplateFeedback({ type: 'error', message: error instanceof Error ? error.message : 'Unable to preview.' })
+    } finally {
+      setPreviewing(false)
+    }
+  }
+
+  const refreshVersions = async () => {
+    if (!campaignId || typeof onLoadVersions !== 'function') return
+    try {
+      const list = await onLoadVersions(campaignId)
+      setVersions(Array.isArray(list) ? list : [])
+    } catch {
+      // History is auxiliary — failing to load it must not break the builder.
+    }
+  }
+
+  const restoreVersion = async (versionNo) => {
+    if (!campaignId || typeof onRestoreVersion !== 'function') return
+    setSavingTemplate(true)
+    try {
+      const restored = await onRestoreVersion(campaignId, versionNo)
+      setTemplates((prev) => {
+        const others = prev.filter((t) => t.id !== restored.id && t.campaignId !== restored.campaignId)
+        return [restored, ...others]
+      })
+      await refreshVersions()
+      setTemplateFeedback({
+        type: 'success',
+        message: `Restored v${versionNo} as a new draft. Reopen the builder to edit it.`,
+      })
+    } catch (error) {
+      setTemplateFeedback({ type: 'error', message: error instanceof Error ? error.message : 'Unable to restore.' })
+    } finally {
+      setSavingTemplate(false)
+    }
+  }
 
   const saveTemplate = async () => {
     if (!campaignId) {
@@ -334,6 +444,63 @@ function ContentPage({
           <label className="auth-label">Page name</label>
           <input type="text" value={templateName} onChange={(e) => setTemplateName(e.target.value)} />
 
+          <div className="row-actions" role="group" aria-label="Editor mode">
+            <button
+              type="button"
+              className={editorMode === 'visual' ? 'primary-btn' : 'ghost-btn'}
+              aria-pressed={editorMode === 'visual'}
+              onClick={() => setEditorMode('visual')}
+            >
+              Visual builder
+            </button>
+            <button
+              type="button"
+              className={editorMode === 'blocks' ? 'primary-btn' : 'ghost-btn'}
+              aria-pressed={editorMode === 'blocks'}
+              onClick={() => setEditorMode('blocks')}
+            >
+              Block list
+            </button>
+          </div>
+
+          {editorMode === 'visual' ? (
+            <>
+              <label className="auth-label">Status</label>
+              <select value={templateStatus} onChange={(e) => setTemplateStatus(e.target.value)}>
+                <option value="draft">Draft</option>
+                <option value="published">Published</option>
+              </select>
+              <MdsNote>
+                Drag blocks onto the canvas. Preview at three widths with the buttons above the
+                canvas. A page must be <strong>Published</strong> before it is reachable at its
+                public link.
+              </MdsNote>
+              <LandingBuilder
+                key={campaignId}
+                initialDocument={currentTemplate?.document || null}
+                onSave={saveBuilderDocument}
+                onPreview={previewBuilderDocument}
+                can={can}
+                busy={savingTemplate || previewing}
+                versions={versions}
+                onRestore={restoreVersion}
+              />
+              {currentTemplate ? (
+                <p className="mds-note">
+                  Brand page:{' '}
+                  <a href={`/s/${currentTemplate.publicSlug}`} target="_blank" rel="noreferrer">
+                    /s/{currentTemplate.publicSlug}
+                  </a>
+                </p>
+              ) : null}
+              {previewHtml ? (
+                <div className="landing-preview">
+                  <iframe title="Landing preview" className="landing-preview-frame" srcDoc={previewHtml} sandbox="" />
+                </div>
+              ) : null}
+            </>
+          ) : (
+          <>
           <label className="auth-label">Blocks</label>
           {blocks.length === 0 ? <p className="custom-attributes-empty">No blocks yet. Add one below.</p> : null}
           <ul className="simple-list">
@@ -394,6 +561,8 @@ function ContentPage({
               <iframe title="Landing preview" className="landing-preview-frame" srcDoc={previewHtml} sandbox="" />
             </div>
           ) : null}
+          </>
+          )}
 
           {campaignCoupons.length ? (
             <>

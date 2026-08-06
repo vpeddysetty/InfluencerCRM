@@ -83,6 +83,32 @@ public class LandingController {
         return dao.get("/landing-page-views", query);
     }
 
+    /** Version history for the campaign's landing page, newest first (A.5). */
+    @GetMapping("/api/landing-templates/versions")
+    public JsonNode versions(@RequestHeader(value = "Authorization", required = false) String authorization,
+                             @RequestParam UUID campaignId,
+                             @RequestParam(required = false) UUID brandId) {
+        UUID resolved = requestUserResolver.resolveBrandId(authorization, brandId);
+        return landingService.listVersions(resolved, campaignId);
+    }
+
+    /**
+     * Restore a previous version. Writes the old content forward as a new save, so the
+     * restore itself becomes the newest version rather than erasing what it undid.
+     */
+    @PostMapping("/api/landing-templates/versions/{versionNo}/restore")
+    public JsonNode restoreVersion(@RequestHeader(value = "Authorization", required = false) String authorization,
+                                   @PathVariable int versionNo,
+                                   @RequestBody ObjectNode payload) {
+        UUID brandId = requestUserResolver.resolveBrandId(authorization, getUuid(payload, "brandId"));
+        UUID campaignId = getUuid(payload, "campaignId");
+        if (campaignId == null) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.BAD_REQUEST, "campaignId is required");
+        }
+        return landingService.restoreVersion(brandId, campaignId, versionNo);
+    }
+
     // ---- public hosted landing page (NO AUTH) --------------------------
     @GetMapping(value = "/s/{slug}/{creator}", produces = MediaType.TEXT_HTML_VALUE)
     public String publicPage(@PathVariable String slug,
@@ -90,6 +116,19 @@ public class LandingController {
                              @RequestHeader(value = "Referer", required = false) String referer,
                              @RequestHeader(value = "User-Agent", required = false) String userAgent) {
         return landingService.renderPublic(slug, creator, referer, userAgent);
+    }
+
+    /**
+     * The brand's own page — no creator, no coupon (Phase A).
+     *
+     * Before this existed a saved page was unreachable until a creator coupon was
+     * assigned, which made the builder unusable on its own. Serves only published pages.
+     */
+    @GetMapping(value = "/s/{slug}", produces = MediaType.TEXT_HTML_VALUE)
+    public String publicBrandPage(@PathVariable String slug,
+                                  @RequestHeader(value = "Referer", required = false) String referer,
+                                  @RequestHeader(value = "User-Agent", required = false) String userAgent) {
+        return landingService.renderPublicBrandPage(slug, referer, userAgent);
     }
 
     private UUID getUuid(ObjectNode payload, String fieldName) {

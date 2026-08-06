@@ -61,3 +61,6 @@ tests/.body
 tests/.code
 tests/ids.env
 tests/results.txt
+
+# Locally generated classpath files (see scratchpad start.ps1) - build artifacts, not source.
+cp.txt

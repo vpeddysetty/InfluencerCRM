@@ -41,6 +41,19 @@
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
         </dependency>
+        <!--
+          The visual builder (GrapesJS) produces HTML, which the public page must serve
+          as markup rather than escape. That removes the escape-on-output guarantee the
+          typed-block renderer relied on, so the HTML has to be sanitized against an
+          allow-list instead. jsoup is used rather than a hand-rolled filter because
+          this is a public XSS surface and blocklist filtering of HTML is a known-losing
+          approach — mutation XSS in particular defeats naive regex stripping.
+        -->
+        <dependency>
+            <groupId>org.jsoup</groupId>
+            <artifactId>jsoup</artifactId>
+            <version>1.17.2</version>
+        </dependency>
         <dependency>
             <groupId>org.springframework.security</groupId>
             <artifactId>spring-security-test</artifactId>
