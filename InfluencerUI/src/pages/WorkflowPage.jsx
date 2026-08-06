@@ -159,7 +159,10 @@ function WorkflowPage({
   const openEditDrawer = (board) => {
     setDrawerNotice('')
     setDrawerBoardId(board.id)
-    const stages = stagesForBoard(board.id).map((s) => ({ stageName: s.stageName }))
+    // Carry the id: the server updates a stage in place when it recognises one, and creates
+    // a new stage when it does not. Dropping the id here would make every save look like
+    // "delete all, create all", which unplaces every card on the board.
+    const stages = stagesForBoard(board.id).map((s) => ({ id: s.id, stageName: s.stageName }))
     setDraft({
       name: board.name || '',
       startDate: board.startDate || '',
@@ -210,7 +213,9 @@ function WorkflowPage({
   const updateStageDraft = (index, value) =>
     setDraft((prev) => ({
       ...prev,
-      stages: prev.stages.map((row, i) => (i === index ? { stageName: value } : row)),
+      // Spread the row rather than replacing it, so an existing stage keeps its id and a
+      // rename stays a rename instead of becoming a delete + create.
+      stages: prev.stages.map((row, i) => (i === index ? { ...row, stageName: value } : row)),
     }))
   const removeStageDraft = (index) =>
     setDraft((prev) => ({
@@ -233,8 +238,10 @@ function WorkflowPage({
       setDrawerNotice('Enter a board name.')
       return
     }
-    const stageNames = draft.stages.map((s) => s.stageName.trim()).filter(Boolean)
-    if (!stageNames.length) {
+    const stageRows = draft.stages
+      .map((s) => ({ ...s, stageName: (s.stageName || '').trim() }))
+      .filter((s) => s.stageName)
+    if (!stageRows.length) {
       setDrawerNotice('Add at least one stage.')
       return
     }
@@ -247,7 +254,8 @@ function WorkflowPage({
           name,
           startDate: draft.startDate || null,
           endDate: draft.endDate || null,
-          stages: stageNames.map((stageName) => ({ stageName })),
+          // A new board's stages have no ids yet.
+          stages: stageRows.map(({ stageName }) => ({ stageName })),
         })
         setNotice(`Board "${name}" created.`)
       } else {
@@ -256,7 +264,8 @@ function WorkflowPage({
           startDate: draft.startDate || null,
           endDate: draft.endDate || null,
         })
-        await onSaveBoardStages(drawerBoardId, stageNames.map((stageName) => ({ stageName })))
+        await onSaveBoardStages(drawerBoardId, stageRows.map(({ id, stageName }) =>
+          (id ? { id, stageName } : { stageName })))
         setNotice(`Board "${name}" updated.`)
       }
       setDrawerMode('')
