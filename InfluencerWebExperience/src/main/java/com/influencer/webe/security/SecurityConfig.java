@@ -57,6 +57,11 @@ public class SecurityConfig {
             // for 60 seconds, consumed on first read, and issued only to the provider's redirect.
             // Same reasoning as /api/auth/refresh, which is public for the same structural reason.
             "/api/auth/oauth/handoff",
+            // Creator signup from a published landing page. A creator applying to a campaign has
+            // no account, so this cannot require a token. The owning brand is derived from the
+            // page slug (never from the body), only published pages accept signups, and the row
+            // is created as status=lead — so this grants nothing without a brand decision.
+            "/api/public/landing/*/signup",
             "/api/webhooks/**",           // marketplace callbacks — authenticated by provider signature
             // Creator portal sign-in. A creator has no account, no brand and no account_role, so
             // they can never present the operator JWT this chain expects — these routes are how

@@ -73,6 +73,19 @@ public class CreatorController {
         existing.setMinimumFee(creator.getMinimumFee());
         existing.setCurrency(creator.getCurrency());
         existing.setCustomAttributes(creator.getCustomAttributes());
+        // Phase C. Provenance moves with the values it describes: updating a follower count
+        // without updating metrics_source/metrics_fetched_at would leave the row claiming a
+        // fresh number came from wherever the previous one did.
+        existing.setMetricsSource(creator.getMetricsSource());
+        existing.setMetricsFetchedAt(creator.getMetricsFetchedAt());
+        existing.setMetricsPlatformVerified(creator.getMetricsPlatformVerified());
+        existing.setClassificationSource(creator.getClassificationSource());
+        existing.setClassificationAt(creator.getClassificationAt());
+        existing.setContentThemes(creator.getContentThemes());
+        existing.setRiskFlags(creator.getRiskFlags());
+        // lead_source / lead_landing_template_id are deliberately NOT updatable: how a creator
+        // entered the system is a historical fact, and rewriting it would destroy the record of
+        // which landing page produced the lead.
         applyDefaults(existing);
         return repository.save(existing);
     }
@@ -88,6 +101,13 @@ public class CreatorController {
         }
         if (creator.getContentCategories() == null) {
             creator.setContentCategories(new String[0]);
+        }
+        // NOT NULL with a default in the schema, so a null here would fail the insert.
+        if (creator.getContentThemes() == null) {
+            creator.setContentThemes(new String[0]);
+        }
+        if (creator.getRiskFlags() == null) {
+            creator.setRiskFlags(new String[0]);
         }
         if (creator.getAudienceDemographics() == null || creator.getAudienceDemographics().isBlank()) {
             creator.setAudienceDemographics("{}");

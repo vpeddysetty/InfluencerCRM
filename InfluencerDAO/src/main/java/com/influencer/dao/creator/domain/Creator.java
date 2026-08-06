@@ -96,6 +96,40 @@ public class Creator {
     @Column(name = "safety_notes")
     private String safetyNotes;
 
+    // ---- Phase C: provenance ------------------------------------------
+    // Metrics and classification carry SEPARATE provenance because they come from different
+    // places: metrics are read from a platform, classification is produced by a model. Merging
+    // them would lose the distinction the phase exists to preserve.
+
+    /** platform_api | mock | manual | import. Null when no metrics were captured. */
+    @Column(name = "metrics_source")
+    private String metricsSource;
+
+    @Column(name = "metrics_fetched_at")
+    private Instant metricsFetchedAt;
+
+    @Column(name = "metrics_platform_verified")
+    private Boolean metricsPlatformVerified;
+
+    /** llm | heuristic | manual. Never platform_api — a platform does not classify. */
+    @Column(name = "classification_source")
+    private String classificationSource;
+
+    @Column(name = "classification_at")
+    private Instant classificationAt;
+
+    @Column(name = "content_themes", columnDefinition = "text[]")
+    private String[] contentThemes;
+
+    @Column(name = "risk_flags", columnDefinition = "text[]")
+    private String[] riskFlags;
+
+    @Column(name = "lead_source")
+    private String leadSource;
+
+    @Column(name = "lead_landing_template_id")
+    private UUID leadLandingTemplateId;
+
     @Column(name = "preferred_rate")
     private BigDecimal preferredRate;
 
@@ -394,5 +428,79 @@ public class Creator {
 
     public void setUpdatedAt(Instant updatedAt) {
         this.updatedAt = updatedAt;
+    }
+
+    // ---- Phase C accessors --------------------------------------------
+
+    public String getMetricsSource() {
+        return metricsSource;
+    }
+
+    public void setMetricsSource(String metricsSource) {
+        this.metricsSource = metricsSource;
+    }
+
+    public Instant getMetricsFetchedAt() {
+        return metricsFetchedAt;
+    }
+
+    public void setMetricsFetchedAt(Instant metricsFetchedAt) {
+        this.metricsFetchedAt = metricsFetchedAt;
+    }
+
+    public Boolean getMetricsPlatformVerified() {
+        return metricsPlatformVerified;
+    }
+
+    public void setMetricsPlatformVerified(Boolean metricsPlatformVerified) {
+        this.metricsPlatformVerified = metricsPlatformVerified;
+    }
+
+    public String getClassificationSource() {
+        return classificationSource;
+    }
+
+    public void setClassificationSource(String classificationSource) {
+        this.classificationSource = classificationSource;
+    }
+
+    public Instant getClassificationAt() {
+        return classificationAt;
+    }
+
+    public void setClassificationAt(Instant classificationAt) {
+        this.classificationAt = classificationAt;
+    }
+
+    public String[] getContentThemes() {
+        return contentThemes;
+    }
+
+    public void setContentThemes(String[] contentThemes) {
+        this.contentThemes = contentThemes;
+    }
+
+    public String[] getRiskFlags() {
+        return riskFlags;
+    }
+
+    public void setRiskFlags(String[] riskFlags) {
+        this.riskFlags = riskFlags;
+    }
+
+    public String getLeadSource() {
+        return leadSource;
+    }
+
+    public void setLeadSource(String leadSource) {
+        this.leadSource = leadSource;
+    }
+
+    public UUID getLeadLandingTemplateId() {
+        return leadLandingTemplateId;
+    }
+
+    public void setLeadLandingTemplateId(UUID leadLandingTemplateId) {
+        this.leadLandingTemplateId = leadLandingTemplateId;
     }
 }

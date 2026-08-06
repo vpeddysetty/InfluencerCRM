@@ -164,6 +164,168 @@ def content_draft(request: ContentDraftRequest) -> Dict[str, Any]:
     return {"status": "ok", "draft": drafted}
 
 
+class CreatorClassifyRequest(BaseModel):
+    """
+    Classify a creator from what a platform already told us.
+
+    Note what is NOT here: follower_count, engagement_rate, or any other metric to be
+    produced. Metrics are READ from platform APIs (roadmap Phase C decision #4); the model
+    only ever labels. Asking a model for a follower count yields a confident, plausible,
+    wrong number that a brand would then spend against.
+    """
+    handle: str = ""
+    platform: str = ""
+    display_name: str = ""
+    recent_captions: str = ""
+    # Passed for context only — so "fitness creator, mid-tier audience" is available to the
+    # classifier. It is never echoed back as an output.
+    follower_count: Optional[int] = None
+
+
+# The niches a creator may be sorted into. A closed set, because a brand's vetting rules are
+# written against these values -- a free-text niche would make "niche not in allowed list"
+# unenforceable.
+CREATOR_NICHES = [
+    "beauty", "fashion", "fitness", "food", "gaming", "lifestyle",
+    "parenting", "pets", "sports", "tech", "travel", "finance", "other",
+]
+
+# Brand-safety flags. Advisory input to a human decision -- never an automatic approval.
+RISK_FLAGS = ["adult", "alcohol", "gambling", "politics", "controversy", "tobacco"]
+
+# Substrings that raise each flag in the deterministic fallback. Deliberately narrow: a
+# false positive sends a legitimate creator to a review queue, which is recoverable, while
+# a false negative is what a brand would actually complain about.
+_RISK_MARKERS = {
+    "gambling": ["casino", "bet ", "betting", "poker", "deposit bonus", "odds", "wager"],
+    "alcohol": ["drinks", "cocktail", "wine", "beer", "whisky", "vodka"],
+    "adult": ["18+", "nsfw", "onlyfans", "adult only"],
+    "tobacco": ["vape", "vaping", "cigar", "smoking", "nicotine"],
+    "politics": ["election", "vote for", "campaign trail", "senator", "parliament"],
+}
+
+_NICHE_MARKERS = {
+    "fitness": ["workout", "gym", "protein", "training", "reps", "trainers"],
+    "beauty": ["skincare", "serum", "foundation", "makeup", "glow", "routine"],
+    "food": ["recipe", "kitchen", "brunch", "baking", "restaurant"],
+    "gaming": ["stream", "gameplay", "console", "loadout", "speedrun"],
+    "travel": ["flight", "hotel", "itinerary", "packing", "destination"],
+    "tech": ["gadget", "unboxing", "benchmark", "laptop", "firmware"],
+    "fashion": ["outfit", "haul", "wardrobe", "styling", "lookbook"],
+    "parenting": ["toddler", "newborn", "nursery", "mum life", "parenting"],
+    "pets": ["puppy", "kitten", "rescue dog", "vet visit"],
+    "finance": ["portfolio", "investing", "savings", "budget", "etf"],
+}
+
+
+def _heuristic_classify(req: "CreatorClassifyRequest") -> Dict[str, Any]:
+    """
+    Deterministic fallback when no LLM is configured.
+
+    Keyword matching, which is genuinely weaker than a model at reading intent -- so it is
+    labelled `heuristic` in the response and stored as such. A brand seeing a niche can then
+    tell whether a model or a substring match produced it.
+    """
+    text = f"{req.handle} {req.display_name} {req.recent_captions}".lower()
+
+    risk_flags = sorted({
+        flag for flag, markers in _RISK_MARKERS.items()
+        if any(marker in text for marker in markers)
+    })
+
+    niche = "other"
+    best = 0
+    for candidate, markers in _NICHE_MARKERS.items():
+        hits = sum(1 for marker in markers if marker in text)
+        if hits > best:
+            best, niche = hits, candidate
+
+    themes = []
+    for candidate, markers in _NICHE_MARKERS.items():
+        if any(marker in text for marker in markers):
+            themes.append(candidate)
+
+    return {
+        "source": "heuristic",
+        "niche": niche,
+        "content_themes": sorted(themes) or ["general"],
+        "risk_flags": risk_flags,
+        "summary": f"Keyword classification of @{req.handle or 'unknown'} as {niche}.",
+    }
+
+
+def _llm_classify(req: "CreatorClassifyRequest") -> Optional[Dict[str, Any]]:
+    if not advisor.is_available():
+        return None
+    ask = (
+        "You classify social media creators for brand partnerships. Return ONLY strict JSON "
+        f"with keys: niche (one of {CREATOR_NICHES}), content_themes (array of short strings), "
+        f"risk_flags (array, subset of {RISK_FLAGS}, empty when nothing applies), "
+        "summary (one sentence). "
+        "Classify ONLY from the text provided. Do NOT estimate follower counts, engagement, "
+        "reach or any other metric - those are measured elsewhere and inventing them is worse "
+        "than omitting them. Raise a risk flag only on clear evidence in the captions."
+    )
+    payload = {
+        "handle": req.handle,
+        "platform": req.platform,
+        "display_name": req.display_name,
+        "recent_captions": req.recent_captions,
+        "follower_count": req.follower_count,
+    }
+    try:
+        response = advisor.client.responses.create(
+            model=advisor.model,
+            input=[
+                {"role": "system", "content": ask},
+                {"role": "user", "content": json.dumps(payload)},
+            ],
+            # Lower than the drafting endpoint: classification wants the same answer every
+            # time for the same input, not variety.
+            temperature=0.1,
+        )
+        content = getattr(response, "output_text", None)
+        if not content and hasattr(response, "choices") and response.choices:
+            content = response.choices[0].message.content
+        if not content:
+            return None
+        parsed = json.loads(content)
+        if not isinstance(parsed, dict):
+            return None
+
+        # Constrain the model to the closed vocabularies. A model returning "beauty & skincare"
+        # would silently break any vetting rule written against "beauty".
+        niche = str(parsed.get("niche", "other")).strip().lower()
+        if niche not in CREATOR_NICHES:
+            niche = "other"
+        flags = [f for f in parsed.get("risk_flags", []) if f in RISK_FLAGS]
+        themes = [str(t)[:40] for t in parsed.get("content_themes", [])][:10]
+
+        return {
+            "source": "llm",
+            "niche": niche,
+            "content_themes": themes or ["general"],
+            "risk_flags": sorted(set(flags)),
+            "summary": str(parsed.get("summary", ""))[:400],
+        }
+    except Exception:
+        return None
+
+
+@app.post("/creators/classify")
+def creators_classify(request: CreatorClassifyRequest) -> Dict[str, Any]:
+    """
+    Label a creator. Never produces a metric — see CreatorClassifyRequest.
+
+    Always returns a classification: the heuristic fallback means a signup is never blocked
+    because an API key is missing or the model call failed (roadmap C.6).
+    """
+    if not request.handle and not request.recent_captions:
+        raise HTTPException(status_code=400, detail="handle or recent_captions is required")
+    result = _llm_classify(request) or _heuristic_classify(request)
+    return {"classification": result}
+
+
 @app.get("/health")
 def health() -> Dict[str, str]:
     return {"status": "ok"}

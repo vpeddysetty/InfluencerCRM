@@ -103,8 +103,31 @@ public class ResponseShapeService {
         return paginateIfRequested(out, page, size);
     }
 
+    /**
+     * Creator projection.
+     *
+     * <p>Widened in Phase C. Until then this returned 9 fields, so the metric and vetting
+     * columns — which have existed on the table for some time — could never reach the UI even
+     * when populated. Any feature reading a creator's metrics has to be added here as well as
+     * to the schema; that is easy to miss because the DB and the DAO both look correct.
+     *
+     * <p>Metrics and their provenance are exposed <b>together</b>, deliberately. A follower
+     * count without {@code metricsSource} and {@code metricsFetchedAt} cannot be judged: the
+     * consumer cannot tell a measured number from a simulated one, or a current figure from a
+     * four-month-old one. Shipping the number alone would invite exactly that mistake.
+     */
     public JsonNode creator(JsonNode source) {
-        return pick(source, "id", "brandId", "name", "handle", "platform", "email", "customAttributes", "createdAt", "updatedAt");
+        return pick(source,
+                "id", "brandId", "name", "handle", "platform", "email", "customAttributes",
+                "status", "createdAt", "updatedAt",
+                // Platform-reported facts, with provenance.
+                "followerCount", "engagementRate", "averageViews", "lastActiveAt",
+                "audienceDemographics", "metricsSource", "metricsFetchedAt", "metricsPlatformVerified",
+                // Model-produced labels, with their own provenance.
+                "niche", "contentCategories", "contentThemes", "riskFlags",
+                "brandSafetyScore", "safetyNotes", "classificationSource", "classificationAt",
+                // How this creator entered the system.
+                "leadSource", "leadLandingTemplateId");
     }
 
     public JsonNode campaignCreatorsList(JsonNode source, Integer page, Integer size) {

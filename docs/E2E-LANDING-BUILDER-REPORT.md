@@ -1,12 +1,13 @@
 # Landing Page Builder — E2E Test Report
 
 **Date:** 2026-08-05
-**Scope:** Phases A and B of [landing-page-builder-roadmap.md](landing-page-builder-roadmap.md)
+**Scope:** Phases A, B and C of [landing-page-builder-roadmap.md](landing-page-builder-roadmap.md)
 
 | Suite | Assertions | Result |
 |---|---|---|
 | [`tests/e2e_landing_builder.sh`](../tests/e2e_landing_builder.sh) — Phase A | 27 | all passing |
 | [`tests/e2e_asset_library.sh`](../tests/e2e_asset_library.sh) — Phase B | 25 | all passing |
+| [`tests/e2e_creator_onboarding.sh`](../tests/e2e_creator_onboarding.sh) — Phase C | 32 | all passing |
 | `LandingDocumentSanitizerTest` (unit) | 13 | all passing |
 
 Run against the live stack (UI → BFF `:8081` → DAO `:8443` → PostgreSQL), not mocks. Every
@@ -338,3 +339,147 @@ litter (verified by B7).
 **No PUT on assets.** Bytes are immutable once written; replacing an image means uploading a
 new one. That keeps `storage_key` stable for anything already referencing it — including
 already-published pages.
+
+---
+
+# Phase C — Creator onboarding (mocked platform APIs)
+
+**Suite:** [`tests/e2e_creator_onboarding.sh`](../tests/e2e_creator_onboarding.sh) — 32 assertions, all passing
+
+## The platform adapter is mocked, and the schema says so
+
+The roadmap calls app registration the longest lead time in the plan and entirely non-code:
+Meta review is 2-4 weeks and **resets if a reviewer requests changes**; TikTok is 5-10
+business days. The status tracker in
+[platform-app-registration.md](platform-app-registration.md) is still empty, so no real
+platform read is possible yet.
+
+**The mock reports `metrics_source = "mock"` and never `platform_api`.** This is the single
+most important thing about it. The whole point of Phase C's design (roadmap decision #4) is
+that a brand can tell a measured number from a guessed one; a mock that lied about its
+provenance would be worse than having no adapter at all, because the invented figures would
+look authoritative. C3 asserts the label explicitly.
+
+Swapping in the real thing is a new class implementing `SocialProfileGateway` plus a config
+value. Nothing above the port changes.
+
+## What was built
+
+| Roadmap step | Delivered | Where |
+|---|---|---|
+| C.1 `SocialProfilePort` + adapter behind retry | **Port + mock adapter** | `SocialProfileGateway.java`, `MockSocialProfileGateway.java` |
+| C.2 `POST /creators/resolve-handle` | **Done** | `CreatorOnboardingController.java` |
+| C.3 `POST /creators/classify` in agent_service | **Done** — LLM + heuristic fallback | `agent_service/app.py` |
+| C.4 Persist metrics and classification separately, with provenance | **Done** | `2026_08_05_phase_c_creator_onboarding.sql` |
+| C.5 Signup block writes a lead scoped to the page's brand | **Done** | `POST /api/public/landing/{slug}/signup` |
+| C.6 Graceful degradation to a manual lead | **Done** | `CreatorOnboardingService.captureLead` |
+
+## Test results
+
+### Feature: handle resolution
+| ID | Assertion | Result |
+|---|---|---|
+| C1 | Handle resolves | PASS (200) |
+| C1b | Profile found | PASS |
+| C1c | **Nothing was persisted** — looking is not saving | PASS |
+| C2 | Same handle returns the same metrics on a second call | PASS |
+
+> C2 matters for testability, not realism: fixtures can only assert exact metrics if the
+> adapter is deterministic. It is seeded by FNV-1a over the handle rather than
+> `String.hashCode`, which is not guaranteed stable across JVM versions.
+
+### Feature: the metrics/classification separation (the core of Phase C)
+| ID | Assertion | Result |
+|---|---|---|
+| C3 | Metrics labelled `mock` — never `platform_api` | PASS |
+| C3b | Metrics carry a fetch timestamp | PASS |
+| C4 | Classified `beauty` from captions alone | PASS |
+| C4b | Classification reports its **own** source, distinct from `metricsSource` | PASS |
+| C5 | The classification block contains **no metric fields at all** | PASS |
+| C6 | A gambling creator is flagged `[alcohol, gambling]` | PASS |
+| C6b | A clean creator is **not** flagged | PASS |
+
+> C5 is the assertion the phase exists for. An LLM asked for a follower count returns a
+> confident, plausible, wrong number, and a brand would spend against it. The request model
+> in `agent_service` deliberately has no metric output fields, and the prompt says so.
+>
+> C6b is the pair to C6: a classifier that flags everything is as useless as one that flags
+> nothing. Both directions have to hold.
+
+### Feature: lead capture
+| ID | Assertion | Result |
+|---|---|---|
+| C7 | Lead created | PASS (201) |
+| C7b | Created as `lead` — onboarding never approves | PASS |
+| C7c | Provenance persisted alongside the metrics | PASS |
+| C7d | The DB row itself carries `mock\|llm\|gaming` | PASS |
+
+> C7b reflects roadmap decision #5: rules and automation may reject and advance, never
+> approve. Approval grants access to briefs, assets and eventually money, and is the thing a
+> brand will be asked to justify.
+
+### Feature: graceful degradation (C.6)
+| ID | Assertion | Result |
+|---|---|---|
+| C8 | An unresolvable handle **still creates the lead** | PASS (201) |
+| C8b | Labelled `manual`, not `mock` | PASS |
+| C8c | Follower count is **absent, not zero** | PASS |
+
+> C8c is a small distinction with real consequences. Zero followers is a legitimate,
+> meaningful value; "we do not know" is a different claim. Writing 0 as a stand-in would make
+> a vetting rule like `follower_count < 5000 → reject` silently reject every creator whose
+> lookup failed.
+
+### Feature: public signup from a landing page
+| ID | Assertion | Result |
+|---|---|---|
+| C9b | Accepted with **no auth token** | PASS (201) |
+| C9c | Body said `status: approved`; the row is a `lead` | PASS |
+| C9d | Body's `followerCount: 99999999` discarded | PASS |
+| C9e | Body's `brandId` ignored — brand comes from the page slug | PASS |
+| C9f | Attributed to `landing_page` | PASS |
+| C9g | Lead linked back to the page that produced it | PASS |
+| C10 | A **draft** page refuses signups | PASS (404) |
+| C10b | An unknown slug is refused | PASS (404) |
+
+> This endpoint is unauthenticated by necessity — a creator applying to a campaign has no
+> account. C9c/C9d/C9e are the containment: the payload is **rebuilt** from four allowed
+> fields rather than forwarded, so the hostile body in the test (naming another brand,
+> pre-approving itself, inflating its metrics) changes nothing. The brand is derived from the
+> slug, which is the difference between "a signup form" and "an endpoint that injects leads
+> into any brand's CRM".
+
+### Feature: tenancy
+| ID | Assertion | Result |
+|---|---|---|
+| C11 | A second brand holds its own row for the same handle | PASS |
+| C11b | The two rows belong to different brands | PASS |
+| C11c | The second brand sees only its own row | PASS |
+| C12 | An unsupported platform is refused with 400 | PASS |
+
+## Two things found while building this
+
+**`ResponseShapeService.creator()` returned only 9 fields.** Every metric and vetting column
+on `creator.creators` — some of which have existed for a long time — was stripped before
+reaching the UI, so they could never have been displayed even when populated. Widened here,
+with metrics and their provenance exposed together deliberately: a follower count without
+`metricsSource` and `metricsFetchedAt` cannot be judged, and shipping the number alone invites
+exactly that mistake.
+
+**The ArchUnit boundary test caught a real design error.** The first implementation imported
+`campaign.infrastructure.AgentMappingClient` from the creator context. Both call the same
+agent service, so sharing looked reasonable — but an outbound client is a context's own
+detail, and reaching across re-couples two contexts through a class neither owns. Fixed by
+giving the creator context its own small client (`CreatorClassificationClient`). The rule was
+right and the original design was wrong.
+
+## Known gaps
+
+- **No rate limiting on the public signup endpoint.** Nothing stops a script filling it in
+  repeatedly, and a flood would land in a brand's review queue. That needs infrastructure the
+  platform does not have yet; it is recorded here rather than papered over with a check that
+  would not survive a real bot.
+- **No real platform adapter**, pending app registration. Everything above the port is built
+  and tested; the adapter is the piece waiting on external approval.
+- **Vetting rules (C2) and health monitoring (C3) are not built.** This phase captures and
+  labels leads; deciding what to do with them is the next phase.
