@@ -27,7 +27,12 @@ public class WorkflowCardController {
     @GetMapping
     public List<WorkflowCard> findAll(@RequestParam(required = false) UUID brandId,
                                       @RequestParam(required = false) UUID boardId,
+                                      @RequestParam(required = false) UUID landingTemplateId,
                                       @RequestParam(required = false) String board) {
+        // Phase D: a stage change looks up the card by the page it tracks.
+        if (brandId != null && landingTemplateId != null) {
+            return repository.findByBrandIdAndLandingTemplateId(brandId, landingTemplateId);
+        }
         if (brandId != null && boardId != null) {
             return repository.findByBrandIdAndBoardIdOrderByPositionAsc(brandId, boardId);
         }
@@ -69,6 +74,11 @@ public class WorkflowCardController {
         existing.setNotes(card.getNotes());
         existing.setTags(card.getTags());
         existing.setPosition(card.getPosition());
+        // Phase D: which landing page this card tracks. Null-guarded so a PUT that omits it
+        // does not silently unlink the card from its page.
+        if (card.getLandingTemplateId() != null) {
+            existing.setLandingTemplateId(card.getLandingTemplateId());
+        }
         applyDefaults(existing);
         return repository.save(existing);
     }

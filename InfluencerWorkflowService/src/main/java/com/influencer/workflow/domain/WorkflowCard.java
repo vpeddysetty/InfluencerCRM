@@ -58,6 +58,10 @@ public class WorkflowCard {
     @JdbcTypeCode(SqlTypes.JSON)
     private List<String> tags;
 
+    /** The landing page this card tracks (Phase D). Null for campaign/creator-only cards. */
+    @Column(name = "landing_template_id")
+    private UUID landingTemplateId;
+
     @Column(name = "position", nullable = false)
     private Integer position;
 
@@ -230,5 +234,13 @@ public class WorkflowCard {
 
     public void setUpdatedAt(Instant updatedAt) {
         this.updatedAt = updatedAt;
+    }
+
+    public UUID getLandingTemplateId() {
+        return landingTemplateId;
+    }
+
+    public void setLandingTemplateId(UUID landingTemplateId) {
+        this.landingTemplateId = landingTemplateId;
     }
 }

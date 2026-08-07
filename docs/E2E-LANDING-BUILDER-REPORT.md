@@ -1,14 +1,17 @@
 # Landing Page Builder — E2E Test Report
 
 **Date:** 2026-08-05
-**Scope:** Phases A, B and C of [landing-page-builder-roadmap.md](landing-page-builder-roadmap.md)
+**Scope:** Phases A, B, C and D of [landing-page-builder-roadmap.md](landing-page-builder-roadmap.md)
 
 | Suite | Assertions | Result |
 |---|---|---|
 | [`tests/e2e_landing_builder.sh`](../tests/e2e_landing_builder.sh) — Phase A | 27 | all passing |
 | [`tests/e2e_asset_library.sh`](../tests/e2e_asset_library.sh) — Phase B | 25 | all passing |
 | [`tests/e2e_creator_onboarding.sh`](../tests/e2e_creator_onboarding.sh) — Phase C | 32 | all passing |
-| `LandingDocumentSanitizerTest` (unit) | 13 | all passing |
+| [`tests/e2e_workflow_stage_identity.sh`](../tests/e2e_workflow_stage_identity.sh) — stage-rename fix | 16 | all passing |
+| [`tests/e2e_stage_automation.sh`](../tests/e2e_stage_automation.sh) — Phase D | 36 | all passing |
+| **Total E2E** | **136** | **all passing** |
+| `mvn test` in `InfluencerWebExperience` (incl. ArchUnit) | 77 | all passing |
 
 Run against the live stack (UI → BFF `:8081` → DAO `:8443` → PostgreSQL), not mocks. Every
 assertion below was executed; the sanitizer assertions were additionally verified as unit
@@ -483,3 +486,147 @@ right and the original design was wrong.
   and tested; the adapter is the piece waiting on external approval.
 - **Vetting rules (C2) and health monitoring (C3) are not built.** This phase captures and
   labels leads; deciding what to do with them is the next phase.
+
+---
+
+# Phase D — Stage automation and bidirectional Kanban sync
+
+**Suite:** [`tests/e2e_stage_automation.sh`](../tests/e2e_stage_automation.sh) — 36 assertions, all passing
+
+## What was built
+
+Roadmap decision #8 made the board **writable in both directions**: dragging a card changes
+the page's stage, and changing the page's stage moves the card. §4 records that a one-way
+projection was argued for and overruled — and that the reasoning still governs *how* this is
+built, because two writable state machines that must agree is the shape that eventually
+produces a card in *Published* for a page still in draft.
+
+| Roadmap step | Delivered | Where |
+|---|---|---|
+| D.1 `stage` with the PRD's eight values | **Done** (added in Phase A's migration) | `content.landing_templates.stage` |
+| D.2 Allowed-transition map enforced in content | **Done** | `LandingStageMachine.java` |
+| D.3 `PUT /api/landing-pages/{id}/stage` — one command path | **Done** | `LandingStageController.java` |
+| D.4 Transition carries `{from, to, source}` | **Done** — as a table, not the outbox (see below) | `workflow.stage_transitions` |
+| D.5 Workflow moves the card, idempotent | **Done** | `LandingStageService.syncCard` |
+| D.6 Configurable stage to board-stage mapping per brand | **Done** | `workflow.stage_mappings` |
+| D.7 Board drag issues the command | **Done** | `WorkflowBoardsController.placeCard` |
+| D.8 Nightly reconciliation | **Not built** — see Known gaps | — |
+
+## The four rules, and the tests that pin each
+
+| Rule (§4) | Assertions |
+|---|---|
+| 1 — Content owns the transition, always | D8, D9, D9b, D9c |
+| 2 — Not every transition is legal | D3, D3b |
+| 3 — Some transitions need more than a stage change | D4, D4b |
+| 4 — Events carry a source; card writes are idempotent | D6, D6b, D7, D7b, D10 |
+
+**D9 is the assertion that matters most.** A refused drag must leave the card exactly where it
+was. §4's reasoning: a card that had already moved would need compensating, and compensating
+a UI drag is far worse than refusing it. The test drags to an illegal column and then checks
+*both* the card and the page did not move.
+
+## Test results
+
+### Feature: the transition map (rule 2)
+| ID | Assertion | Result |
+|---|---|---|
+| D1 | Eight page stages published at `/api/landing-pages/stages` | PASS |
+| D1b | The map says `draft` cannot reach `published` — the UI can grey out illegal drops | PASS |
+| D3 | `draft` to `published` refused | PASS (409) |
+| D3b | The refusal names the legal targets | PASS |
+| D2 | The legal path draft → review → approved → ready_to_publish → published | PASS (4x200) |
+
+> Backwards moves are allowed; skipping *forwards* is not. Work genuinely goes backwards — a
+> page in review gets sent back, a published page gets pulled. Blocking that would push people
+> to delete and recreate pages to get around it, losing the history. What is blocked is jumping
+> ahead of a gate.
+
+### Feature: publishing actually publishes
+| ID | Assertion | Result |
+|---|---|---|
+| D5 | Reaching stage `published` also sets `status=published` | PASS |
+
+> Without this the board would report *Published* while the public URL returned 404 — the same
+> divergence Phase D exists to prevent, just expressed through `status` instead of `stage`.
+
+### Feature: rule 3, transitions that need more than a label
+| ID | Assertion | Result |
+|---|---|---|
+| D4 | An **empty** page cannot be published | PASS (409) |
+| D4b | And it did not move — the refusal happened before any write | PASS |
+
+### Feature: rule 4, provenance and idempotency
+| ID | Assertion | Result |
+|---|---|---|
+| D6 | Four legal moves produce four rows; refusals are not logged as transitions | PASS |
+| D6b | Each row records where the change came from | PASS |
+| D7 | Three identical commands with one key all return 200 | PASS |
+| D7b | ...and wrote exactly **one** transition row | PASS |
+| D10 | A board-originated change does not echo back as a second card move | PASS |
+
+### Feature: rule 1, the board is a command issuer
+| ID | Assertion | Result |
+|---|---|---|
+| D9 | An illegal drag is refused | PASS (409) |
+| D9b | The card did **not** move | PASS |
+| D9c | The page did **not** move | PASS |
+| D8 | A legal drag is accepted | PASS (200) |
+| D8b | The drag drove the **page** stage — the board is genuinely writable | PASS |
+| D8c | The card is where it was dropped | PASS |
+| D11 | The reverse: a builder stage change moves the card | PASS |
+| D11b | The card followed the page — sync runs both ways | PASS |
+
+### Feature: mappings and tenancy
+| ID | Assertion | Result |
+|---|---|---|
+| D12 | Re-saving a mapping upserts rather than duplicating | PASS |
+| D13 | Another brand cannot place our card | PASS (404) |
+| D13b | Another brand cannot change our page's stage | PASS (404) |
+| D13c | Another brand cannot read our transition log | PASS (404) |
+| D13d | An unauthenticated placement is refused | PASS (401) |
+| D13e | After every cross-tenant attempt the card is untouched | PASS |
+| D14 | An unknown stage is refused | PASS (400) |
+| D14b | An unknown **source** is refused | PASS (400) |
+
+> D13-D13d close a real pre-existing hole: `placeCard` previously performed **no authorization
+> at all**, so any caller could place any card by id. It is now permission-checked and
+> brand-scoped.
+>
+> D14b is not cosmetic. An unrecognised source would be stored and could later suppress the
+> wrong echo, so it is rejected rather than coerced to a default.
+
+## Two defects found by these tests
+
+**1. An empty page could be published.** `requirePublishable` measured the raw JSON node's
+length, but the DAO returns `blocks` as a JSON *string* — so `"[]"` is four characters, not
+two, and was read as content. This is the third appearance of the same jsonb-as-String trap in
+this work (Phase A's `blocks`, Phase C's `audienceDemographics`, now this). The entity maps
+jsonb columns as Java `String`, so anything reading one must parse before judging it.
+
+**2. Repeated transitions vanished from the audit trail.** The default idempotency key was
+`templateId:from->to`, which looked reasonable and was wrong: work legitimately goes round the
+loop more than once (draft → review → draft → review), so the second pass collided with the
+first and was silently swallowed as a "duplicate". The page and board stayed correct — only
+the audit trail lost the entry, which is the one thing the log exists for.
+
+Caught by D10 asserting a board-sourced row existed and finding zero. Fixed by making the
+default key unique per occurrence; a caller-supplied key still means "this is the same
+command, absorb the retry". The swallow path now logs instead of being silent, since silence
+is what hid it.
+
+## Known gaps
+
+- **No nightly reconciliation job (§4).** Rules 1-4 make divergence unlikely; the job is what
+  makes it self-healing when delivery duplicates or drops. It needs a scheduler the platform
+  does not have wired up, so it is deferred rather than half-built.
+- **Phase D does not use `shared.domain_events`.** It writes `workflow.stage_transitions`
+  directly. The outbox has exactly one producer today (Finance's `CommissionAccrued`), and its
+  relay is enabled **only in the DAO** — every extracted service defaults
+  `EVENTS_RELAY_ENABLED=false`, and the Workflow service has no events package at all. Routing
+  through it means vendoring that package into Workflow and flipping the flag. The transitions
+  table gives the same audit trail and idempotency without that change; moving to the outbox
+  later is a change of writer, not of contract.
+- **No optimistic-move-and-revert in the UI.** §4 rule 1 describes the card snapping back on a
+  refusal. The server-side rules are enforced and a refused drag returns 409 with a reason, but
+  the board currently surfaces that as an error rather than an animation.

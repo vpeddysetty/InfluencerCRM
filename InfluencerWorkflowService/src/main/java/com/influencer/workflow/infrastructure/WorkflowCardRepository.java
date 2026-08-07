@@ -18,4 +18,7 @@ public interface WorkflowCardRepository extends JpaRepository<WorkflowCard, UUID
     List<WorkflowCard> findByUserIdAndBoardIdIsNullOrderByCreatedAtDesc(UUID userId);
 
     List<WorkflowCard> findByBrandIdAndBoardIdIsNullOrderByCreatedAtDesc(UUID brandId);
+
+    /** Cards tracking a landing page (Phase D) — how a stage change finds the card to move. */
+    List<WorkflowCard> findByBrandIdAndLandingTemplateId(UUID brandId, UUID landingTemplateId);
 }
