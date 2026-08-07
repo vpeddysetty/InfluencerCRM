@@ -127,6 +127,21 @@ public class Creator {
     @Column(name = "lead_source")
     private String leadSource;
 
+    // ---- Phase C2: vetting -------------------------------------------
+    // Distinct from `status` (active/inactive), which means whether the brand is currently
+    // working with them — not whether they passed vetting.
+
+    /** lead -> pending -> under_review -> approved | rejected. Only a human writes approved. */
+    @Column(name = "vetting_status", nullable = false)
+    private String vettingStatus;
+
+    @Column(name = "vetting_decided_at")
+    private Instant vettingDecidedAt;
+
+    /** Null when a rule decided; set when a human did. That pair is how the two are told apart. */
+    @Column(name = "vetting_decided_by_user_id")
+    private UUID vettingDecidedByUserId;
+
     @Column(name = "lead_landing_template_id")
     private UUID leadLandingTemplateId;
 
@@ -502,5 +517,29 @@ public class Creator {
 
     public void setLeadLandingTemplateId(UUID leadLandingTemplateId) {
         this.leadLandingTemplateId = leadLandingTemplateId;
+    }
+
+    public String getVettingStatus() {
+        return vettingStatus;
+    }
+
+    public void setVettingStatus(String vettingStatus) {
+        this.vettingStatus = vettingStatus;
+    }
+
+    public Instant getVettingDecidedAt() {
+        return vettingDecidedAt;
+    }
+
+    public void setVettingDecidedAt(Instant vettingDecidedAt) {
+        this.vettingDecidedAt = vettingDecidedAt;
+    }
+
+    public UUID getVettingDecidedByUserId() {
+        return vettingDecidedByUserId;
+    }
+
+    public void setVettingDecidedByUserId(UUID vettingDecidedByUserId) {
+        this.vettingDecidedByUserId = vettingDecidedByUserId;
     }
 }

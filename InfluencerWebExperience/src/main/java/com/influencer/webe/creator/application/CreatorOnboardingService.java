@@ -6,6 +6,8 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.influencer.webe.creator.infrastructure.CreatorClassificationClient;
 import com.influencer.webe.shared.application.ResponseShapeService;
 import com.influencer.webe.shared.infrastructure.DaoGatewayClient;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -32,6 +34,7 @@ import java.util.UUID;
  */
 @Service
 public class CreatorOnboardingService {
+    private static final Logger log = LoggerFactory.getLogger(CreatorOnboardingService.class);
 
     /** Platforms a handle may be resolved against — mirrors the creator service's enum. */
     private static final Set<String> PLATFORMS = Set.of("instagram", "tiktok", "youtube", "other");
@@ -40,15 +43,19 @@ public class CreatorOnboardingService {
     private final ResponseShapeService shape;
     private final CreatorClassificationClient agent;
     private final SocialProfileGateway profiles;
+    /** C2.3: rules run on lead creation. */
+    private final VettingService vetting;
 
     public CreatorOnboardingService(DaoGatewayClient dao,
                                     ResponseShapeService shape,
                                     CreatorClassificationClient agent,
-                                    SocialProfileGateway profiles) {
+                                    SocialProfileGateway profiles,
+                                    VettingService vetting) {
         this.dao = dao;
         this.shape = shape;
         this.agent = agent;
         this.profiles = profiles;
+        this.vetting = vetting;
     }
 
     /**
@@ -132,7 +139,17 @@ public class CreatorOnboardingService {
         }
 
         JsonNode saved = dao.post("/creators", body);
-        return shape.creator(saved);
+
+        // C2.3: rules run on lead creation. Best-effort — a lead must still be captured if the
+        // rule engine fails, because losing the creator is worse than leaving them unvetted.
+        // An unevaluated lead sits at `lead` and shows up as unhandled rather than silently
+        // passing as approved.
+        try {
+            return vetting.evaluate(brandId, UUID.fromString(saved.get("id").asText()), "lead_created");
+        } catch (RuntimeException e) {
+            log.warn("Vetting evaluation failed for new lead {}: {}", saved.path("id").asText(), e.toString());
+            return shape.creator(saved);
+        }
     }
 
     // ---- internals -----------------------------------------------------

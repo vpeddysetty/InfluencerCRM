@@ -14,6 +14,10 @@ public interface CreatorRepository extends JpaRepository<Creator, UUID> {
 	List<Creator> findByUserId(UUID userId);
 
 	List<Creator> findByBrandId(UUID brandId);
+
+	/** The review queue (C2.6): everything a rule did not resolve. */
+	List<Creator> findByBrandIdAndVettingStatus(UUID brandId, String vettingStatus);
+
 	@Query(value = "select * from creators where user_id = :userId and platform = cast(:platform as platform_type) and handle = :handle", nativeQuery = true)
 	Optional<Creator> findByUserIdAndPlatformAndHandle(@Param("userId") UUID userId, @Param("platform") String platform, @Param("handle") String handle);
 

@@ -127,7 +127,10 @@ public class ResponseShapeService {
                 "niche", "contentCategories", "contentThemes", "riskFlags",
                 "brandSafetyScore", "safetyNotes", "classificationSource", "classificationAt",
                 // How this creator entered the system.
-                "leadSource", "leadLandingTemplateId");
+                "leadSource", "leadLandingTemplateId",
+                // Phase C2 vetting. `vettingDecidedByUserId` is exposed because it is what
+                // distinguishes a human decision from a rule at a glance.
+                "vettingStatus", "vettingDecidedAt", "vettingDecidedByUserId");
     }
 
     public JsonNode campaignCreatorsList(JsonNode source, Integer page, Integer size) {

@@ -23,7 +23,11 @@ public class CreatorController {
     }
 
     @GetMapping
-    public List<Creator> findAll(@RequestParam(required = false) UUID brandId) {
+    public List<Creator> findAll(@RequestParam(required = false) UUID brandId,
+                                 @RequestParam(required = false) String vettingStatus) {
+        if (brandId != null && vettingStatus != null) {
+            return repository.findByBrandIdAndVettingStatus(brandId, vettingStatus);
+        }
         if (brandId != null) {
             return repository.findByBrandId(brandId);
         }
@@ -83,6 +87,12 @@ public class CreatorController {
         existing.setClassificationAt(creator.getClassificationAt());
         existing.setContentThemes(creator.getContentThemes());
         existing.setRiskFlags(creator.getRiskFlags());
+        // Phase C2. Written by the vetting service; carried here so a PUT does not reset them.
+        if (creator.getVettingStatus() != null) {
+            existing.setVettingStatus(creator.getVettingStatus());
+        }
+        existing.setVettingDecidedAt(creator.getVettingDecidedAt());
+        existing.setVettingDecidedByUserId(creator.getVettingDecidedByUserId());
         // lead_source / lead_landing_template_id are deliberately NOT updatable: how a creator
         // entered the system is a historical fact, and rewriting it would destroy the record of
         // which landing page produced the lead.
@@ -108,6 +118,10 @@ public class CreatorController {
         }
         if (creator.getRiskFlags() == null) {
             creator.setRiskFlags(new String[0]);
+        }
+        // NOT NULL with a default in the schema; a null here would fail the insert.
+        if (creator.getVettingStatus() == null || creator.getVettingStatus().isBlank()) {
+            creator.setVettingStatus("lead");
         }
         if (creator.getAudienceDemographics() == null || creator.getAudienceDemographics().isBlank()) {
             creator.setAudienceDemographics("{}");
