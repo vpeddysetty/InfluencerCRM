@@ -34,6 +34,11 @@ public class SecurityConfig {
     /** Endpoints that must remain reachable without a user token, and why. */
     private static final String[] PUBLIC_GET_PATHS = {
             "/health",
+            // Phase H. A liveness probe cannot hold a token, so this has to be reachable
+            // unauthenticated. `show-details=when-authorized` keeps the response to a bare
+            // status for anonymous callers — an unauthenticated probe learns "up", not which
+            // dependency is failing. The richer actuator endpoints stay authenticated.
+            "/actuator/health",
             "/s/**",                      // public creator landing pages — served to anonymous visitors
             // Asset bytes referenced BY those landing pages. They must load for anonymous
             // visitors or every published page renders with broken images. Keys are random

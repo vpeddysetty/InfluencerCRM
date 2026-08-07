@@ -1,5 +1,6 @@
 package com.influencer.webe.content.application;
 
+import com.influencer.webe.shared.application.PlatformMetrics;
 import com.influencer.webe.shared.application.ResponseShapeService;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -32,15 +33,19 @@ public class LandingService {
     private final LandingDocumentSanitizer sanitizer;
     /** Phase E: free hosting is time-limited, so rendering has to check the window. */
     private final BrandDomainService domains;
+    /** Phase H: render outcomes are the first thing to watch on a public surface. */
+    private final PlatformMetrics metrics;
 
     public LandingService(DaoGatewayClient dao,
                           ResponseShapeService shape,
                           LandingDocumentSanitizer sanitizer,
-                          BrandDomainService domains) {
+                          BrandDomainService domains,
+                          PlatformMetrics metrics) {
         this.dao = dao;
         this.shape = shape;
         this.sanitizer = sanitizer;
         this.domains = domains;
+        this.metrics = metrics;
     }
 
     /**
@@ -119,6 +124,7 @@ public class LandingService {
         recordView(brandId, coupon.get("id").asText(), referrer, userAgent);
 
         Map<String, String> tokens = buildTokens(brandId, coupon);
+        metrics.pageRendered("served");
         return renderHtml(template, coupon, tokens);
     }
 
@@ -171,6 +177,7 @@ public class LandingService {
         tokens.put("channel", "");
         tokens.put("creator.name", "our creators");
 
+        metrics.pageRendered("served");
         return renderHtml(template, placeholder, tokens);
     }
 
@@ -185,6 +192,7 @@ public class LandingService {
      */
     private void requireWithinHostingWindow(JsonNode template) {
         if (domains.isExpired(template)) {
+            metrics.pageRendered("expired");
             throw new ResponseStatusException(HttpStatus.GONE,
                     "This page is no longer hosted. Its free hosting period has ended — "
                             + "the content is safe and it can be republished once hosting is renewed.");

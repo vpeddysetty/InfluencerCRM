@@ -60,7 +60,10 @@ echo "################ C1: resolve a handle without persisting ################"
 RESOLVED=$(api POST /api/creators/resolve-handle "$TOKEN" '{"platform":"instagram","handle":"@glow_daily"}')
 rec C1 200 "$(st)" "handle resolved"
 rec C1b true "$(jqv "$RESOLVED" "['resolved']" | tr 'A-Z' 'a-z')" "profile found"
-BEFORE=$($PG -c "select count(*) from creator.creators where handle='glow_daily';" | tr -d '\r')
+# Scoped to THIS run's brand. A global count picks up rows the C2 and C3 suites create for
+# their own brands, which says nothing about whether resolve-handle persisted anything here.
+MY_BRAND=$($PG -c "select b.id from identity.brands b join identity.accounts a on a.id=b.account_id join identity.users u on u.id=a.legacy_user_id where u.email='$EMAIL';" | tr -d '\r')
+BEFORE=$($PG -c "select count(*) from creator.creators where handle='glow_daily' and brand_id='$MY_BRAND';" | tr -d '\r')
 rec C1c 0 "$BEFORE" "resolve-handle persisted NOTHING — looking is not saving"
 
 echo "################ C2: the adapter is deterministic ################"

@@ -2,6 +2,7 @@ package com.influencer.webe.content.application;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.influencer.webe.shared.application.PlatformMetrics;
 import com.influencer.webe.shared.application.ResponseShapeService;
 import com.influencer.webe.shared.infrastructure.DaoGatewayClient;
 import org.slf4j.Logger;
@@ -49,15 +50,19 @@ public class LandingStageService {
     private final LandingStageMachine machine;
     /** Phase E: reaching Published starts the free-hosting clock (decision #11). */
     private final BrandDomainService domains;
+    /** Phase H: a rise in refusals means the map disagrees with how people actually work. */
+    private final PlatformMetrics metrics;
 
     public LandingStageService(DaoGatewayClient dao,
                                ResponseShapeService shape,
                                LandingStageMachine machine,
-                               BrandDomainService domains) {
+                               BrandDomainService domains,
+                               PlatformMetrics metrics) {
         this.dao = dao;
         this.shape = shape;
         this.machine = machine;
         this.domains = domains;
+        this.metrics = metrics;
     }
 
     /**
@@ -86,6 +91,7 @@ public class LandingStageService {
 
         // Rule 2. Refused with 409 and a reason the UI can show when it snaps a card back.
         if (!machine.isAllowed(current, target)) {
+            metrics.stageTransition("refused");
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "Cannot move from '" + current + "' to '" + target + "'. Allowed from '"
                             + current + "': " + machine.allowedFrom(current));
@@ -128,6 +134,7 @@ public class LandingStageService {
                 ? "published" : template.path("status").asText("draft"));
         JsonNode updated = dao.put("/landing-templates/" + templateId, body);
 
+        metrics.stageTransition("accepted");
         recordTransition(brandId, templateId, current, target, source, key);
         syncCard(brandId, templateId, target, source, key);
 

@@ -3,6 +3,7 @@ package com.influencer.webe.creator.application;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.influencer.webe.shared.application.PlatformMetrics;
 import com.influencer.webe.shared.application.ResponseShapeService;
 import com.influencer.webe.shared.infrastructure.DaoGatewayClient;
 import org.slf4j.Logger;
@@ -45,12 +46,15 @@ public class CreatorHealthService {
     private final DaoGatewayClient dao;
     private final ResponseShapeService shape;
     private final SocialProfileGateway profiles;
+    /** Phase H: a spike means a threshold is wrong, not that every creator declined at once. */
+    private final PlatformMetrics metrics;
 
     public CreatorHealthService(DaoGatewayClient dao, ResponseShapeService shape,
-                                SocialProfileGateway profiles) {
+                                SocialProfileGateway profiles, PlatformMetrics metrics) {
         this.dao = dao;
         this.shape = shape;
         this.profiles = profiles;
+        this.metrics = metrics;
     }
 
     // ---- thresholds (C3.3) ----------------------------------------------
@@ -117,6 +121,7 @@ public class CreatorHealthService {
         for (ObjectNode alert : detect(brandId, creatorId, previous, profile, creator, thresholds)) {
             JsonNode raised = raise(alert);
             if (raised != null) {
+                metrics.healthAlertRaised(alert.path("alertType").asText("unknown"));
                 alerts.add(raised);
             }
         }

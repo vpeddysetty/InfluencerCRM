@@ -3,6 +3,7 @@ package com.influencer.webe.content.application;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.influencer.webe.shared.application.PlatformMetrics;
 import com.influencer.webe.shared.application.ResponseShapeService;
 import com.influencer.webe.shared.infrastructure.DaoGatewayClient;
 import org.springframework.http.HttpStatus;
@@ -47,11 +48,15 @@ public class AssetService {
     private final DaoGatewayClient dao;
     private final ResponseShapeService shape;
     private final AssetStoragePort storage;
+    /** Phase H: a rejection rate climbing usually means a real format we should accept. */
+    private final PlatformMetrics metrics;
 
-    public AssetService(DaoGatewayClient dao, ResponseShapeService shape, AssetStoragePort storage) {
+    public AssetService(DaoGatewayClient dao, ResponseShapeService shape, AssetStoragePort storage,
+                        PlatformMetrics metrics) {
         this.dao = dao;
         this.shape = shape;
         this.storage = storage;
+        this.metrics = metrics;
     }
 
     /**
@@ -85,6 +90,7 @@ public class AssetService {
         String declared = file.getContentType() == null ? "" : file.getContentType().toLowerCase(Locale.ROOT);
         String sniffed = sniffImageType(bytes);
         if (sniffed == null) {
+            metrics.assetUpload("rejected");
             throw new ResponseStatusException(HttpStatus.UNSUPPORTED_MEDIA_TYPE,
                     "Only PNG, JPEG, GIF, WebP and AVIF images can be uploaded");
         }
@@ -117,6 +123,7 @@ public class AssetService {
             storage.delete(key);
             throw e;
         }
+        metrics.assetUpload("accepted");
         return withUrl(saved);
     }
 

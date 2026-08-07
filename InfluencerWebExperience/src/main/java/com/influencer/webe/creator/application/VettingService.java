@@ -3,6 +3,7 @@ package com.influencer.webe.creator.application;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.influencer.webe.shared.application.PlatformMetrics;
 import com.influencer.webe.shared.application.ResponseShapeService;
 import com.influencer.webe.shared.infrastructure.DaoGatewayClient;
 import org.slf4j.Logger;
@@ -45,11 +46,15 @@ public class VettingService {
     private final DaoGatewayClient dao;
     private final ResponseShapeService shape;
     private final VettingRuleEngine engine;
+    /** Phase H: a rule change that starts rejecting most applicants shows up here first. */
+    private final PlatformMetrics metrics;
 
-    public VettingService(DaoGatewayClient dao, ResponseShapeService shape, VettingRuleEngine engine) {
+    public VettingService(DaoGatewayClient dao, ResponseShapeService shape, VettingRuleEngine engine,
+                          PlatformMetrics metrics) {
         this.dao = dao;
         this.shape = shape;
         this.engine = engine;
+        this.metrics = metrics;
     }
 
     // ---- rules CRUD ------------------------------------------------------
@@ -240,6 +245,7 @@ public class VettingService {
         stringifyJsonb(update, "audienceDemographics", "customAttributes");
         JsonNode saved = dao.put("/creators/" + creatorId, update);
 
+        metrics.vettingDecision(to, userId != null ? "human" : "rule");
         recordEvent(brandId, creatorId, from, to, ruleId, ruleName, reason, userId, trigger, creator);
         return shape.creator(saved);
     }
