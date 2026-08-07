@@ -84,7 +84,12 @@ public class SecurityConfig {
     private static final String[] CREATOR_PORTAL_PATHS = {
             "/api/creator-portal/me",
             "/api/creator-portal/collaborations",
-            "/api/creator-portal/claims"
+            "/api/creator-portal/claims",
+            // Phase G co-editing. Listed explicitly, like the rest: the controller resolves the
+            // portal session and then checks a collaborator grant against a confirmed identity
+            // link, so permitting the path here grants nothing on its own.
+            "/api/creator-portal/pages",
+            "/api/creator-portal/pages/*"
     };
 
     /**

@@ -1,0 +1,287 @@
+package com.influencer.webe.content.application;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.influencer.webe.shared.application.ResponseShapeService;
+import com.influencer.webe.shared.infrastructure.DaoGatewayClient;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
+
+import java.util.LinkedHashMap;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+
+/**
+ * Brand-creator co-editing of landing pages (roadmap Phase G, §6.1).
+ *
+ * <p><b>Access is a narrowing of a relationship the brand already approved.</b> A creator may
+ * be invited to co-edit a page only if they hold a <i>confirmed</i>
+ * {@code creator_identity_links} row against that page's brand. That link was approved by the
+ * brand, so page access grants nothing new in kind — and revoking the link revokes page access
+ * with it, leaving one place to cut off a creator rather than two.
+ *
+ * <p><b>Publishing is never a collaborator right.</b> Rights are comment or edit. A
+ * collaborator may shape a page; moving it to Published requires {@code content:publish}, which
+ * only account members hold. A creator cannot release a page to a brand's domain or social
+ * accounts.
+ *
+ * <p><b>Creators never own pages.</b> There is no create-page path here. Every landing page
+ * belongs to a brand (decision #1), and a creator with no brand relationship has nothing to
+ * build — consistent with the rest of the platform, where a creator is someone brands work
+ * with rather than an independent tenant.
+ */
+@Service
+public class PageCollaborationService {
+
+    private static final Set<String> RIGHTS = Set.of("comment", "edit");
+
+    private final DaoGatewayClient dao;
+    private final ResponseShapeService shape;
+
+    public PageCollaborationService(DaoGatewayClient dao, ResponseShapeService shape) {
+        this.dao = dao;
+        this.shape = shape;
+    }
+
+    // ---- brand side (G.2) -----------------------------------------------
+
+    /** Who can currently edit this page. */
+    public JsonNode list(UUID brandId, UUID templateId) {
+        requireOwnedPage(brandId, templateId);
+        Map<String, String> q = new LinkedHashMap<>();
+        q.put("landingTemplateId", templateId.toString());
+        JsonNode rows = dao.get("/landing-page-collaborators", q);
+        return rows == null ? shape.objectMapper().createArrayNode() : rows;
+    }
+
+    /**
+     * Invite a creator to co-edit (G.2).
+     *
+     * <p>Refused unless the creator holds a confirmed link to this brand. That check is the
+     * whole security model of this phase: without it, a brand could grant page access to any
+     * portal identity, including creators who have never agreed to work with them.
+     */
+    public JsonNode invite(UUID brandId, UUID templateId, UUID creatorIdentityId,
+                           String rights, UUID grantedByUserId) {
+        requireOwnedPage(brandId, templateId);
+
+        String normalized = rights == null ? "edit" : rights.trim().toLowerCase(Locale.ROOT);
+        if (!RIGHTS.contains(normalized)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Rights must be 'comment' or 'edit'. A collaborator cannot be granted publish — "
+                            + "releasing a page to a domain or a social account stays with the brand.");
+        }
+        requireConfirmedLink(brandId, creatorIdentityId);
+
+        ObjectNode body = shape.objectMapper().createObjectNode();
+        body.put("landingTemplateId", templateId.toString());
+        body.put("brandId", brandId.toString());
+        body.put("creatorIdentityId", creatorIdentityId.toString());
+        body.put("rights", normalized);
+        if (grantedByUserId != null) {
+            body.put("grantedByUserId", grantedByUserId.toString());
+        }
+        return dao.post("/landing-page-collaborators", body);
+    }
+
+    /** Revoke access. The row stays, marked revoked, so the history of access survives. */
+    public JsonNode revoke(UUID brandId, UUID collaboratorId, UUID revokedByUserId) {
+        JsonNode row = findCollaborator(collaboratorId);
+        if (row == null || !row.path("brandId").asText("").equals(brandId.toString())) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Collaborator not found");
+        }
+        // The DAO's delete takes no query map, so the attribution rides on the URL. Revoking
+        // marks the row rather than removing it, so who had access and when survives.
+        String path = "/landing-page-collaborators/" + collaboratorId
+                + (revokedByUserId == null ? "" : "?revokedByUserId=" + revokedByUserId);
+        dao.delete(path);
+        return shape.objectMapper().createObjectNode().put("revoked", true);
+    }
+
+    // ---- creator side (G.3) ---------------------------------------------
+
+    /**
+     * The pages this creator identity may edit.
+     *
+     * <p>Each entry re-checks the confirmed link. A revoked identity link therefore removes page
+     * access immediately without needing a second revocation to be issued — which is the point
+     * of hanging access off the link rather than duplicating it.
+     */
+    public JsonNode pagesForCreator(UUID creatorIdentityId) {
+        Map<String, String> q = new LinkedHashMap<>();
+        q.put("creatorIdentityId", creatorIdentityId.toString());
+        JsonNode grants = dao.get("/landing-page-collaborators", q);
+
+        ArrayNode out = shape.objectMapper().createArrayNode();
+        if (grants == null || !grants.isArray()) {
+            return out;
+        }
+        for (JsonNode grant : grants) {
+            UUID brandId = UUID.fromString(grant.get("brandId").asText());
+            if (!hasConfirmedLink(brandId, creatorIdentityId)) {
+                // The brand revoked the underlying relationship. Access goes with it.
+                continue;
+            }
+            JsonNode page = dao.get("/landing-templates/" + grant.get("landingTemplateId").asText(), null);
+            if (page == null) {
+                continue;
+            }
+            ObjectNode entry = shape.objectMapper().createObjectNode();
+            entry.set("page", shape.landingTemplate(page));
+            entry.put("rights", grant.path("rights").asText("edit"));
+            entry.put("collaboratorId", grant.path("id").asText());
+            out.add(entry);
+        }
+        return out;
+    }
+
+    /**
+     * Save a page as a collaborating creator (G.3).
+     *
+     * <p>Deliberately narrower than the brand-side save. A collaborator may change the page
+     * CONTENT and nothing else: not its status, not its stage, not its slug. Publishing is a
+     * brand action, and letting a collaborator set {@code status} would route around that.
+     */
+    public JsonNode saveAsCollaborator(UUID creatorIdentityId, UUID templateId, ObjectNode payload) {
+        JsonNode grant = requireEditRights(creatorIdentityId, templateId);
+        JsonNode page = dao.get("/landing-templates/" + templateId, null);
+        if (page == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Landing page not found");
+        }
+
+        ObjectNode body = shape.objectMapper().createObjectNode();
+        // Identity fields come from the STORED page, never from the caller.
+        body.put("brandId", page.get("brandId").asText());
+        body.put("campaignId", page.get("campaignId").asText());
+        body.put("publicSlug", page.get("publicSlug").asText());
+        body.put("name", page.path("name").asText("Landing page"));
+        // Status and stage are carried over unchanged — a collaborator cannot publish.
+        body.put("status", page.path("status").asText("draft"));
+        body.put("stage", page.path("stage").asText("draft"));
+
+        // Only the content moves.
+        JsonNode document = payload.get("document");
+        if (document != null && !document.isNull()) {
+            try {
+                body.put("document", shape.objectMapper().writeValueAsString(document));
+            } catch (Exception e) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unreadable document");
+            }
+        }
+        JsonNode blocks = payload.get("blocks");
+        if (blocks != null && blocks.isArray()) {
+            try {
+                body.put("blocks", shape.objectMapper().writeValueAsString(blocks));
+            } catch (Exception ignored) {
+                // Leave blocks alone rather than failing the save.
+            }
+        }
+
+        JsonNode saved = dao.put("/landing-templates/" + templateId, body);
+        snapshotVersion(page, saved, grant);
+        return shape.landingTemplate(saved);
+    }
+
+    // ---- access checks ---------------------------------------------------
+
+    /**
+     * The grant that lets this creator edit this page, or a 404.
+     *
+     * <p>404 rather than 403 throughout: a creator poking at page ids should not be able to
+     * learn which ones exist.
+     */
+    public JsonNode requireEditRights(UUID creatorIdentityId, UUID templateId) {
+        Map<String, String> q = new LinkedHashMap<>();
+        q.put("landingTemplateId", templateId.toString());
+        q.put("creatorIdentityId", creatorIdentityId.toString());
+        JsonNode rows = dao.get("/landing-page-collaborators", q);
+        if (rows == null || !rows.isArray() || rows.size() == 0) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Landing page not found");
+        }
+        JsonNode grant = rows.get(0);
+        if (!"edit".equalsIgnoreCase(grant.path("rights").asText(""))) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "You have comment access to this page, not edit access.");
+        }
+        // Re-check the underlying relationship on every edit, not just at invite time.
+        UUID brandId = UUID.fromString(grant.get("brandId").asText());
+        if (!hasConfirmedLink(brandId, creatorIdentityId)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Landing page not found");
+        }
+        return grant;
+    }
+
+    private boolean hasConfirmedLink(UUID brandId, UUID creatorIdentityId) {
+        JsonNode links = dao.get("/creator-identities/" + creatorIdentityId + "/links", null);
+        if (links == null || !links.isArray()) {
+            return false;
+        }
+        for (JsonNode link : links) {
+            if (brandId.toString().equals(link.path("brandId").asText())
+                    && "confirmed".equalsIgnoreCase(link.path("status").asText(""))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void requireConfirmedLink(UUID brandId, UUID creatorIdentityId) {
+        if (!hasConfirmedLink(brandId, creatorIdentityId)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "This creator has no confirmed relationship with your brand. Approve their claim "
+                            + "(or invite them) before granting page access.");
+        }
+    }
+
+    private JsonNode requireOwnedPage(UUID brandId, UUID templateId) {
+        JsonNode page = dao.get("/landing-templates/" + templateId, null);
+        if (page == null || !page.hasNonNull("brandId")
+                || !page.get("brandId").asText().equals(brandId.toString())) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Landing page not found");
+        }
+        return page;
+    }
+
+    private JsonNode findCollaborator(UUID collaboratorId) {
+        // A single-row read. The earlier version listed with an empty filter, which the DAO
+        // answers with an empty array on purpose (an unfiltered list would be a cross-tenant
+        // leak) — so the tenancy check always failed and revoke returned 404 for everyone.
+        try {
+            return dao.get("/landing-page-collaborators/" + collaboratorId, null);
+        } catch (RuntimeException e) {
+            // A miss surfaces as a 502 from the gateway (the DAO throws), which is the same
+            // outcome as not found for the caller: 404, never a leak that the id exists.
+            return null;
+        }
+    }
+
+    /**
+     * Version the collaborator's save (A.5).
+     *
+     * <p>This is what makes co-editing safe without a CRDT: an overwrite by either side is
+     * recoverable, which is the whole argument for deferring simultaneous editing (G.6).
+     */
+    private void snapshotVersion(JsonNode before, JsonNode saved, JsonNode grant) {
+        try {
+            ObjectNode version = shape.objectMapper().createObjectNode();
+            version.put("landingTemplateId", saved.get("id").asText());
+            version.put("brandId", saved.get("brandId").asText());
+            version.put("name", saved.path("name").asText("Landing page"));
+            version.put("stage", saved.path("stage").asText("draft"));
+            for (String field : new String[]{"document", "blocks", "theme"}) {
+                JsonNode node = saved.get(field);
+                if (node != null && !node.isNull()) {
+                    version.put(field, node.isTextual() ? node.asText()
+                            : shape.objectMapper().writeValueAsString(node));
+                }
+            }
+            dao.post("/landing-template-versions", version);
+        } catch (Exception ignored) {
+            // History is auxiliary; never fail a collaborator's save for it.
+        }
+    }
+}
