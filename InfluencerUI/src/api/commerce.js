@@ -76,8 +76,22 @@ export async function simulateOrder(token, payload) {
   return request('/api/attribution/simulate', { method: 'POST', token, body: payload })
 }
 
-export async function getInfluencerRevenue(token) {
-  return request('/api/analytics/influencer-revenue', { token })
+/**
+ * Attributed revenue, optionally narrowed to a date window.
+ *
+ * `from`/`to` are inclusive `yyyy-MM-dd` strings. Omitting both asks for all time, which is what
+ * the dashboard requested before it had a range control.
+ */
+export async function getInfluencerRevenue(token, { from, to } = {}) {
+  const params = new URLSearchParams()
+  if (from) {
+    params.set('from', from)
+  }
+  if (to) {
+    params.set('to', to)
+  }
+  const query = params.toString()
+  return request(`/api/analytics/influencer-revenue${query ? `?${query}` : ''}`, { token })
 }
 
 // ---- campaign briefs (content Phase 1) ----

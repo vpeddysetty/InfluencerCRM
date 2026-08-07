@@ -1,8 +1,11 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import './App.css'
+import './components/ui/ui.css'
+import { ToastProvider } from './components/ui'
 import { DEFAULT_ROUTE } from './shell/routeManifest'
 import LandingPage from './pages/LandingPage'
+import AcceptInvitationPage from './pages/AcceptInvitationPage'
 import ImportPage from './pages/ImportPage'
 import CampaignsPage from './pages/CampaignsPage'
 import CreatorsPage from './pages/CreatorsPage'
@@ -16,6 +19,7 @@ import ContentPage from './pages/ContentPage'
 import WorkspaceLayout from './components/WorkspaceLayout'
 import { SessionProvider } from './shell/SessionContext'
 import {
+  createBrand,
   createCampaign,
   createCreator,
   listWorkflowBoards,
@@ -51,6 +55,7 @@ import {
   simulateOrder,
   getInfluencerRevenue,
   listCommissions,
+  acceptInvitation,
   approveCommission,
   listPayouts,
   createPayoutBatch,
@@ -84,6 +89,9 @@ import {
   updateImportColumnMapping,
   updateCreator,
 } from './api'
+// Imported directly rather than through the './api' barrel: analytics is cross-cutting, not a
+// context slice, and a remote that imports one slice should not pull instrumentation with it.
+import { EVENTS, identify, resetIdentity, setAnalyticsBrand, track } from './api/analytics'
 import { createImportMappingJson, createImportMappingJsonFromAgent, parseSpreadsheetFile, DEFAULT_BOARD_STAGES } from './constants'
 
 // v3: tenancy moved from the user to the active brand. A v2 snapshot has no brandId, so its
@@ -599,7 +607,9 @@ function App() {
     const email = isSignUp ? rawIdentifier : normalizeLoginEmail(rawIdentifier)
     const inferredName = email.includes('@') ? email.split('@')[0] : email
     const name = String(form.get('fullName') || inferredName || 'Brand Operator')
-    const company = String(form.get('brand') || 'tejdux.io')
+    // Falls back to the person's own name rather than this platform's domain: an empty brand
+    // field should not silently name someone's workspace after us.
+    const company = String(form.get('brand') || '').trim() || `${name}'s workspace`
     const password = String(form.get('password') || '')
     // The landing page's workspace-type radio. Absent on the login tab, and defaulted rather
     // than sent blank so the server's own default stays the single source of that rule.
@@ -620,6 +630,19 @@ function App() {
       setRefreshToken(authResponse.refreshToken || '')
       applyBrandFromAuth(authResponse)
       setIsLoggedIn(true)
+
+      // Identify before tracking, so the signup event carries its ids rather than arriving
+      // anonymous and needing to be stitched later.
+      identify({
+        userId: authResponse.userId,
+        accountId: authResponse.accountId,
+        brandId: authResponse.brandId,
+      })
+      if (isSignUp) {
+        // The denominator for M4's activation metric — "% of signups that complete an import
+        // within 24h" is meaningless without a reliable count of signups.
+        track(EVENTS.SIGNUP, { accountType })
+      }
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : 'Authentication failed.')
       throw error
@@ -639,6 +662,9 @@ function App() {
     // Set the header source synchronously — a later effect would let the first
     // workspace request escape without the brand header.
     setActiveBrandId(nextBrandId)
+    // Keep events attributed to the same tenant the requests go to. Analytics follows the brand
+    // header for the same reason: one place decides the tenant.
+    setAnalyticsBrand(nextBrandId)
   }
 
   const handleSwitchBrand = async (nextBrandId) => {
@@ -669,6 +695,34 @@ function App() {
     }
   }
 
+  /**
+   * Creates a brand and switches into it.
+   *
+   * Switching is not a convenience — a brand created and left in the background looks like
+   * nothing happened, and the account still appears to have one brand until the next reload.
+   * Delegating to handleSwitchBrand rather than reimplementing it also means the token is
+   * re-minted (role and permissions are per-brand) and the previous brand's cached rows are
+   * cleared, both of which this path needs for exactly the same reasons.
+   */
+  const createBrandRecord = async (name) => {
+    const created = await createBrand(authToken, name)
+
+    // Refresh from the server rather than appending locally: listBrands is the authority on
+    // which brands this user can reach, and the new row needs its server-assigned id anyway.
+    try {
+      const brands = await listBrands(authToken)
+      setAvailableBrands(Array.isArray(brands) ? brands : brands?.items || [])
+    } catch {
+      // Non-fatal — the switch below refreshes the session, and a stale list self-corrects on
+      // the next load. Failing here would strand a brand that was created successfully.
+    }
+
+    if (created?.brandId || created?.id) {
+      await handleSwitchBrand(created.brandId || created.id)
+    }
+    return created
+  }
+
   const establishSession = (authResponse) => {
     const email = authResponse.email || ''
     const inferredName = email.includes('@') ? email.split('@')[0] : email
@@ -679,6 +733,14 @@ function App() {
     setRefreshToken(authResponse.refreshToken || '')
     applyBrandFromAuth(authResponse)
     setIsLoggedIn(true)
+    // Covers social sign-in and session restore — the paths that never touch handleAuthSubmit.
+    // Without this a returning user's events would arrive anonymous, and week-two retention
+    // (the exact thing M4 measures) is entirely returning users.
+    identify({
+      userId: authResponse.userId,
+      accountId: authResponse.accountId,
+      brandId: authResponse.brandId,
+    })
   }
 
   /**
@@ -962,6 +1024,14 @@ function App() {
       setImportAction('hydrate')
       await syncImportMapping()
       const hydrateResult = await hydrateImportBatch(authToken, importSummary.batchId, selectedRows)
+      // Hydration is where an import becomes creators in the workspace — the actual moment of
+      // first value, and the numerator for M4's activation metric. Tracked here rather than at
+      // upload, because an uploaded file that is never hydrated has activated nobody.
+      track(EVENTS.IMPORT_COMPLETED, {
+        createdCount: hydrateResult.createdCount || 0,
+        updatedCount: hydrateResult.updatedCount || 0,
+        skippedCount: hydrateResult.skippedCount || 0,
+      })
       setImportSummary((prev) => ({
         ...prev,
         hydrateResult,
@@ -1079,6 +1149,8 @@ function App() {
     setWorkspaceError('')
     const created = await generateCoupon(authToken, { userId, ...payload })
     setCoupons((prev) => [created, ...prev])
+    // Step four of the Act 1 demo script, and the point where attribution becomes possible.
+    track(EVENTS.COUPON_CREATED, { bulk: false })
     return created
   }
 
@@ -1086,6 +1158,9 @@ function App() {
     setWorkspaceError('')
     const created = await generateCouponsBulk(authToken, { userId, ...payload })
     setCoupons((prev) => [...created, ...prev])
+    // One event carrying a count, not N events. A bulk generate is one user action, and
+    // emitting one per coupon would make the funnel's coupon step outrank its own signup step.
+    track(EVENTS.COUPON_CREATED, { bulk: true, count: created?.length || 0 })
     return created
   }
 
@@ -1139,10 +1214,21 @@ function App() {
   }
 
   // ---- analytics / attribution ---------------------------------------
-  const loadInfluencerRevenue = async () => getInfluencerRevenue(authToken)
+  // useCallback because DashboardPage lists this in a useEffect dependency chain — the date-range
+  // refresh. A new function identity every render would refetch analytics on every render, which
+  // is an infinite loop rather than merely wasteful. Keyed on the token, so a re-auth still
+  // produces a fresh closure.
+  const loadInfluencerRevenue = useCallback(
+    async (range) => getInfluencerRevenue(authToken, range),
+    [authToken],
+  )
 
   const simulateOrderRecord = async (payload) => {
     const result = await simulateOrder(authToken, { userId, ...payload })
+    // `simulated: true` is not decoration. This path is the debug-gated simulator, so without
+    // the flag these events would inflate the same attribution metric that real Shopify orders
+    // land in from M3 — and the number would look best exactly when it was least real.
+    track(EVENTS.ORDER_ATTRIBUTED, { simulated: true, status: payload?.status || 'purchase' })
     // Refresh coupons so sync/attribution-derived state stays current.
     try {
       const refreshed = await listCoupons(authToken)
@@ -1167,6 +1253,24 @@ function App() {
   }
   const loadInvitations = async () => listInvitations(authToken)
   const inviteMemberRecord = async (payload) => inviteMember(authToken, payload)
+
+  /**
+   * Redeems an invitation and refreshes the brand list.
+   *
+   * The refresh is what makes acceptance visible: joining an account adds a brand the user can
+   * reach, and without re-reading the list the switcher would not show it until the next reload.
+   */
+  const acceptInvitationRecord = async (invitationToken) => {
+    const result = await acceptInvitation(authToken, invitationToken)
+    try {
+      const brands = await listBrands(authToken)
+      setAvailableBrands(Array.isArray(brands) ? brands : brands?.items || [])
+    } catch {
+      // Non-fatal: the membership is granted server-side regardless, and the list self-corrects
+      // on the next load. Failing here would report an error for an acceptance that succeeded.
+    }
+    return result
+  }
   const revokeInvitationRecord = async (id) => revokeInvitation(authToken, id)
   const updateMemberRoleRecord = async (memberUserId, role) =>
     updateMemberRole(authToken, memberUserId, role)
@@ -1238,12 +1342,17 @@ function App() {
         handle: creatorForm.handle.trim(),
         platform: normalizePlatformForPayload(creatorForm.platform),
         email: creatorForm.email.trim(),
+        // null rather than '' when blank: the column is numeric and would reject an empty string,
+        // and "no rate agreed" is a real state distinct from a rate of zero.
+        preferredRate: String(creatorForm.preferredRate ?? '').trim() === ''
+          ? null
+          : Number(creatorForm.preferredRate),
         customAttributes,
       })
 
       setCreators((prev) => [nextCreator, ...prev])
       setAssignmentForm((prev) => ({ ...prev, creatorId: nextCreator.id || prev.creatorId }))
-      setCreatorForm({ name: '', handle: '', platform: 'instagram', email: '', customAttributes: [] })
+      setCreatorForm({ name: '', handle: '', platform: 'instagram', email: '', preferredRate: '', customAttributes: [] })
     } catch (error) {
       setWorkspaceError(error instanceof Error ? error.message : 'Unable to create creator.')
     }
@@ -1263,6 +1372,9 @@ function App() {
       handle: payload.handle,
       platform: normalizePlatformForPayload(payload.platform),
       email: payload.email,
+      // Carried explicitly. `...existing` below would otherwise win and the optimistic row would
+      // show the old rate until the next refetch — the field looking like it failed to save.
+      preferredRate: payload.preferredRate ?? null,
       customAttributes,
     }
 
@@ -1459,6 +1571,14 @@ function App() {
       setWorkspaceError('')
       const updated = await placeWorkflowCard(authToken, cardId, { boardId, stageId })
       setWorkflowCards((prev) => prev.map((c) => (c.id === cardId ? updated : c)))
+      // After the server confirms, not on the optimistic update above. This placement rolls back
+      // on failure, and an event emitted before that would count moves that never happened —
+      // in the metric M4 uses to judge whether anyone came back in week two.
+      track(EVENTS.CARD_MOVED, {
+        // Whether the move crossed boards or only changed stage. Same gesture, different
+        // meaning: stage progress is pipeline movement, a board change is reorganisation.
+        changedBoard: (existing.boardId || null) !== (boardId || null),
+      })
     } catch (error) {
       setWorkflowCards((prev) => prev.map((c) => (c.id === cardId ? existing : c)))
       setWorkspaceError(error instanceof Error ? error.message : 'Unable to place card.')
@@ -1501,12 +1621,29 @@ function App() {
     setActiveBrandId('')
     setWorkspaceError('')
     setAuthError('')
+    // Clear analytics identity with the rest of the session. On a shared browser, leaving it set
+    // would attribute the next person's events to whoever signed in last.
+    resetIdentity()
   }
 
   return (
+    <ToastProvider>
     <Routes>
       {!isLoggedIn ? (
         <>
+          {/* Declared BEFORE the catch-all, which would otherwise swallow it and drop the token
+              from the URL. An invitee almost never has an account yet, so this route existing
+              signed-out is the point rather than an edge case. */}
+          <Route
+            path="/accept-invitation"
+            element={
+              <AcceptInvitationPage
+                isLoggedIn={false}
+                onAccept={acceptInvitationRecord}
+                onGoToSignIn={() => setIsSignUp(false)}
+              />
+            }
+          />
           <Route
             path="*"
             element={
@@ -1548,6 +1685,7 @@ function App() {
                   brands={availableBrands}
                   activeBrandId={brandId}
                   onSwitchBrand={handleSwitchBrand}
+                  onCreateBrand={createBrandRecord}
                   role={role}
                   permissions={permissions}
                   progress={{
@@ -1556,9 +1694,6 @@ function App() {
                     cardCount: workflowCards.length,
                     importedCount: importBatches.length,
                   }}
-                  isFirstVisit={
-                    creators.length === 0 && campaigns.length === 0 && importBatches.length === 0
-                  }
                 />
               </SessionProvider>
             }
@@ -1722,11 +1857,25 @@ function App() {
                 />
               }
             />
+            {/* Also before the catch-all, which redirects to the dashboard and would discard the
+                token. This is the path taken when someone signs in first and then follows the
+                link, or is already signed in when it arrives. */}
+            <Route
+              path="/accept-invitation"
+              element={
+                <AcceptInvitationPage
+                  isLoggedIn
+                  onAccept={acceptInvitationRecord}
+                  onGoToSignIn={() => {}}
+                />
+              }
+            />
             <Route path="*" element={<Navigate to={DEFAULT_ROUTE} replace />} />
           </Route>
         </>
       )}
     </Routes>
+    </ToastProvider>
   )
 }
 

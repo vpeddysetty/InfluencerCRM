@@ -1,6 +1,19 @@
-import { useEffect, useMemo, useState } from 'react'
-import { MdsKicker, MdsSectionRule } from '../components/Mds'
+import { useMemo, useState } from 'react'
 import CustomAttributesEditor from '../components/CustomAttributesEditor'
+import { exportCsv } from '../api/csv'
+import {
+  Badge,
+  BulkActionBar,
+  ConfirmDialog,
+  DataTable,
+  Drawer,
+  EmptyState,
+  Field,
+  FilterBar,
+  PageHeader,
+  useToast,
+} from '../components/ui'
+import { useUrlFilters } from '../shell/useUrlFilters'
 
 function sanitizePairs(pairs) {
   return Array.isArray(pairs)
@@ -8,12 +21,51 @@ function sanitizePairs(pairs) {
     : []
 }
 
-const SORT_OPTIONS = [
-  { value: 'name-asc', label: 'Name A–Z' },
-  { value: 'name-desc', label: 'Name Z–A' },
-  { value: 'handle-asc', label: 'Handle A–Z' },
-  { value: 'platform-asc', label: 'Platform' },
+const PLATFORM_OPTIONS = [
+  { value: 'instagram', label: 'Instagram' },
+  { value: 'tiktok', label: 'TikTok' },
+  { value: 'youtube', label: 'YouTube' },
+  { value: 'other', label: 'Other' },
 ]
+
+const EMPTY_DRAFT = { name: '', handle: '', platform: 'instagram', email: '', preferredRate: '', customAttributes: [] }
+
+/**
+ * Formats the per-brand negotiated rate for display.
+ *
+ * Empty rather than `0` when unset: an unset rate and a rate genuinely negotiated to zero are
+ * different facts, and showing `$0` for "we haven't agreed a rate" is a number someone will quote
+ * back in a negotiation. Same reasoning as C8c, where an unresolvable handle leaves follower count
+ * absent rather than writing 0 and silently failing every `< 5000` vetting rule.
+ */
+function formatRate(value) {
+  if (value === null || value === undefined || value === '') {
+    return ''
+  }
+  const amount = Number(value)
+  if (!Number.isFinite(amount)) {
+    return ''
+  }
+  return amount.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
+}
+
+/** Two initials, for the row avatar. A list of names is far easier to scan with a shape beside it. */
+function initialsOf(name) {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean)
+  if (!parts.length) {
+    return '—'
+  }
+  if (parts.length === 1) {
+    return parts[0].slice(0, 2).toUpperCase()
+  }
+  return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase()
+}
+
+function platformLabel(platform) {
+  const normalized = String(platform || '').toLowerCase()
+  return PLATFORM_OPTIONS.find((option) => option.value === normalized)?.label
+    || (normalized ? normalized.charAt(0).toUpperCase() + normalized.slice(1) : '—')
+}
 
 /**
  * Free-text match across the fields someone would reach for Ctrl+F to find: name, handle,
@@ -40,21 +92,6 @@ function matchesQuery(creator, query, pairsOf) {
   return haystack.includes(query)
 }
 
-function compareCreators(a, b, sortBy) {
-  const text = (value) => String(value || '').toLowerCase()
-  switch (sortBy) {
-    case 'name-desc':
-      return text(b?.name).localeCompare(text(a?.name))
-    case 'handle-asc':
-      return text(a?.handle).localeCompare(text(b?.handle))
-    case 'platform-asc':
-      return text(a?.platform).localeCompare(text(b?.platform)) || text(a?.name).localeCompare(text(b?.name))
-    case 'name-asc':
-    default:
-      return text(a?.name).localeCompare(text(b?.name))
-  }
-}
-
 function buildSnapshot(draft) {
   return JSON.stringify({
     name: String(draft?.name || '').trim(),
@@ -77,16 +114,33 @@ function CreatorsPage({
   onCreateCreator,
   onUpdateCreator,
 }) {
+  const toast = useToast()
+
+  // '' (closed) | 'create' | 'edit'. One drawer serves both: creation moved off the page so the
+  // directory owns the first screen, and an edit is the same form with different initial values.
+  const [drawerMode, setDrawerMode] = useState('')
   const [editingId, setEditingId] = useState('')
-  const [editDraft, setEditDraft] = useState({ name: '', handle: '', platform: 'instagram', email: '', customAttributes: [] })
+  const [editDraft, setEditDraft] = useState(EMPTY_DRAFT)
   const [editSnapshot, setEditSnapshot] = useState('')
-  const [savingId, setSavingId] = useState('')
-  const [rowFeedback, setRowFeedback] = useState({ id: '', type: '', message: '' })
+  const [saving, setSaving] = useState(false)
+  const [formError, setFormError] = useState('')
+  const [confirmDiscard, setConfirmDiscard] = useState(false)
   const [createAttrValidation, setCreateAttrValidation] = useState({ hasDuplicateKeys: false, hasMissingKeys: false })
   const [editAttrValidation, setEditAttrValidation] = useState({ hasDuplicateKeys: false, hasMissingKeys: false })
-  const [search, setSearch] = useState('')
-  const [platformFilter, setPlatformFilter] = useState('')
-  const [sortBy, setSortBy] = useState('name-asc')
+
+  // Filters live in the URL, so a filtered directory is a link someone can send. See
+  // useUrlFilters — this is also the groundwork for saved views.
+  const [filters, setFilters, clearUrlFilters] = useUrlFilters({
+    q: '',
+    platform: '',
+    sort: 'name',
+    dir: 'asc',
+  })
+  const { q: search, platform: platformFilter, sort: sortBy, dir: sortDir } = filters
+
+  // Selection is a Set of creator ids. Deliberately NOT in the URL: a link should carry which
+  // rows someone is looking at, not which they had ticked.
+  const [selectedIds, setSelectedIds] = useState(() => new Set())
 
   // Only offer platforms actually present, so the filter never lists an option that yields nothing.
   const availablePlatforms = useMemo(() => {
@@ -102,334 +156,447 @@ function CreatorsPage({
 
   const visibleCreators = useMemo(() => {
     const query = search.trim().toLowerCase()
+    const direction = sortDir === 'asc' ? 1 : -1
     return (creators || [])
       .filter((creator) => matchesQuery(creator, query, customAttributesToPairs))
       .filter((creator) => !platformFilter || String(creator?.platform || '').toLowerCase() === platformFilter)
-      .sort((a, b) => compareCreators(a, b, sortBy))
-  }, [creators, search, platformFilter, sortBy, customAttributesToPairs])
+      .sort((a, b) => {
+        const text = (value) => String(value || '').toLowerCase()
+        const primary = text(a?.[sortBy]).localeCompare(text(b?.[sortBy])) * direction
+        // Ties fall back to name, so repeated sorts on a low-cardinality column such as
+        // platform stay stable rather than reshuffling rows on every click.
+        return primary || text(a?.name).localeCompare(text(b?.name))
+      })
+  }, [creators, search, platformFilter, sortBy, sortDir, customAttributesToPairs])
 
   const totalCount = (creators || []).length
   const isFiltered = Boolean(search.trim() || platformFilter)
 
   const clearFilters = () => {
-    setSearch('')
-    setPlatformFilter('')
+    clearUrlFilters()
   }
 
-  useEffect(() => {
-    if (!editingId) {
-      return undefined
+  const toggleSort = (key) => {
+    if (key === sortBy) {
+      setFilters({ dir: sortDir === 'asc' ? 'desc' : 'asc' })
+      return
     }
+    setFilters({ sort: key, dir: 'asc' })
+  }
 
-    const originalOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
+  // Selected rows that survived the current filter. Acting on a selection the user can no longer
+  // see is how bulk operations go wrong — narrowing the filter after selecting must narrow what
+  // an action applies to.
+  const selectedVisible = useMemo(
+    () => visibleCreators.filter((creator) => selectedIds.has(creator.id)),
+    [visibleCreators, selectedIds],
+  )
 
-    return () => {
-      document.body.style.overflow = originalOverflow
-    }
-  }, [editingId])
+  const clearSelection = () => setSelectedIds(new Set())
 
-  const closeEdit = () => {
+  const exportSelected = () => {
+    exportCreators(selectedVisible)
+    toast.success(`Exported ${selectedVisible.length} creator${selectedVisible.length === 1 ? '' : 's'}.`)
+  }
+
+  const openCreate = () => {
+    setFormError('')
     setEditingId('')
-    setEditSnapshot('')
-    setSavingId('')
-    setRowFeedback({ id: '', type: '', message: '' })
+    setCreatorForm({ ...EMPTY_DRAFT })
+    setDrawerMode('create')
   }
 
-  const requestCloseEdit = () => {
-    if (!editingId || savingId === editingId) {
-      return
-    }
-
-    const hasUnsavedChanges = editSnapshot && editSnapshot !== buildSnapshot(editDraft)
-    if (hasUnsavedChanges && !window.confirm('You have unsaved changes. Discard them and close?')) {
-      return
-    }
-
-    closeEdit()
-  }
-
-  useEffect(() => {
-    if (!editingId) {
-      return undefined
-    }
-
-    const onKeyDown = (event) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        requestCloseEdit()
-      }
-    }
-
-    window.addEventListener('keydown', onKeyDown)
-    return () => {
-      window.removeEventListener('keydown', onKeyDown)
-    }
-  }, [editingId, savingId, editDraft, editSnapshot])
-
-  const startEdit = (creator) => {
-    setRowFeedback({ id: '', type: '', message: '' })
+  const openEdit = (creator) => {
+    setFormError('')
     setEditingId(creator.id)
     const nextDraft = {
       name: creator.name || '',
       handle: creator.handle || '',
       platform: String(creator.platform || 'instagram').toLowerCase(),
       email: creator.email || '',
+      // `?? ''` rather than `|| ''`: a rate of 0 is a real negotiated value and must survive into
+      // the form. `||` would replace it with an empty field and silently discard it on save.
+      preferredRate: creator.preferredRate ?? '',
       customAttributes: customAttributesToPairs(creator.customAttributes),
     }
     setEditDraft(nextDraft)
     setEditSnapshot(buildSnapshot(nextDraft))
+    setDrawerMode('edit')
   }
 
-  const saveEdit = async () => {
-    if (!editingId || !editDraft.name.trim() || !editDraft.handle.trim()) {
+  const closeDrawer = () => {
+    setDrawerMode('')
+    setEditingId('')
+    setEditSnapshot('')
+    setFormError('')
+    setConfirmDiscard(false)
+  }
+
+  const requestClose = () => {
+    if (saving) {
       return
     }
+    if (drawerMode === 'edit') {
+      const hasUnsavedChanges = editSnapshot && editSnapshot !== buildSnapshot(editDraft)
+      if (hasUnsavedChanges) {
+        setConfirmDiscard(true)
+        return
+      }
+    }
+    closeDrawer()
+  }
 
+  const submitCreate = async (event) => {
+    event.preventDefault()
+    if (createAttrValidation.hasDuplicateKeys || createAttrValidation.hasMissingKeys) {
+      setFormError('Give every custom attribute a unique name before saving.')
+      return
+    }
+    try {
+      setSaving(true)
+      setFormError('')
+      await onCreateCreator(event)
+      // Toast rather than in-drawer text: the drawer closes on the next line, and a message
+      // rendered inside it would be unmounted before anyone could read it.
+      toast.success(`${creatorForm.name.trim() || 'Creator'} added.`)
+      closeDrawer()
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : 'Unable to add creator.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const submitEdit = async () => {
+    if (!editingId || !editDraft.name.trim() || !editDraft.handle.trim()) {
+      setFormError('Name and handle are required.')
+      return
+    }
     if (editAttrValidation.hasDuplicateKeys || editAttrValidation.hasMissingKeys) {
-      setRowFeedback({ id: editingId, type: 'error', message: 'Fix custom attributes before saving (unique names and no unnamed values).' })
+      setFormError('Give every custom attribute a unique name before saving.')
       return
     }
 
     try {
-      setSavingId(editingId)
+      setSaving(true)
+      setFormError('')
       await onUpdateCreator(editingId, {
         name: editDraft.name.trim(),
         handle: editDraft.handle.trim(),
         platform: editDraft.platform,
         email: editDraft.email.trim(),
+        // null, not '' — clearing the field means "no agreed rate", and the column is a numeric
+        // that would reject an empty string.
+        preferredRate: String(editDraft.preferredRate).trim() === '' ? null : Number(editDraft.preferredRate),
         customAttributes: sanitizePairs(editDraft.customAttributes),
       })
-      setRowFeedback({ id: editingId, type: 'success', message: 'Creator updated.' })
-      closeEdit()
+      toast.success(`${editDraft.name.trim()} updated.`)
+      closeDrawer()
     } catch (error) {
-      setRowFeedback({
-        id: editingId,
-        type: 'error',
-        message: error instanceof Error ? error.message : 'Unable to update creator.',
-      })
+      setFormError(error instanceof Error ? error.message : 'Unable to update creator.')
     } finally {
-      setSavingId('')
+      setSaving(false)
     }
   }
 
-  return (
-    <article className="card mds-surface mds-prose form-card page-stack">
-      <MdsKicker>Creator Directory</MdsKicker>
-      <h3>Add creator</h3>
-      <MdsSectionRule />
-      <p>Store creator profile details so assignments can be tied and tracked accurately.</p>
-      <form onSubmit={onCreateCreator} className="inline-form page-form-grid">
-        <input
-          type="text"
-          value={creatorForm.name}
-          placeholder="Creator name"
-          onChange={(event) => setCreatorForm((prev) => ({ ...prev, name: event.target.value }))}
-          required
-        />
-        <input
-          type="text"
-          value={creatorForm.handle}
-          placeholder="@handle"
-          onChange={(event) => setCreatorForm((prev) => ({ ...prev, handle: event.target.value }))}
-          required
-        />
-        <select
-          value={creatorForm.platform}
-          onChange={(event) => setCreatorForm((prev) => ({ ...prev, platform: event.target.value }))}
-        >
-          <option value="instagram">Instagram</option>
-          <option value="tiktok">TikTok</option>
-          <option value="youtube">YouTube</option>
-          <option value="other">Other</option>
-        </select>
-        <input
-          type="email"
-          value={creatorForm.email}
-          placeholder="Email"
-          onChange={(event) => setCreatorForm((prev) => ({ ...prev, email: event.target.value }))}
-        />
-        <div className="custom-attributes-form-block">
-          <p className="custom-attributes-label">Custom attributes</p>
-          <CustomAttributesEditor
-            pairs={creatorForm.customAttributes}
-            onChange={(pairs) => setCreatorForm((prev) => ({ ...prev, customAttributes: pairs }))}
-            onValidationChange={setCreateAttrValidation}
-          />
-        </div>
-        <button
-          type="submit"
-          className="primary-btn"
-          disabled={createAttrValidation.hasDuplicateKeys || createAttrValidation.hasMissingKeys}
-        >
-          Add creator
-        </button>
-      </form>
-      <MdsSectionRule />
-      <div className="creator-directory-header">
-        <h4>
-          Your creators
-          <span className="creator-count">
-            {isFiltered ? `${visibleCreators.length} of ${totalCount}` : totalCount}
+  // Defaults to everything currently visible; the bulk bar passes the selected subset instead.
+  const exportCreators = (rows = visibleCreators) => {
+    exportCsv({
+      prefix: 'creators',
+      source: 'creators',
+      // Deliberately wider than the table. The table is optimised for scanning; the export is
+      // what an agency hands a client, so it carries the fields a spreadsheet reader expects —
+      // including preferredRate, which is the whole point of M1.1.
+      columns: [
+        { key: 'name', header: 'Name' },
+        { key: 'handle', header: 'Handle' },
+        { key: 'platform', header: 'Platform' },
+        { key: 'email', header: 'Email' },
+        { key: 'preferredRate', header: 'Preferred rate' },
+        { key: 'status', header: 'Status' },
+        { key: 'followerCount', header: 'Followers' },
+        { key: 'engagementRate', header: 'Engagement rate' },
+        // Provenance travels with the metric, for the same reason the API exposes them together:
+        // a follower count without its source cannot be told apart from a simulated one, and
+        // this file is going to someone outside the company.
+        { key: 'metricsSource', header: 'Metrics source' },
+        { key: 'vettingStatus', header: 'Vetting status' },
+        {
+          key: 'customAttributes',
+          header: 'Attributes',
+          value: (creator) => customAttributesToPairs(creator.customAttributes)
+            .map((pair) => `${pair.key}: ${pair.value}`)
+            .join('; '),
+        },
+      ],
+      rows,
+    })
+  }
+
+  const columns = [
+    {
+      key: 'name',
+      header: 'Creator',
+      sortable: true,
+      render: (creator) => (
+        <div className="identity-cell">
+          <span className="avatar" aria-hidden="true">{initialsOf(creator.name)}</span>
+          <span className="identity-text">
+            <span className="identity-name">{creator.name}</span>
+            {creator.email ? <span className="identity-sub">{creator.email}</span> : null}
           </span>
-        </h4>
-      </div>
+        </div>
+      ),
+    },
+    {
+      key: 'handle',
+      header: 'Handle',
+      sortable: true,
+      render: (creator) => creator.handle || '—',
+    },
+    {
+      key: 'platform',
+      header: 'Platform',
+      sortable: true,
+      render: (creator) => <Badge tone="info">{platformLabel(creator.platform)}</Badge>,
+    },
+    {
+      key: 'preferredRate',
+      header: 'Rate',
+      sortable: true,
+      // An em dash, not $0 — see formatRate. "No rate agreed" and "agreed at zero" are different
+      // facts, and a demo that shows $0 for every unset creator makes the differentiator look
+      // broken rather than unset.
+      render: (creator) => formatRate(creator.preferredRate) || <span className="identity-sub">—</span>,
+    },
+    {
+      key: 'attributes',
+      header: 'Attributes',
+      render: (creator) => {
+        const pairs = customAttributesToPairs(creator.customAttributes)
+        if (!pairs.length) {
+          return <span className="identity-sub">—</span>
+        }
+        // Two pills plus a count: the full set is in the drawer. Printing every attribute on
+        // every row is what made the old list unscannable.
+        return (
+          <div className="custom-attributes-readonly">
+            {pairs.slice(0, 2).map((pair) => (
+              <span key={`${creator.id}-${pair.key}`} className="custom-attribute-pill">
+                <strong>{pair.key}:</strong> {pair.value}
+              </span>
+            ))}
+            {pairs.length > 2 ? <span className="identity-sub">+{pairs.length - 2}</span> : null}
+          </div>
+        )
+      },
+    },
+  ]
+
+  const activeDraft = drawerMode === 'edit' ? editDraft : creatorForm
+  const setActiveDraft = drawerMode === 'edit' ? setEditDraft : setCreatorForm
+  const activeValidationSetter = drawerMode === 'edit' ? setEditAttrValidation : setCreateAttrValidation
+
+  return (
+    <>
+      <PageHeader
+        title="Creators"
+        count={isFiltered ? `${visibleCreators.length} of ${totalCount}` : totalCount}
+        description="Everyone you work with, and the details campaigns and payouts are tied to."
+        action={
+          <>
+            {/* Exports what is on screen, filters included — the count in the header says how
+                many rows that is. An export that ignored the active filter would quietly
+                disagree with the number the user is looking at. */}
+            <button
+              type="button"
+              className="ghost-btn"
+              onClick={exportCreators}
+              disabled={visibleCreators.length === 0}
+            >
+              Export CSV
+            </button>
+            <button type="button" className="primary-btn" onClick={openCreate}>
+              New creator
+            </button>
+          </>
+        }
+      />
 
       {totalCount > 0 ? (
-        <div className="creator-filter-bar">
-          <label className="creator-search-field">
-            <span className="visually-hidden">Search creators</span>
-            <input
-              type="search"
-              value={search}
-              placeholder="Search by name, handle, email, or attribute…"
-              onChange={(event) => setSearch(event.target.value)}
-              aria-label="Search creators"
-            />
-          </label>
-          <label className="creator-filter-field">
-            <span className="visually-hidden">Filter by platform</span>
-            <select
-              value={platformFilter}
-              onChange={(event) => setPlatformFilter(event.target.value)}
-              aria-label="Filter by platform"
-            >
-              <option value="">All platforms</option>
-              {availablePlatforms.map((platform) => (
-                <option key={platform} value={platform}>
-                  {platform.charAt(0).toUpperCase() + platform.slice(1)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="creator-filter-field">
-            <span className="visually-hidden">Sort creators</span>
-            <select value={sortBy} onChange={(event) => setSortBy(event.target.value)} aria-label="Sort creators">
-              {SORT_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
+        <FilterBar>
+          <input
+            type="search"
+            value={search}
+            placeholder="Search by name, handle, email, or attribute…"
+            onChange={(event) => setFilters({ q: event.target.value })}
+            aria-label="Search creators"
+          />
+          <select
+            value={platformFilter}
+            onChange={(event) => setFilters({ platform: event.target.value })}
+            aria-label="Filter by platform"
+          >
+            <option value="">All platforms</option>
+            {availablePlatforms.map((platform) => (
+              <option key={platform} value={platform}>{platformLabel(platform)}</option>
+            ))}
+          </select>
           {isFiltered ? (
-            <button type="button" className="ghost-btn" onClick={clearFilters}>
-              Clear
-            </button>
+            <button type="button" className="ghost-btn" onClick={clearFilters}>Clear</button>
           ) : null}
-        </div>
+        </FilterBar>
       ) : null}
 
-      {totalCount === 0 ? (
-        <p className="custom-attributes-empty">
-          No creators yet. Import your spreadsheet or add one above to get started.
-        </p>
-      ) : null}
+      <BulkActionBar count={selectedVisible.length} onClear={clearSelection}>
+        <button type="button" className="ghost-btn" onClick={exportSelected}>
+          Export selected
+        </button>
+      </BulkActionBar>
 
-      {totalCount > 0 && visibleCreators.length === 0 ? (
-        <p className="custom-attributes-empty">
-          No creators match {search.trim() ? `"${search.trim()}"` : 'this filter'}.{' '}
-          <button type="button" className="link-btn" onClick={clearFilters}>
-            Clear filters
-          </button>
-        </p>
-      ) : null}
-
-      <ul className="simple-list">
-        {visibleCreators.map((creator) => (
-          <li key={creator.id}>
-            <>
-              <strong>{creator.name}</strong>
-              <span>{creator.handle}</span>
-              <span>{creator.platform}</span>
-              <p className="custom-attributes-label">Custom attributes</p>
-              {customAttributesToPairs(creator.customAttributes).length ? (
-                <div className="custom-attributes-readonly">
-                  {customAttributesToPairs(creator.customAttributes).map((pair) => (
-                    <span key={`${creator.id}-${pair.key}`} className="custom-attribute-pill">
-                      <strong>{pair.key}:</strong> {pair.value}
-                    </span>
-                  ))}
-                </div>
-              ) : (
-                <p className="custom-attributes-empty">No custom attributes.</p>
-              )}
-              <div className="row-actions">
-                <button type="button" className="ghost-btn" onClick={() => startEdit(creator)}>
-                  Edit
+      <DataTable
+        caption="Creators"
+        columns={columns}
+        rows={visibleCreators}
+        rowKey={(creator) => creator.id}
+        onRowClick={openEdit}
+        selectedKeys={selectedIds}
+        onSelectionChange={setSelectedIds}
+        selectionLabel={(creator) => `Select ${creator.name || creator.handle || 'creator'}`}
+        sortBy={sortBy}
+        sortDir={sortDir}
+        onSort={toggleSort}
+        emptyState={
+          totalCount === 0 ? (
+            <EmptyState
+              icon="◍"
+              title="No creators yet"
+              description="Import the spreadsheet you already keep them in, or add the first one by hand."
+              action={
+                <button type="button" className="primary-btn" onClick={openCreate}>
+                  Add your first creator
                 </button>
-              </div>
-            </>
-            {rowFeedback.id === creator.id && rowFeedback.message ? (
-              <p className={`row-save-feedback ${rowFeedback.type === 'error' ? 'error' : 'success'}`}>{rowFeedback.message}</p>
-            ) : null}
-          </li>
-        ))}
-      </ul>
+              }
+            />
+          ) : (
+            <EmptyState
+              title="No creators match this filter"
+              description={search.trim() ? `Nothing found for "${search.trim()}".` : 'Try a different platform.'}
+              action={
+                <button type="button" className="ghost-btn" onClick={clearFilters}>Clear filters</button>
+              }
+            />
+          )
+        }
+      />
 
-      {editingId ? (
-        <div className="edit-drawer-overlay" onClick={requestCloseEdit} role="presentation">
-          <aside className="edit-drawer" onClick={(event) => event.stopPropagation()} aria-label="Edit creator">
-            <div className="edit-drawer-header">
-              <h4>Edit creator</h4>
-              <button type="button" className="ghost-btn" onClick={requestCloseEdit} disabled={savingId === editingId}>
-                Close
+      {drawerMode ? (
+        <Drawer
+          title={drawerMode === 'create' ? 'New creator' : 'Edit creator'}
+          onClose={requestClose}
+        >
+          <form
+            className="drawer-form"
+            onSubmit={drawerMode === 'create' ? submitCreate : (event) => { event.preventDefault(); submitEdit() }}
+          >
+            <Field label="Name" htmlFor="creator-name" required>
+              <input
+                id="creator-name"
+                type="text"
+                value={activeDraft.name}
+                placeholder="Ari Rivera"
+                onChange={(event) => setActiveDraft((prev) => ({ ...prev, name: event.target.value }))}
+                required
+              />
+            </Field>
+
+            <Field label="Handle" htmlFor="creator-handle" required>
+              <input
+                id="creator-handle"
+                type="text"
+                value={activeDraft.handle}
+                placeholder="@aririvera"
+                onChange={(event) => setActiveDraft((prev) => ({ ...prev, handle: event.target.value }))}
+                required
+              />
+            </Field>
+
+            <Field label="Platform" htmlFor="creator-platform">
+              <select
+                id="creator-platform"
+                value={activeDraft.platform}
+                onChange={(event) => setActiveDraft((prev) => ({ ...prev, platform: event.target.value }))}
+              >
+                {PLATFORM_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </Field>
+
+            <Field label="Email" htmlFor="creator-email" hint="Used for outreach and payout notices.">
+              <input
+                id="creator-email"
+                type="email"
+                value={activeDraft.email}
+                placeholder="ari@example.com"
+                onChange={(event) => setActiveDraft((prev) => ({ ...prev, email: event.target.value }))}
+              />
+            </Field>
+
+            {/* The per-brand negotiated rate. Placed with the identity fields rather than buried
+                under custom attributes: it is the one capability MARKET-ANALYSIS.md §4 finds no
+                documented competitor equivalent for, and it was invisible in the product until
+                now. A differentiator nobody can see is not a differentiator. */}
+            <Field
+              label="Preferred rate"
+              htmlFor="creator-preferred-rate"
+              hint="What this brand pays this creator. Each brand negotiates its own — the same creator can hold a different rate under another brand."
+            >
+              <input
+                id="creator-preferred-rate"
+                type="number"
+                min="0"
+                step="1"
+                inputMode="decimal"
+                value={activeDraft.preferredRate}
+                placeholder="2500"
+                onChange={(event) => setActiveDraft((prev) => ({ ...prev, preferredRate: event.target.value }))}
+              />
+            </Field>
+
+            <Field label="Custom attributes" hint="Anything from your own spreadsheet — tier, agency, rate.">
+              <CustomAttributesEditor
+                pairs={activeDraft.customAttributes}
+                onChange={(pairs) => setActiveDraft((prev) => ({ ...prev, customAttributes: pairs }))}
+                onValidationChange={activeValidationSetter}
+              />
+            </Field>
+
+            {formError ? <p className="field-error" role="alert">{formError}</p> : null}
+
+            <div className="drawer-actions">
+              <button type="button" className="ghost-btn" onClick={requestClose} disabled={saving}>
+                Cancel
+              </button>
+              <button type="submit" className="primary-btn" disabled={saving}>
+                {saving ? 'Saving…' : drawerMode === 'create' ? 'Add creator' : 'Save changes'}
               </button>
             </div>
-            <div className="editable-row-form">
-              <input
-                type="text"
-                value={editDraft.name}
-                onChange={(event) => setEditDraft((prev) => ({ ...prev, name: event.target.value }))}
-              />
-              <input
-                type="text"
-                value={editDraft.handle}
-                onChange={(event) => setEditDraft((prev) => ({ ...prev, handle: event.target.value }))}
-              />
-              <select
-                value={editDraft.platform}
-                onChange={(event) => setEditDraft((prev) => ({ ...prev, platform: event.target.value }))}
-              >
-                <option value="instagram">Instagram</option>
-                <option value="tiktok">TikTok</option>
-                <option value="youtube">YouTube</option>
-                <option value="other">Other</option>
-              </select>
-              <input
-                type="email"
-                value={editDraft.email}
-                onChange={(event) => setEditDraft((prev) => ({ ...prev, email: event.target.value }))}
-              />
-              <div className="custom-attributes-form-block">
-                <p className="custom-attributes-label">Custom attributes</p>
-                <CustomAttributesEditor
-                  pairs={editDraft.customAttributes}
-                  onChange={(pairs) => setEditDraft((prev) => ({ ...prev, customAttributes: pairs }))}
-                  onValidationChange={setEditAttrValidation}
-                />
-              </div>
-              {rowFeedback.id === editingId && rowFeedback.message ? (
-                <p className={`row-save-feedback ${rowFeedback.type === 'error' ? 'error' : 'success'}`}>{rowFeedback.message}</p>
-              ) : null}
-              <div className="row-actions">
-                <button type="button" className="ghost-btn" onClick={requestCloseEdit} disabled={savingId === editingId}>
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  className="primary-btn"
-                  onClick={saveEdit}
-                  disabled={savingId === editingId || editAttrValidation.hasDuplicateKeys || editAttrValidation.hasMissingKeys}
-                >
-                  {savingId === editingId ? 'Saving...' : 'Save'}
-                </button>
-              </div>
-            </div>
-          </aside>
-        </div>
+          </form>
+        </Drawer>
       ) : null}
-    </article>
+
+      {confirmDiscard ? (
+        <ConfirmDialog
+          title="Discard your changes?"
+          consequence={`Edits to ${editDraft.name || 'this creator'} have not been saved and will be lost.`}
+          confirmLabel="Discard"
+          cancelLabel="Keep editing"
+          onConfirm={closeDrawer}
+          onCancel={() => setConfirmDiscard(false)}
+        />
+      ) : null}
+    </>
   )
 }
 
