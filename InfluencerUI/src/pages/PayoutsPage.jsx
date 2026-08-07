@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { MdsKicker, MdsSectionRule, MdsNote } from '../components/Mds'
+import { exportCsv } from '../api/csv'
 
 function money(value, currency = 'USD') {
   const n = Number(value)
@@ -97,17 +98,48 @@ function PayoutsPage({
     }
   }
 
+  const exportCommissions = () => {
+    exportCsv({
+      prefix: 'commissions',
+      source: 'commissions',
+      columns: [
+        { key: 'creatorId', header: 'Creator', value: (c) => creatorName(c.creatorId) },
+        { key: 'status', header: 'Status' },
+        // Amounts unformatted, and currency as its own column: a reconciler sums these, and a
+        // symbol glued to the number makes the column text rather than money.
+        { key: 'commissionAmount', header: 'Commission' },
+        { key: 'grossSale', header: 'Gross sale' },
+        { key: 'currency', header: 'Currency' },
+        { key: 'orderId', header: 'Order' },
+        { key: 'createdAt', header: 'Accrued' },
+      ],
+      rows: commissions,
+    })
+  }
+
   return (
     <article className="card mds-surface mds-prose form-card page-stack">
       <MdsKicker>Payouts</MdsKicker>
       <h3>Influencer commissions &amp; payouts</h3>
       <MdsSectionRule />
 
-      <div className="row-actions" style={{ justifyContent: 'space-between' }}>
-        <p style={{ margin: 0 }}>Approve accrued commissions, then batch them into payouts per influencer.</p>
-        <button type="button" className="ghost-btn" onClick={refresh} disabled={loading}>
-          {loading ? 'Loading…' : 'Refresh'}
-        </button>
+      <div className="section-head">
+        <p>Approve accrued commissions, then batch them into payouts per influencer.</p>
+        <div className="row-actions">
+          {/* All commissions, not just the pending list below — a client reconciling payments
+              needs the paid ones too, which is exactly the row the on-screen split hides. */}
+          <button
+            type="button"
+            className="ghost-btn"
+            onClick={exportCommissions}
+            disabled={commissions.length === 0}
+          >
+            Export CSV
+          </button>
+          <button type="button" className="ghost-btn" onClick={refresh} disabled={loading}>
+            {loading ? 'Loading…' : 'Refresh'}
+          </button>
+        </div>
       </div>
 
       {feedback.message ? (
@@ -138,8 +170,8 @@ function PayoutsPage({
       )}
 
       <MdsSectionRule />
-      <div className="row-actions" style={{ justifyContent: 'space-between' }}>
-        <h4 style={{ margin: 0 }}>Approved &amp; payable ({approved.length})</h4>
+      <div className="section-head">
+        <h4>Approved &amp; payable ({approved.length})</h4>
         <select value={providerKey} onChange={(e) => setProviderKey(e.target.value)}>
           {providers.length === 0 ? <option value="manual">Manual / offline</option> : null}
           {providers.map((p) => <option key={p.key} value={p.key}>{p.displayName}</option>)}

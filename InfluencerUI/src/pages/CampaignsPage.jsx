@@ -1,6 +1,17 @@
-import { useEffect, useState } from 'react'
-import { MdsKicker, MdsSectionRule } from '../components/Mds'
+import { useMemo, useState } from 'react'
 import CustomAttributesEditor from '../components/CustomAttributesEditor'
+import { exportCsv } from '../api/csv'
+import {
+  Badge,
+  ConfirmDialog,
+  DataTable,
+  Drawer,
+  EmptyState,
+  Field,
+  FilterBar,
+  PageHeader,
+  useToast,
+} from '../components/ui'
 
 function sanitizePairs(pairs) {
   return Array.isArray(pairs)
@@ -15,6 +26,19 @@ function humanizeCampaignType(value) {
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ')
 }
+
+/** Draft is a working state, active is live, completed is history — three tones, three meanings. */
+const STATUS_TONE = {
+  draft: 'neutral',
+  active: 'success',
+  completed: 'info',
+}
+
+const STATUS_OPTIONS = [
+  { value: 'draft', label: 'Draft' },
+  { value: 'active', label: 'Active' },
+  { value: 'completed', label: 'Completed' },
+]
 
 function buildSnapshot(draft) {
   return JSON.stringify({
@@ -40,6 +64,9 @@ function CampaignsPage({
   onCreateCampaign,
   onUpdateCampaign,
 }) {
+  const toast = useToast()
+
+  const [drawerMode, setDrawerMode] = useState('')
   const [editingId, setEditingId] = useState('')
   const [editDraft, setEditDraft] = useState({
     name: '',
@@ -49,10 +76,17 @@ function CampaignsPage({
     customAttributes: [],
   })
   const [editSnapshot, setEditSnapshot] = useState('')
-  const [savingId, setSavingId] = useState('')
-  const [rowFeedback, setRowFeedback] = useState({ id: '', type: '', message: '' })
+  const [saving, setSaving] = useState(false)
+  const [formError, setFormError] = useState('')
+  const [confirmDiscard, setConfirmDiscard] = useState(false)
   const [createAttrValidation, setCreateAttrValidation] = useState({ hasDuplicateKeys: false, hasMissingKeys: false })
   const [editAttrValidation, setEditAttrValidation] = useState({ hasDuplicateKeys: false, hasMissingKeys: false })
+
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('')
+  const [sortBy, setSortBy] = useState('name')
+  const [sortDir, setSortDir] = useState('asc')
+
   const campaignTypeLabelMap = (campaignTypeOptions || []).reduce((acc, option) => {
     acc[String(option.value || '').trim().toLowerCase()] = option.label || humanizeCampaignType(option.value)
     return acc
@@ -63,59 +97,66 @@ function CampaignsPage({
     return campaignTypeLabelMap[normalized] || humanizeCampaignType(normalized)
   }
 
-  useEffect(() => {
-    if (!editingId) {
-      return undefined
+  const visibleCampaigns = useMemo(() => {
+    const query = search.trim().toLowerCase()
+    const direction = sortDir === 'asc' ? 1 : -1
+    return (campaigns || [])
+      .filter((campaign) => {
+        if (!query) {
+          return true
+        }
+        const haystack = [
+          campaign?.name,
+          campaign?.status,
+          campaign?.campaignType,
+          ...customAttributesToPairs(campaign?.customAttributes).flatMap((pair) => [pair?.key, pair?.value]),
+        ].filter(Boolean).join(' ').toLowerCase()
+        return haystack.includes(query)
+      })
+      .filter((campaign) => !statusFilter || String(campaign?.status || '').toLowerCase() === statusFilter)
+      .sort((a, b) => {
+        // Budget is the one numeric column; comparing it as text would order 9 above 100.
+        if (sortBy === 'budget') {
+          return ((Number(a?.budget) || 0) - (Number(b?.budget) || 0)) * direction
+        }
+        const text = (value) => String(value || '').toLowerCase()
+        return (text(a?.[sortBy]).localeCompare(text(b?.[sortBy])) * direction)
+          || text(a?.name).localeCompare(text(b?.name))
+      })
+  }, [campaigns, search, statusFilter, sortBy, sortDir, customAttributesToPairs])
+
+  const totalCount = (campaigns || []).length
+  const isFiltered = Boolean(search.trim() || statusFilter)
+
+  const clearFilters = () => {
+    setSearch('')
+    setStatusFilter('')
+  }
+
+  const toggleSort = (key) => {
+    if (key === sortBy) {
+      setSortDir((prev) => (prev === 'asc' ? 'desc' : 'asc'))
+      return
     }
+    setSortBy(key)
+    setSortDir('asc')
+  }
 
-    const originalOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-
-    return () => {
-      document.body.style.overflow = originalOverflow
-    }
-  }, [editingId])
-
-  const closeEdit = () => {
+  const openCreate = () => {
+    setFormError('')
     setEditingId('')
-    setEditSnapshot('')
-    setSavingId('')
-    setRowFeedback({ id: '', type: '', message: '' })
+    setCampaignForm({
+      name: '',
+      budget: '',
+      status: 'draft',
+      campaignType: campaignTypeOptions?.[0]?.value || 'product seeding',
+      customAttributes: [],
+    })
+    setDrawerMode('create')
   }
 
-  const requestCloseEdit = () => {
-    if (!editingId || savingId === editingId) {
-      return
-    }
-
-    const hasUnsavedChanges = editSnapshot && editSnapshot !== buildSnapshot(editDraft)
-    if (hasUnsavedChanges && !window.confirm('You have unsaved changes. Discard them and close?')) {
-      return
-    }
-
-    closeEdit()
-  }
-
-  useEffect(() => {
-    if (!editingId) {
-      return undefined
-    }
-
-    const onKeyDown = (event) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        requestCloseEdit()
-      }
-    }
-
-    window.addEventListener('keydown', onKeyDown)
-    return () => {
-      window.removeEventListener('keydown', onKeyDown)
-    }
-  }, [editingId, savingId, editDraft, editSnapshot])
-
-  const startEdit = (campaign) => {
-    setRowFeedback({ id: '', type: '', message: '' })
+  const openEdit = (campaign) => {
+    setFormError('')
     setEditingId(campaign.id)
     const nextDraft = {
       name: campaign.name || '',
@@ -126,20 +167,60 @@ function CampaignsPage({
     }
     setEditDraft(nextDraft)
     setEditSnapshot(buildSnapshot(nextDraft))
+    setDrawerMode('edit')
   }
 
-  const saveEdit = async () => {
-    if (!editingId || !editDraft.name.trim()) {
+  const closeDrawer = () => {
+    setDrawerMode('')
+    setEditingId('')
+    setEditSnapshot('')
+    setFormError('')
+    setConfirmDiscard(false)
+  }
+
+  const requestClose = () => {
+    if (saving) {
       return
     }
+    if (drawerMode === 'edit' && editSnapshot && editSnapshot !== buildSnapshot(editDraft)) {
+      setConfirmDiscard(true)
+      return
+    }
+    closeDrawer()
+  }
 
+  const submitCreate = async (event) => {
+    event.preventDefault()
+    if (createAttrValidation.hasDuplicateKeys || createAttrValidation.hasMissingKeys) {
+      setFormError('Give every custom attribute a unique name before saving.')
+      return
+    }
+    try {
+      setSaving(true)
+      setFormError('')
+      await onCreateCampaign(event)
+      toast.success(`${campaignForm.name.trim() || 'Campaign'} created.`)
+      closeDrawer()
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : 'Unable to create campaign.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const submitEdit = async () => {
+    if (!editingId || !editDraft.name.trim()) {
+      setFormError('A campaign name is required.')
+      return
+    }
     if (editAttrValidation.hasDuplicateKeys || editAttrValidation.hasMissingKeys) {
-      setRowFeedback({ id: editingId, type: 'error', message: 'Fix custom attributes before saving (unique names and no unnamed values).' })
+      setFormError('Give every custom attribute a unique name before saving.')
       return
     }
 
     try {
-      setSavingId(editingId)
+      setSaving(true)
+      setFormError('')
       await onUpdateCampaign(editingId, {
         name: editDraft.name.trim(),
         budget: editDraft.budget.trim(),
@@ -147,173 +228,262 @@ function CampaignsPage({
         campaignType: normalizeCampaignTypeForPayload(editDraft.campaignType),
         customAttributes: sanitizePairs(editDraft.customAttributes),
       })
-      setRowFeedback({ id: editingId, type: 'success', message: 'Campaign updated.' })
-      closeEdit()
+      // Toast rather than in-drawer text, which closeDrawer() would unmount before it rendered.
+      toast.success(`${editDraft.name.trim()} updated.`)
+      closeDrawer()
     } catch (error) {
-      setRowFeedback({
-        id: editingId,
-        type: 'error',
-        message: error instanceof Error ? error.message : 'Unable to update campaign.',
-      })
+      setFormError(error instanceof Error ? error.message : 'Unable to update campaign.')
     } finally {
-      setSavingId('')
+      setSaving(false)
     }
   }
 
-  return (
-    <article className="card mds-surface mds-prose form-card page-stack">
-      <MdsKicker>Campaign Editor</MdsKicker>
-      <h3>2. Create campaign</h3>
-      <MdsSectionRule />
-      <p>Define campaign basics first, then move creators through workflow stages.</p>
-      <form onSubmit={onCreateCampaign} className="inline-form page-form-grid">
-        <input
-          type="text"
-          value={campaignForm.name}
-          placeholder="Campaign name"
-          onChange={(event) => setCampaignForm((prev) => ({ ...prev, name: event.target.value }))}
-          required
-        />
-        <input
-          type="number"
-          value={campaignForm.budget}
-          placeholder="Budget"
-          onChange={(event) => setCampaignForm((prev) => ({ ...prev, budget: event.target.value }))}
-        />
-        <select
-          value={campaignForm.status}
-          onChange={(event) => setCampaignForm((prev) => ({ ...prev, status: event.target.value }))}
-        >
-          <option value="draft">Draft</option>
-          <option value="active">Active</option>
-          <option value="completed">Completed</option>
-        </select>
-        <select
-          value={campaignForm.campaignType}
-          onChange={(event) => setCampaignForm((prev) => ({ ...prev, campaignType: event.target.value }))}
-        >
-          {(campaignTypeOptions || []).map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-        <div className="custom-attributes-form-block">
-          <p className="custom-attributes-label">Custom attributes</p>
-          <CustomAttributesEditor
-            pairs={campaignForm.customAttributes}
-            onChange={(pairs) => setCampaignForm((prev) => ({ ...prev, customAttributes: pairs }))}
-            onValidationChange={setCreateAttrValidation}
-          />
-        </div>
-        <button
-          type="submit"
-          className="primary-btn"
-          disabled={createAttrValidation.hasDuplicateKeys || createAttrValidation.hasMissingKeys}
-        >
-          Add campaign
-        </button>
-      </form>
-      <ul className="simple-list">
-        {campaigns.map((campaign) => (
-          <li key={campaign.id}>
-            <>
-              <strong>{campaign.name}</strong>
-              <span>{campaign.status}</span>
-              <span>{formatCampaignTypeLabel(campaign.campaignType)}</span>
-              <span>{campaign.budget ? `$${campaign.budget}` : 'Budget tbd'}</span>
-              <p className="custom-attributes-label">Custom attributes</p>
-              {customAttributesToPairs(campaign.customAttributes).length ? (
-                <div className="custom-attributes-readonly">
-                  {customAttributesToPairs(campaign.customAttributes).map((pair) => (
-                    <span key={`${campaign.id}-${pair.key}`} className="custom-attribute-pill">
-                      <strong>{pair.key}:</strong> {pair.value}
-                    </span>
-                  ))}
-                </div>
-              ) : (
-                <p className="custom-attributes-empty">No custom attributes.</p>
-              )}
-              <div className="row-actions">
-                <button type="button" className="ghost-btn" onClick={() => startEdit(campaign)}>
-                  Edit
-                </button>
-              </div>
-            </>
-            {rowFeedback.id === campaign.id && rowFeedback.message ? (
-              <p className={`row-save-feedback ${rowFeedback.type === 'error' ? 'error' : 'success'}`}>{rowFeedback.message}</p>
-            ) : null}
-          </li>
-        ))}
-      </ul>
+  const columns = [
+    {
+      key: 'name',
+      header: 'Campaign',
+      sortable: true,
+      render: (campaign) => <span className="identity-name">{campaign.name}</span>,
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      sortable: true,
+      render: (campaign) => {
+        const status = String(campaign.status || 'draft').toLowerCase()
+        return <Badge tone={STATUS_TONE[status] || 'neutral'}>{humanizeCampaignType(status)}</Badge>
+      },
+    },
+    {
+      key: 'campaignType',
+      header: 'Type',
+      sortable: true,
+      render: (campaign) => formatCampaignTypeLabel(campaign.campaignType),
+    },
+    {
+      key: 'budget',
+      header: 'Budget',
+      sortable: true,
+      align: 'right',
+      render: (campaign) => (campaign.budget
+        ? `$${Number(campaign.budget).toLocaleString()}`
+        : <span className="identity-sub">—</span>),
+    },
+    {
+      key: 'attributes',
+      header: 'Attributes',
+      render: (campaign) => {
+        const pairs = customAttributesToPairs(campaign.customAttributes)
+        if (!pairs.length) {
+          return <span className="identity-sub">—</span>
+        }
+        return (
+          <div className="custom-attributes-readonly">
+            {pairs.slice(0, 2).map((pair) => (
+              <span key={`${campaign.id}-${pair.key}`} className="custom-attribute-pill">
+                <strong>{pair.key}:</strong> {pair.value}
+              </span>
+            ))}
+            {pairs.length > 2 ? <span className="identity-sub">+{pairs.length - 2}</span> : null}
+          </div>
+        )
+      },
+    },
+  ]
 
-      {editingId ? (
-        <div className="edit-drawer-overlay" onClick={requestCloseEdit} role="presentation">
-          <aside className="edit-drawer" onClick={(event) => event.stopPropagation()} aria-label="Edit campaign">
-            <div className="edit-drawer-header">
-              <h4>Edit campaign</h4>
-              <button type="button" className="ghost-btn" onClick={requestCloseEdit} disabled={savingId === editingId}>
-                Close
-              </button>
-            </div>
-            <div className="editable-row-form">
+  const activeDraft = drawerMode === 'edit' ? editDraft : campaignForm
+  const setActiveDraft = drawerMode === 'edit' ? setEditDraft : setCampaignForm
+  const activeValidationSetter = drawerMode === 'edit' ? setEditAttrValidation : setCreateAttrValidation
+
+  const exportCampaigns = () => {
+    exportCsv({
+      prefix: 'campaigns',
+      source: 'campaigns',
+      columns: [
+        { key: 'name', header: 'Campaign' },
+        { key: 'status', header: 'Status' },
+        { key: 'campaignType', header: 'Type', value: (c) => campaignTypeLabel(c.campaignType) },
+        { key: 'budget', header: 'Budget' },
+        { key: 'createdAt', header: 'Created' },
+        {
+          key: 'customAttributes',
+          header: 'Attributes',
+          value: (campaign) => customAttributesToPairs(campaign.customAttributes)
+            .map((pair) => `${pair.key}: ${pair.value}`)
+            .join('; '),
+        },
+      ],
+      rows: visibleCampaigns,
+    })
+  }
+
+  return (
+    <>
+      <PageHeader
+        title="Campaigns"
+        count={isFiltered ? `${visibleCampaigns.length} of ${totalCount}` : totalCount}
+        description="What you tie creators to. Budget and status drive payouts and reporting."
+        action={
+          <>
+            <button
+              type="button"
+              className="ghost-btn"
+              onClick={exportCampaigns}
+              disabled={visibleCampaigns.length === 0}
+            >
+              Export CSV
+            </button>
+            <button type="button" className="primary-btn" onClick={openCreate}>
+              New campaign
+            </button>
+          </>
+        }
+      />
+
+      {totalCount > 0 ? (
+        <FilterBar>
+          <input
+            type="search"
+            value={search}
+            placeholder="Search by name, type, or attribute…"
+            onChange={(event) => setSearch(event.target.value)}
+            aria-label="Search campaigns"
+          />
+          <select
+            value={statusFilter}
+            onChange={(event) => setStatusFilter(event.target.value)}
+            aria-label="Filter by status"
+          >
+            <option value="">All statuses</option>
+            {STATUS_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
+          {isFiltered ? (
+            <button type="button" className="ghost-btn" onClick={clearFilters}>Clear</button>
+          ) : null}
+        </FilterBar>
+      ) : null}
+
+      <DataTable
+        caption="Campaigns"
+        columns={columns}
+        rows={visibleCampaigns}
+        rowKey={(campaign) => campaign.id}
+        onRowClick={openEdit}
+        sortBy={sortBy}
+        sortDir={sortDir}
+        onSort={toggleSort}
+        emptyState={
+          totalCount === 0 ? (
+            <EmptyState
+              icon="◈"
+              title="No campaigns yet"
+              description="A campaign is what creators get assigned to — start with the one you are running now."
+              action={
+                <button type="button" className="primary-btn" onClick={openCreate}>
+                  Create your first campaign
+                </button>
+              }
+            />
+          ) : (
+            <EmptyState
+              title="No campaigns match this filter"
+              description={search.trim() ? `Nothing found for "${search.trim()}".` : 'Try a different status.'}
+              action={<button type="button" className="ghost-btn" onClick={clearFilters}>Clear filters</button>}
+            />
+          )
+        }
+      />
+
+      {drawerMode ? (
+        <Drawer
+          title={drawerMode === 'create' ? 'New campaign' : 'Edit campaign'}
+          onClose={requestClose}
+        >
+          <form
+            className="drawer-form"
+            onSubmit={drawerMode === 'create' ? submitCreate : (event) => { event.preventDefault(); submitEdit() }}
+          >
+            <Field label="Campaign name" htmlFor="campaign-name" required>
               <input
+                id="campaign-name"
                 type="text"
-                value={editDraft.name}
-                onChange={(event) => setEditDraft((prev) => ({ ...prev, name: event.target.value }))}
+                value={activeDraft.name}
+                placeholder="Q3 Gifting"
+                onChange={(event) => setActiveDraft((prev) => ({ ...prev, name: event.target.value }))}
+                required
               />
+            </Field>
+
+            <Field label="Budget" htmlFor="campaign-budget" hint="Total spend. Used to calculate ROI on the revenue dashboard.">
               <input
+                id="campaign-budget"
                 type="number"
-                value={editDraft.budget}
-                onChange={(event) => setEditDraft((prev) => ({ ...prev, budget: event.target.value }))}
+                min="0"
+                value={activeDraft.budget}
+                placeholder="0"
+                onChange={(event) => setActiveDraft((prev) => ({ ...prev, budget: event.target.value }))}
               />
+            </Field>
+
+            <Field label="Status" htmlFor="campaign-status">
               <select
-                value={editDraft.status}
-                onChange={(event) => setEditDraft((prev) => ({ ...prev, status: event.target.value }))}
+                id="campaign-status"
+                value={activeDraft.status}
+                onChange={(event) => setActiveDraft((prev) => ({ ...prev, status: event.target.value }))}
               >
-                <option value="draft">Draft</option>
-                <option value="active">Active</option>
-                <option value="completed">Completed</option>
-              </select>
-              <select
-                value={editDraft.campaignType}
-                onChange={(event) => setEditDraft((prev) => ({ ...prev, campaignType: event.target.value }))}
-              >
-                {(campaignTypeOptions || []).map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
+                {STATUS_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
                 ))}
               </select>
-              <div className="custom-attributes-form-block">
-                <p className="custom-attributes-label">Custom attributes</p>
-                <CustomAttributesEditor
-                  pairs={editDraft.customAttributes}
-                  onChange={(pairs) => setEditDraft((prev) => ({ ...prev, customAttributes: pairs }))}
-                  onValidationChange={setEditAttrValidation}
-                />
-              </div>
-              {rowFeedback.id === editingId && rowFeedback.message ? (
-                <p className={`row-save-feedback ${rowFeedback.type === 'error' ? 'error' : 'success'}`}>{rowFeedback.message}</p>
-              ) : null}
-              <div className="row-actions">
-                <button type="button" className="ghost-btn" onClick={requestCloseEdit} disabled={savingId === editingId}>
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  className="primary-btn"
-                  onClick={saveEdit}
-                  disabled={savingId === editingId || editAttrValidation.hasDuplicateKeys || editAttrValidation.hasMissingKeys}
-                >
-                  {savingId === editingId ? 'Saving...' : 'Save'}
-                </button>
-              </div>
+            </Field>
+
+            <Field label="Campaign type" htmlFor="campaign-type">
+              <select
+                id="campaign-type"
+                value={activeDraft.campaignType}
+                onChange={(event) => setActiveDraft((prev) => ({ ...prev, campaignType: event.target.value }))}
+              >
+                {(campaignTypeOptions || []).map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </Field>
+
+            <Field label="Custom attributes" hint="Anything else you track — region, product line, owner.">
+              <CustomAttributesEditor
+                pairs={activeDraft.customAttributes}
+                onChange={(pairs) => setActiveDraft((prev) => ({ ...prev, customAttributes: pairs }))}
+                onValidationChange={activeValidationSetter}
+              />
+            </Field>
+
+            {formError ? <p className="field-error" role="alert">{formError}</p> : null}
+
+            <div className="drawer-actions">
+              <button type="button" className="ghost-btn" onClick={requestClose} disabled={saving}>
+                Cancel
+              </button>
+              <button type="submit" className="primary-btn" disabled={saving}>
+                {saving ? 'Saving…' : drawerMode === 'create' ? 'Create campaign' : 'Save changes'}
+              </button>
             </div>
-          </aside>
-        </div>
+          </form>
+        </Drawer>
       ) : null}
-    </article>
+
+      {confirmDiscard ? (
+        <ConfirmDialog
+          title="Discard your changes?"
+          consequence={`Edits to ${editDraft.name || 'this campaign'} have not been saved and will be lost.`}
+          confirmLabel="Discard"
+          cancelLabel="Keep editing"
+          onConfirm={closeDrawer}
+          onCancel={() => setConfirmDiscard(false)}
+        />
+      ) : null}
+    </>
   )
 }
 

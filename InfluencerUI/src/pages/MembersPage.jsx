@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { MdsKicker, MdsSectionRule, MdsNote } from '../components/Mds'
+import { ConfirmDialog } from '../components/ui'
 
 // OWNER is absent on purpose. Ownership carries billing and the right to delete the account,
 // so transferring it should be a deliberate, separately-confirmed act rather than a dropdown
@@ -11,6 +12,18 @@ const INVITABLE_ROLES = [
   { value: 'ANALYST', label: 'Analyst', hint: 'Read-only across the brands they can reach.' },
   { value: 'FINANCE', label: 'Finance', hint: 'Owns the payout chain. Cannot edit campaign or creator data.' },
 ]
+
+/**
+ * Builds the full accept link from a raw token.
+ *
+ * A bare token is not actionable — the invitee has to be told which page to paste it into, which
+ * is the step that made the old flow feel improvised. Built from window.location so it is correct
+ * on localhost, a preview deploy, and production without configuration.
+ */
+function inviteLinkFor(token) {
+  const base = typeof window !== 'undefined' && window.location ? window.location.origin : ''
+  return `${base}/accept-invitation?token=${encodeURIComponent(token)}`
+}
 
 function MembersPage({
   currentUserId = '',
@@ -27,11 +40,16 @@ function MembersPage({
   const [loading, setLoading] = useState(true)
   const [busyId, setBusyId] = useState('')
   const [feedback, setFeedback] = useState({ type: '', message: '' })
+  const [pendingRemove, setPendingRemove] = useState(null)
   const [email, setEmail] = useState('')
   const [role, setRole] = useState('MARKETER')
   // Shown once, after inviting. There is no way to retrieve it later because only its hash is
   // stored, so the UI has to make copying it feel deliberate rather than incidental.
   const [issuedToken, setIssuedToken] = useState('')
+  // Whether the server actually handed the invitation to a mail provider. With the log-only
+  // provider it did not, and saying "sent" would leave the inviter waiting on a reply to an
+  // email that was never delivered.
+  const [emailDelivered, setEmailDelivered] = useState(false)
 
   const refresh = async () => {
     setLoading(true)
@@ -66,9 +84,19 @@ function MembersPage({
     setIssuedToken('')
     try {
       const created = await onInvite({ email: trimmed, role })
-      setIssuedToken(created?.token || '')
+      const delivered = Boolean(created?.emailDelivered)
+      setEmailDelivered(delivered)
+      // The token is only worth showing when nothing was actually sent. When the email went out,
+      // putting a one-time credential on screen invites copying it into a second channel for no
+      // reason.
+      setIssuedToken(delivered ? '' : created?.token || '')
       setEmail('')
-      setFeedback({ type: 'success', message: `Invitation created for ${trimmed}.` })
+      setFeedback({
+        type: 'success',
+        message: delivered
+          ? `Invitation emailed to ${trimmed}.`
+          : `Invitation created for ${trimmed}.`,
+      })
       await refresh()
     } catch (error) {
       setFeedback({ type: 'error', message: error?.message || 'Unable to create the invitation.' })
@@ -103,17 +131,20 @@ function MembersPage({
     }
   }
 
-  const remove = async (member) => {
-    if (!window.confirm('Remove this member from the account? They lose access immediately.')) {
+  const confirmRemove = async () => {
+    const member = pendingRemove
+    if (!member) {
       return
     }
     setBusyId(`remove-${member.userId}`)
     try {
       await onRemoveMember(member.userId)
       setFeedback({ type: 'success', message: 'Member removed.' })
+      setPendingRemove(null)
       await refresh()
     } catch (error) {
       setFeedback({ type: 'error', message: error?.message || 'Unable to remove the member.' })
+      setPendingRemove(null)
     } finally {
       setBusyId('')
     }
@@ -174,10 +205,19 @@ function MembersPage({
 
       {issuedToken ? (
         <MdsNote className="members-token-note">
-          <strong>Invitation link token — shown once.</strong>
-          <code className="members-token">{issuedToken}</code>
-          Send this to the invitee. It is stored only as a hash, so it cannot be shown again;
-          if it is lost, invite them again.
+          <strong>No email was sent — send this link yourself.</strong>
+          {/* The fallback, and labelled as one. Previously this was the ONLY outcome and read as
+              though handing someone a bare token were the intended design. */}
+          <code className="members-token">{inviteLinkFor(issuedToken)}</code>
+          Email delivery is not configured on this environment, so nothing was sent. The link works
+          once and expires in 7 days. It is stored only as a hash and cannot be shown again — if it
+          is lost, invite them again.
+        </MdsNote>
+      ) : emailDelivered ? (
+        <MdsNote className="members-token-note">
+          <strong>Invitation emailed.</strong>
+          The invitee has a link that works once and expires in 7 days. Nothing further to do —
+          if it does not arrive, revoke the invitation below and send a new one.
         </MdsNote>
       ) : null}
 
@@ -214,7 +254,7 @@ function MembersPage({
                   type="button"
                   className="ghost-btn"
                   disabled={isSelf || busyId === `remove-${member.userId}`}
-                  onClick={() => remove(member)}
+                  onClick={() => setPendingRemove(member)}
                 >
                   {busyId === `remove-${member.userId}` ? 'Removing…' : 'Remove'}
                 </button>
@@ -252,6 +292,17 @@ function MembersPage({
           ))}
         </ul>
       )}
+
+      {pendingRemove ? (
+        <ConfirmDialog
+          title={`Remove ${pendingRemove.email || pendingRemove.name || 'this member'}?`}
+          consequence="They lose access to this workspace immediately. Campaigns, creators, and boards they created stay in place."
+          confirmLabel="Remove member"
+          busy={busyId === `remove-${pendingRemove.userId}`}
+          onConfirm={confirmRemove}
+          onCancel={() => setPendingRemove(null)}
+        />
+      ) : null}
     </section>
   )
 }

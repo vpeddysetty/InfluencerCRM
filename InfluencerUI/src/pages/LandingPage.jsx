@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { MdsNote } from '../components/Mds'
+import { DEFAULT_ROUTE } from '../shell/routeManifest'
 
 function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit, onSocialLogin, authError = '' }) {
   const navigate = useNavigate()
@@ -9,15 +10,6 @@ function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit, onSocialLogin, authE
   // 'brand' | 'agency'. Creators are CRM records owned by a brand, not accounts that sign in,
   // so they are deliberately not an option here — see docs/identity-signup-alignment.md.
   const [accountType, setAccountType] = useState('brand')
-  const submitTimerRef = useRef(null)
-
-  useEffect(() => {
-    return () => {
-      if (submitTimerRef.current) {
-        window.clearTimeout(submitTimerRef.current)
-      }
-    }
-  }, [])
 
   const handleSubmit = async (event) => {
     event.preventDefault()
@@ -26,14 +18,19 @@ function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit, onSocialLogin, authE
     }
 
     setIsSubmitting(true)
-      try {
-        await onAuthSubmit(event)
-        submitTimerRef.current = window.setTimeout(() => {
-          navigate('/import')
-        }, 340)
-      } catch {
-        setIsSubmitting(false)
-      }
+    try {
+      await onAuthSubmit(event)
+      // Navigate as soon as the session is real. The CTA animation used to hold this back by
+      // 340ms, which charged every signup for a decoration; the animation is free to finish
+      // while the next route mounts.
+      //
+      // DEFAULT_ROUTE rather than a literal: signup used to land on /import while the manifest
+      // sent everyone else to the board, so "where a user starts" had two answers. The first-run
+      // checklist on the board is what points a new account at Import.
+      navigate(DEFAULT_ROUTE)
+    } catch {
+      setIsSubmitting(false)
+    }
   }
 
   const handleSocialLogin = (provider) => {
@@ -169,11 +166,13 @@ function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit, onSocialLogin, authE
                 </span>
                 <div className="auth-input-wrap">
                   <span className="auth-input-icon" aria-hidden="true">#</span>
+                  {/* No defaultValue: a pre-filled workspace name is one that gets tabbed past,
+                      and every account that did would be named after this platform rather than
+                      the brand signing up. */}
                   <input
                     name="brand"
                     type="text"
-                    placeholder={accountType === 'agency' ? 'Northstar Agency' : 'tejdux.io'}
-                    defaultValue="tejdux.io"
+                    placeholder={accountType === 'agency' ? 'Northstar Agency' : 'Your brand name'}
                     required
                   />
                 </div>
@@ -239,7 +238,15 @@ function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit, onSocialLogin, authE
             >
               {socialProvider === 'google' ? 'Connecting…' : 'Google'}
             </button>
-            {/* Facebook sign-in temporarily hidden pending Meta app review/config. */}
+            <button
+              type="button"
+              className="ghost-btn auth-alt-btn"
+              onClick={() => handleSocialLogin('facebook')}
+              disabled={Boolean(socialProvider)}
+              aria-busy={socialProvider === 'facebook'}
+            >
+              {socialProvider === 'facebook' ? 'Connecting…' : 'Facebook'}
+            </button>
           </div>
         </div>
 

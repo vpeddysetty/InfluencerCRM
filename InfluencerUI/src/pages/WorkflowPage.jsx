@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { MdsKicker, MdsNote, MdsSectionRule } from '../components/Mds'
 import { MAX_WORKFLOW_BOARDS, DEFAULT_BOARD_STAGES } from '../constants'
+import { ConfirmDialog, useToast } from '../components/ui'
 
 const EMPTY_DRAFT = {
   name: '',
@@ -56,6 +57,13 @@ function WorkflowPage({
   const [dragCardId, setDragCardId] = useState('')
   const [dropStageId, setDropStageId] = useState('')
   const [cardNotice, setCardNotice] = useState('')
+
+  const toast = useToast()
+
+  // Pending destructive action: { kind: 'board' | 'card', target }. Replaces window.confirm,
+  // which could not name what a delete would take with it.
+  const [pendingDelete, setPendingDelete] = useState(null)
+  const [deleting, setDeleting] = useState(false)
 
   const sortedBoards = useMemo(() => {
     return [...(boards || [])].sort((a, b) => {
@@ -197,14 +205,21 @@ function WorkflowPage({
     }
   }
 
-  const removeBoard = async (board) => {
-    if (!window.confirm(`Delete board "${board.name}"? Its stages will be removed.`)) {
+  const confirmDeleteBoard = async () => {
+    const board = pendingDelete?.target
+    if (!board) {
       return
     }
     try {
+      setDeleting(true)
       await onDeleteBoard(board.id)
+      toast.success(`Board "${board.name}" deleted.`)
+      setPendingDelete(null)
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Unable to delete board.')
+      toast.error(error instanceof Error ? error.message : 'Unable to delete board.')
+      setPendingDelete(null)
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -330,12 +345,21 @@ function WorkflowPage({
     }
   }
 
-  const removeCard = async (card) => {
-    if (!window.confirm(`Delete card "${card.name}"?`)) return
+  const confirmDeleteCard = async () => {
+    const card = pendingDelete?.target
+    if (!card) {
+      return
+    }
     try {
+      setDeleting(true)
       await onDeleteCard(card.id)
+      toast.success(`Card "${card.name}" deleted.`)
+      setPendingDelete(null)
     } catch (error) {
-      setCardNotice(error instanceof Error ? error.message : 'Unable to delete card.')
+      toast.error(error instanceof Error ? error.message : 'Unable to delete card.')
+      setPendingDelete(null)
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -346,26 +370,46 @@ function WorkflowPage({
     setDragCardId(cardId)
   }
 
+  /**
+   * Moves a card to a stage and says so.
+   *
+   * <p>The single path behind both the pointer drop and the keyboard menu. Announcing through
+   * the toast region is the point: a drag that completes in silence tells a screen-reader user
+   * nothing about whether it worked, and the visual position change is the only feedback a
+   * sighted user was getting.
+   */
+  const moveCardToStage = async (cardId, stageId, { stageName } = {}) => {
+    if (!cardId || !activeBoard) {
+      return
+    }
+    const card = (cards || []).find((c) => c.id === cardId)
+    try {
+      setCardNotice('')
+      await onPlaceCard(cardId, { boardId: activeBoard.id, stageId })
+      const label = stageName
+        || stagesForBoard(activeBoard.id).find((s) => s.id === stageId)?.stageName
+        || 'the board'
+      toast.success(`${card?.name || 'Card'} moved to ${label}.`)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to place card.')
+    }
+  }
+
   const dropCardOnStage = async (event, stageId) => {
     event.preventDefault()
     const cardId = event.dataTransfer.getData('text/plain') || dragCardId
     setDropStageId('')
     setDragCardId('')
-    if (!cardId || !activeBoard) return
-    try {
-      setCardNotice('')
-      await onPlaceCard(cardId, { boardId: activeBoard.id, stageId })
-    } catch (error) {
-      setCardNotice(error instanceof Error ? error.message : 'Unable to place card.')
-    }
+    await moveCardToStage(cardId, stageId)
   }
 
   const detachCard = async (card) => {
     try {
       setCardNotice('')
       await onPlaceCard(card.id, { boardId: null, stageId: null })
+      toast.success(`${card.name} returned to the pool.`)
     } catch (error) {
-      setCardNotice(error instanceof Error ? error.message : 'Unable to remove card from board.')
+      toast.error(error instanceof Error ? error.message : 'Unable to remove card from board.')
     }
   }
 
@@ -415,7 +459,13 @@ function WorkflowPage({
                   </label>
                   <div className="row-actions">
                     <button type="button" className="ghost-btn" onClick={() => openEditDrawer(board)}>Edit</button>
-                    <button type="button" className="ghost-btn" onClick={() => removeBoard(board)}>Remove</button>
+                    <button
+                      type="button"
+                      className="ghost-btn"
+                      onClick={() => setPendingDelete({ kind: 'board', target: board })}
+                    >
+                      Remove
+                    </button>
                   </div>
                 </li>
               )
@@ -488,7 +538,34 @@ function WorkflowPage({
                         </div>
                       ) : null}
                       <div className="card-thumb-actions">
-                        <button type="button" className="ghost-btn" onClick={() => removeCard(card)}>Delete</button>
+                        {/* The keyboard and touch path onto the board. Dragging is a pointer
+                            gesture with no keyboard equivalent, so without this control a
+                            keyboard user cannot place a card at all. */}
+                        <label className="card-move-field">
+                          <span className="visually-hidden">Move {card.name} to a stage</span>
+                          <select
+                            value=""
+                            disabled={!activeBoard}
+                            onChange={(event) => {
+                              const stageId = event.target.value
+                              if (stageId) {
+                                moveCardToStage(card.id, stageId)
+                              }
+                            }}
+                          >
+                            <option value="">Move to…</option>
+                            {activeBoard ? stagesForBoard(activeBoard.id).map((stage) => (
+                              <option key={stage.id} value={stage.id}>{stage.stageName}</option>
+                            )) : null}
+                          </select>
+                        </label>
+                        <button
+                          type="button"
+                          className="ghost-btn"
+                          onClick={() => setPendingDelete({ kind: 'card', target: card })}
+                        >
+                          Delete
+                        </button>
                       </div>
                     </div>
                   )
@@ -540,7 +617,35 @@ function WorkflowPage({
                                 <p className="card-campaign">{card.name}</p>
                                 <p className="card-creator">{campaign?.name || 'Unknown'} × {creator?.name || 'Unknown'}</p>
                                 <div className="card-actions">
-                                  <button type="button" onClick={() => detachCard(card)}>Remove from board</button>
+                                  <label className="card-move-field">
+                                    <span className="visually-hidden">Move {card.name} to another stage</span>
+                                    <select
+                                      value=""
+                                      onChange={(event) => {
+                                        const stageId = event.target.value
+                                        if (stageId) {
+                                          moveCardToStage(card.id, stageId)
+                                        }
+                                      }}
+                                    >
+                                      <option value="">Move to…</option>
+                                      {stagesForBoard(activeBoard.id)
+                                        .filter((option) => option.id !== stage.id)
+                                        .map((option) => (
+                                          <option key={option.id} value={option.id}>{option.stageName}</option>
+                                        ))}
+                                    </select>
+                                  </label>
+                                  {/* Short visible label: "Remove from board" cannot wrap and does
+                                      not fit a kanban column, so it overflowed onto the select next
+                                      to it. The full phrasing stays on the accessible name. */}
+                                  <button
+                                    type="button"
+                                    onClick={() => detachCard(card)}
+                                    aria-label={`Remove ${card.name} from board`}
+                                  >
+                                    Remove
+                                  </button>
                                 </div>
                               </div>
                             )
@@ -600,7 +705,7 @@ function WorkflowPage({
                 />
               </label>
 
-              <p className="helper" style={{ marginTop: '6px' }}>Stages (customize name and order)</p>
+              <p className="helper stage-editor-label">Stages (customize name and order)</p>
               <div className="blueprint-stage-editor">
                 {draft.stages.map((stage, index) => (
                   <div key={index} className="blueprint-stage-draft-row">
@@ -735,6 +840,39 @@ function WorkflowPage({
             </div>
           </aside>
         </div>
+      ) : null}
+
+      {/* Names what the delete takes with it. "Delete board?" told the user nothing about the
+          stages and cards attached to it — people approve destructive actions they understand
+          and regret the ones they do not. */}
+      {pendingDelete?.kind === 'board' ? (
+        <ConfirmDialog
+          title={`Delete "${pendingDelete.target.name}"?`}
+          consequence={(() => {
+            const stageCount = stagesForBoard(pendingDelete.target.id).length
+            const placedCount = (cards || []).filter((c) => c.boardId === pendingDelete.target.id).length
+            const stagePart = `${stageCount} stage${stageCount === 1 ? '' : 's'} will be removed`
+            const cardPart = placedCount
+              ? `, and ${placedCount} card${placedCount === 1 ? '' : 's'} will return to the pool`
+              : ''
+            return `${stagePart}${cardPart}. The campaigns and creators themselves are not affected.`
+          })()}
+          confirmLabel="Delete board"
+          busy={deleting}
+          onConfirm={confirmDeleteBoard}
+          onCancel={() => setPendingDelete(null)}
+        />
+      ) : null}
+
+      {pendingDelete?.kind === 'card' ? (
+        <ConfirmDialog
+          title={`Delete "${pendingDelete.target.name}"?`}
+          consequence="This relationship card is removed permanently. The campaign and creator it links are not affected."
+          confirmLabel="Delete card"
+          busy={deleting}
+          onConfirm={confirmDeleteCard}
+          onCancel={() => setPendingDelete(null)}
+        />
       ) : null}
     </section>
   )
