@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { MdsKicker, MdsSectionRule, MdsNote } from '../components/Mds'
+import { ConfirmDialog, useToast } from '../components/ui'
 
 const CAP_LABELS = {
   CREATE_COUPON: 'Coupon sync',
@@ -14,6 +15,27 @@ function MarketplacePage({ providers = [], connections = [], onConnect, onDiscon
   const [shop, setShop] = useState('')
   const [busy, setBusy] = useState(false)
   const [feedback, setFeedback] = useState({ type: '', message: '' })
+  const [pendingDisconnect, setPendingDisconnect] = useState(null)
+  const [disconnecting, setDisconnecting] = useState(false)
+
+  const toast = useToast()
+
+  const confirmDisconnect = async () => {
+    if (!pendingDisconnect) {
+      return
+    }
+    const label = pendingDisconnect.displayName || pendingDisconnect.providerKey
+    try {
+      setDisconnecting(true)
+      await onDisconnect(pendingDisconnect.id)
+      toast.success(`${label} disconnected.`)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : `Unable to disconnect ${label}.`)
+    } finally {
+      setDisconnecting(false)
+      setPendingDisconnect(null)
+    }
+  }
 
   const selectedProvider = useMemo(
     () => providers.find((p) => p.key === providerKey) || null,
@@ -124,9 +146,7 @@ function MarketplacePage({ providers = [], connections = [], onConnect, onDiscon
                 <button
                   type="button"
                   className="ghost-btn"
-                  onClick={() => {
-                    if (window.confirm(`Disconnect ${conn.displayName || conn.providerKey}?`)) onDisconnect(conn.id)
-                  }}
+                  onClick={() => setPendingDisconnect(conn)}
                 >
                   Disconnect
                 </button>
@@ -135,6 +155,19 @@ function MarketplacePage({ providers = [], connections = [], onConnect, onDiscon
           ))}
         </ul>
       )}
+
+      {/* Disconnecting is the action that quietly stops revenue attribution, so the dialog
+          says that rather than only naming the store. */}
+      {pendingDisconnect ? (
+        <ConfirmDialog
+          title={`Disconnect ${pendingDisconnect.displayName || pendingDisconnect.providerKey}?`}
+          consequence="New orders from this store stop being attributed to your creators. Coupons already pushed there keep working, but their sales will no longer appear on the revenue dashboard."
+          confirmLabel="Disconnect"
+          busy={disconnecting}
+          onConfirm={confirmDisconnect}
+          onCancel={() => setPendingDisconnect(null)}
+        />
+      ) : null}
     </article>
   )
 }
