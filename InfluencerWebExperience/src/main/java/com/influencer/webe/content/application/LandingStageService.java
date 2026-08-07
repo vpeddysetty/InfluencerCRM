@@ -47,13 +47,17 @@ public class LandingStageService {
     private final DaoGatewayClient dao;
     private final ResponseShapeService shape;
     private final LandingStageMachine machine;
+    /** Phase E: reaching Published starts the free-hosting clock (decision #11). */
+    private final BrandDomainService domains;
 
     public LandingStageService(DaoGatewayClient dao,
                                ResponseShapeService shape,
-                               LandingStageMachine machine) {
+                               LandingStageMachine machine,
+                               BrandDomainService domains) {
         this.dao = dao;
         this.shape = shape;
         this.machine = machine;
+        this.domains = domains;
     }
 
     /**
@@ -126,6 +130,20 @@ public class LandingStageService {
 
         recordTransition(brandId, templateId, current, target, source, key);
         syncCard(brandId, templateId, target, source, key);
+
+        // Phase E, decision #11: two months of free hosting, measured from FIRST publish rather
+        // than signup — a brand that explores for six weeks before publishing should get the
+        // full window on the thing being trialled. Idempotent, so republishing later does not
+        // restart the clock and make the trial unbounded.
+        if (LandingStageMachine.PUBLISHED.equals(target)) {
+            try {
+                updated = domains.startHostingWindow(brandId, templateId);
+            } catch (RuntimeException e) {
+                // A page that published but failed to get its expiry stamped hosts indefinitely,
+                // which is the safe direction to fail: it costs us, not the customer.
+                log.warn("Hosting window NOT started for page {}: {}", templateId, e.toString());
+            }
+        }
 
         return shape.landingTemplate(updated);
     }

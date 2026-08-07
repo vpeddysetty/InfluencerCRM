@@ -56,6 +56,18 @@ public class LandingTemplate {
     @Column(name = "stage", nullable = false)
     private String stage;
 
+    // ---- Phase E: the hosting window (decision #11) --------------------
+    // Two months of free hosting, measured from FIRST publish rather than signup, so a brand
+    // that explores before publishing gets the full window on the thing being trialled.
+
+    /** NULL until first publish — the clock has not started, which is not the same as expired. */
+    @Column(name = "hosting_expires_at")
+    private Instant hostingExpiresAt;
+
+    /** Set once. updated_at moves on every edit and so cannot answer when the trial began. */
+    @Column(name = "first_published_at")
+    private Instant firstPublishedAt;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -204,5 +216,21 @@ public class LandingTemplate {
 
     public void setUpdatedAt(Instant updatedAt) {
         this.updatedAt = updatedAt;
+    }
+
+    public Instant getHostingExpiresAt() {
+        return hostingExpiresAt;
+    }
+
+    public void setHostingExpiresAt(Instant hostingExpiresAt) {
+        this.hostingExpiresAt = hostingExpiresAt;
+    }
+
+    public Instant getFirstPublishedAt() {
+        return firstPublishedAt;
+    }
+
+    public void setFirstPublishedAt(Instant firstPublishedAt) {
+        this.firstPublishedAt = firstPublishedAt;
     }
 }

@@ -30,13 +30,17 @@ public class LandingService {
     private final DaoGatewayClient dao;
     private final ResponseShapeService shape;
     private final LandingDocumentSanitizer sanitizer;
+    /** Phase E: free hosting is time-limited, so rendering has to check the window. */
+    private final BrandDomainService domains;
 
     public LandingService(DaoGatewayClient dao,
                           ResponseShapeService shape,
-                          LandingDocumentSanitizer sanitizer) {
+                          LandingDocumentSanitizer sanitizer,
+                          BrandDomainService domains) {
         this.dao = dao;
         this.shape = shape;
         this.sanitizer = sanitizer;
+        this.domains = domains;
     }
 
     /**
@@ -101,6 +105,7 @@ public class LandingService {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Landing page not found");
         }
         JsonNode template = templates.get(0);
+        requireWithinHostingWindow(template);
         UUID brandId = UUID.fromString(template.get("brandId").asText());
         UUID campaignId = UUID.fromString(template.get("campaignId").asText());
 
@@ -147,6 +152,11 @@ public class LandingService {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Landing page not found");
         }
 
+        // Phase E, decision #11: free hosting runs out. 410 Gone with a clear message rather
+        // than a 404 that looks like a bug or a page that silently keeps serving. The row, its
+        // blocks and its assets all stay — expiry unpublishes, it never deletes.
+        requireWithinHostingWindow(template);
+
         UUID brandId = UUID.fromString(template.get("brandId").asText());
         recordBrandView(brandId, referrer, userAgent);
 
@@ -162,6 +172,23 @@ public class LandingService {
         tokens.put("creator.name", "our creators");
 
         return renderHtml(template, placeholder, tokens);
+    }
+
+    /**
+     * Refuse to serve a page whose free hosting has lapsed (Phase E, decision #11).
+     *
+     * <p>410 Gone, not 404: the page existed and may exist again once hosting is renewed, and a
+     * visitor (or a search engine) should be able to tell those apart. The stored page is
+     * untouched — re-publishing after payment is a stage change, not a rebuild. Deleting a
+     * brand's work because a trial lapsed is the kind of thing that ends a customer
+     * relationship permanently.
+     */
+    private void requireWithinHostingWindow(JsonNode template) {
+        if (domains.isExpired(template)) {
+            throw new ResponseStatusException(HttpStatus.GONE,
+                    "This page is no longer hosted. Its free hosting period has ended — "
+                            + "the content is safe and it can be republished once hosting is renewed.");
+        }
     }
 
     /**

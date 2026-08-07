@@ -354,7 +354,10 @@ public class ResponseShapeService {
 
     public JsonNode landingTemplate(JsonNode source) {
         ObjectNode out = pick(source, "id", "brandId", "campaignId", "publicSlug", "name",
-                "status", "stage", "createdAt", "updatedAt");
+                "status", "stage", "createdAt", "updatedAt",
+                // Phase E. Exposed so a brand can see when free hosting ends before it does,
+                // rather than discovering it from a 410 on their own live page.
+                "hostingExpiresAt", "firstPublishedAt");
         out.set("blocks", parseJsonOrDefault(source, "blocks", objectMapper.createArrayNode()));
         out.set("theme", parseJsonOrDefault(source, "theme", objectMapper.createObjectNode()));
         // `document` is passed through as JSON null when absent rather than defaulted to {}:

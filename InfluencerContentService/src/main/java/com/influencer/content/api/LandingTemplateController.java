@@ -66,6 +66,14 @@ public class LandingTemplateController {
         existing.setDocument(firstNonNull(template.getDocument(), existing.getDocument()));
         existing.setStatus(template.getStatus());
         existing.setStage(firstNonNull(template.getStage(), existing.getStage(), "draft"));
+        // Phase E. Null-guarded: a PUT that omits these must not clear a hosting window that
+        // has already started, or a published page would silently become free forever.
+        if (template.getHostingExpiresAt() != null) {
+            existing.setHostingExpiresAt(template.getHostingExpiresAt());
+        }
+        if (template.getFirstPublishedAt() != null) {
+            existing.setFirstPublishedAt(template.getFirstPublishedAt());
+        }
         return repository.save(existing);
     }
 
