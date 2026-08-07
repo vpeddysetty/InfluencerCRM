@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { MdsKicker, MdsSectionRule, MdsNote } from '../components/Mds'
 
 const EMPTY = { kpis: {}, leaderboard: [], channels: [] }
+
+// The order simulator writes synthetic attribution into real reporting, so it is off unless
+// explicitly switched on. Leaving it always-visible on the page whose whole job is proving
+// real ROI invites exactly the data a brand owner would later have to reconcile.
+const SIMULATOR_ENABLED = import.meta.env?.VITE_ENABLE_ORDER_SIMULATOR === 'true'
 
 function money(value) {
   const n = Number(value)
@@ -48,6 +54,11 @@ function DashboardPage({ coupons = [], onLoadRevenue, onSimulateOrder }) {
 
   const kpis = data.kpis || {}
 
+  // "Has anything been attributed?" — any order, any revenue, or any leaderboard row. Checking
+  // all three avoids hiding real data when one field lags behind the others.
+  const hasAttribution =
+    data.leaderboard.length > 0 || Number(kpis.orders) > 0 || Number(kpis.revenue) > 0
+
   const submitSim = async (event) => {
     event.preventDefault()
     if (!sim.code.trim() || !sim.orderId.trim()) {
@@ -89,21 +100,38 @@ function DashboardPage({ coupons = [], onLoadRevenue, onSimulateOrder }) {
 
       {error ? <p className="row-save-feedback error">{error}</p> : null}
 
-      {/* KPI tiles */}
-      <div className="kpi-grid">
-        <div className="kpi-tile"><span className="kpi-label">Revenue</span><strong className="kpi-value">{money(kpis.revenue)}</strong></div>
-        <div className="kpi-tile"><span className="kpi-label">Orders</span><strong className="kpi-value">{kpis.orders ?? 0}</strong></div>
-        <div className="kpi-tile"><span className="kpi-label">Avg order value</span><strong className="kpi-value">{money(kpis.avgOrderValue)}</strong></div>
-        <div className="kpi-tile"><span className="kpi-label">Commission owed</span><strong className="kpi-value">{money(kpis.commission)}</strong></div>
-        <div className="kpi-tile"><span className="kpi-label">Total cost</span><strong className="kpi-value">{money(kpis.totalInfluencerCost)}</strong></div>
-        <div className="kpi-tile"><span className="kpi-label">ROI</span><strong className="kpi-value">{kpis.roi ?? '—'}×</strong></div>
-      </div>
-
-      <MdsSectionRule />
-      <h4>Influencer leaderboard</h4>
-      {data.leaderboard.length === 0 ? (
-        <p className="custom-attributes-empty">No attributed sales yet. Simulate an order below to see data.</p>
+      {/* Before any sale is attributed, six zeroed tiles say nothing except "empty". The setup
+          path is the more useful thing to show, so the tiles wait until they have numbers. */}
+      {hasAttribution ? (
+        <div className="kpi-grid">
+          <div className="kpi-tile"><span className="kpi-label">Revenue</span><strong className="kpi-value">{money(kpis.revenue)}</strong></div>
+          <div className="kpi-tile"><span className="kpi-label">Orders</span><strong className="kpi-value">{kpis.orders ?? 0}</strong></div>
+          <div className="kpi-tile"><span className="kpi-label">Avg order value</span><strong className="kpi-value">{money(kpis.avgOrderValue)}</strong></div>
+          <div className="kpi-tile"><span className="kpi-label">Commission owed</span><strong className="kpi-value">{money(kpis.commission)}</strong></div>
+          <div className="kpi-tile"><span className="kpi-label">Total cost</span><strong className="kpi-value">{money(kpis.totalInfluencerCost)}</strong></div>
+          <div className="kpi-tile"><span className="kpi-label">ROI</span><strong className="kpi-value">{kpis.roi ?? '—'}×</strong></div>
+        </div>
       ) : (
+        <section className="revenue-setup-panel">
+          <h4>No sales attributed yet</h4>
+          <p>
+            Connect your store and give each creator a discount code — sales then land against the
+            creator who drove them, and this page shows which partnerships paid for themselves.
+          </p>
+          <div className="row-actions">
+            <Link className="primary-btn revenue-setup-action" to="/marketplace">
+              Connect your store
+            </Link>
+            <Link className="ghost-btn revenue-setup-action" to="/coupons">
+              Create discount codes
+            </Link>
+          </div>
+        </section>
+      )}
+
+      {hasAttribution ? <MdsSectionRule /> : null}
+      {hasAttribution ? <h4>Influencer leaderboard</h4> : null}
+      {data.leaderboard.length === 0 ? null : (
         <div className="dash-table-wrap">
           <table className="dash-table">
             <thead>
@@ -135,26 +163,31 @@ function DashboardPage({ coupons = [], onLoadRevenue, onSimulateOrder }) {
         </div>
       )}
 
-      <MdsSectionRule />
-      <h4>Channel breakdown</h4>
-      {data.channels.length === 0 ? (
-        <p className="custom-attributes-empty">No channel data yet.</p>
-      ) : (
-        <ul className="simple-list">
-          {data.channels.map((ch) => (
-            <li key={ch.channel}>
-              <strong>#{ch.channel}</strong>
-              <span>{ch.orders} orders</span>
-              <span>{money(ch.revenue)} revenue</span>
-              <span>{money(ch.commission)} commission</span>
-            </li>
-          ))}
-        </ul>
-      )}
+      {data.channels.length > 0 ? (
+        <>
+          <MdsSectionRule />
+          <h4>Channel breakdown</h4>
+          <ul className="simple-list">
+            {data.channels.map((ch) => (
+              <li key={ch.channel}>
+                <strong>#{ch.channel}</strong>
+                <span>{ch.orders} orders</span>
+                <span>{money(ch.revenue)} revenue</span>
+                <span>{money(ch.commission)} commission</span>
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
 
+      {SIMULATOR_ENABLED ? (
+        <>
       <MdsSectionRule />
       <h4>Simulate an order (test / demo)</h4>
-      <MdsNote>Feeds a synthetic order through the Mock marketplace attribution pipeline. Use a real coupon code from the Coupons page.</MdsNote>
+      <MdsNote>
+        Synthetic orders are written to real attribution data. Enabled by
+        VITE_ENABLE_ORDER_SIMULATOR for testing — do not use on a live workspace.
+      </MdsNote>
       {simFeedback.message ? (
         <p className={`row-save-feedback ${simFeedback.type === 'error' ? 'error' : 'success'}`}>{simFeedback.message}</p>
       ) : null}
@@ -172,6 +205,8 @@ function DashboardPage({ coupons = [], onLoadRevenue, onSimulateOrder }) {
         </select>
         <button type="submit" className="primary-btn" disabled={simBusy}>{simBusy ? 'Sending…' : 'Simulate order'}</button>
       </form>
+        </>
+      ) : null}
     </article>
   )
 }

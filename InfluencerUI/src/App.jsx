@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import './App.css'
+import { DEFAULT_ROUTE } from './shell/routeManifest'
 import LandingPage from './pages/LandingPage'
 import ImportPage from './pages/ImportPage'
 import CampaignsPage from './pages/CampaignsPage'
@@ -750,6 +751,9 @@ function App() {
       sourceFileStored: Boolean(batch?.sourceFileStored),
       headers: columns,
       rows: cachedPreviewRows,
+      // rows is a 5-row sample for the preview table, so it cannot be used as a count. The
+      // import button promises a number to the user; it has to be the file's real total.
+      totalRowCount: Number(batch?.rowCount) || cachedRows.length,
       mappingText,
       mappingSaved,
       previewResult: null,
@@ -1546,11 +1550,20 @@ function App() {
                   onSwitchBrand={handleSwitchBrand}
                   role={role}
                   permissions={permissions}
+                  progress={{
+                    creatorCount: creators.length,
+                    campaignCount: campaigns.length,
+                    cardCount: workflowCards.length,
+                    importedCount: importBatches.length,
+                  }}
+                  isFirstVisit={
+                    creators.length === 0 && campaigns.length === 0 && importBatches.length === 0
+                  }
                 />
               </SessionProvider>
             }
           >
-            <Route index element={<Navigate to="/import" replace />} />
+            <Route index element={<Navigate to={DEFAULT_ROUTE} replace />} />
             <Route
               path="import"
               element={
@@ -1709,7 +1722,7 @@ function App() {
                 />
               }
             />
-            <Route path="*" element={<Navigate to="/import" replace />} />
+            <Route path="*" element={<Navigate to={DEFAULT_ROUTE} replace />} />
           </Route>
         </>
       )}

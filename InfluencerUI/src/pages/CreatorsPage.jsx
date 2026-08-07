@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { MdsKicker, MdsSectionRule } from '../components/Mds'
 import CustomAttributesEditor from '../components/CustomAttributesEditor'
 
@@ -6,6 +6,53 @@ function sanitizePairs(pairs) {
   return Array.isArray(pairs)
     ? pairs.filter((pair) => String(pair?.key || '').trim() || String(pair?.value || '').trim())
     : []
+}
+
+const SORT_OPTIONS = [
+  { value: 'name-asc', label: 'Name A–Z' },
+  { value: 'name-desc', label: 'Name Z–A' },
+  { value: 'handle-asc', label: 'Handle A–Z' },
+  { value: 'platform-asc', label: 'Platform' },
+]
+
+/**
+ * Free-text match across the fields someone would reach for Ctrl+F to find: name, handle,
+ * email, platform, and any custom attribute they added themselves. Custom attributes are
+ * included deliberately — a brand that imported a "Tier" or "Agency" column expects to be
+ * able to search it, and excluding them would make the box feel broken for exactly the
+ * users who invested most in their sheet.
+ */
+function matchesQuery(creator, query, pairsOf) {
+  if (!query) {
+    return true
+  }
+  const haystack = [
+    creator?.name,
+    creator?.handle,
+    creator?.email,
+    creator?.platform,
+    ...pairsOf(creator?.customAttributes).flatMap((pair) => [pair?.key, pair?.value]),
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase()
+
+  return haystack.includes(query)
+}
+
+function compareCreators(a, b, sortBy) {
+  const text = (value) => String(value || '').toLowerCase()
+  switch (sortBy) {
+    case 'name-desc':
+      return text(b?.name).localeCompare(text(a?.name))
+    case 'handle-asc':
+      return text(a?.handle).localeCompare(text(b?.handle))
+    case 'platform-asc':
+      return text(a?.platform).localeCompare(text(b?.platform)) || text(a?.name).localeCompare(text(b?.name))
+    case 'name-asc':
+    default:
+      return text(a?.name).localeCompare(text(b?.name))
+  }
 }
 
 function buildSnapshot(draft) {
@@ -37,6 +84,37 @@ function CreatorsPage({
   const [rowFeedback, setRowFeedback] = useState({ id: '', type: '', message: '' })
   const [createAttrValidation, setCreateAttrValidation] = useState({ hasDuplicateKeys: false, hasMissingKeys: false })
   const [editAttrValidation, setEditAttrValidation] = useState({ hasDuplicateKeys: false, hasMissingKeys: false })
+  const [search, setSearch] = useState('')
+  const [platformFilter, setPlatformFilter] = useState('')
+  const [sortBy, setSortBy] = useState('name-asc')
+
+  // Only offer platforms actually present, so the filter never lists an option that yields nothing.
+  const availablePlatforms = useMemo(() => {
+    const seen = new Set()
+    ;(creators || []).forEach((creator) => {
+      const platform = String(creator?.platform || '').trim().toLowerCase()
+      if (platform) {
+        seen.add(platform)
+      }
+    })
+    return [...seen].sort()
+  }, [creators])
+
+  const visibleCreators = useMemo(() => {
+    const query = search.trim().toLowerCase()
+    return (creators || [])
+      .filter((creator) => matchesQuery(creator, query, customAttributesToPairs))
+      .filter((creator) => !platformFilter || String(creator?.platform || '').toLowerCase() === platformFilter)
+      .sort((a, b) => compareCreators(a, b, sortBy))
+  }, [creators, search, platformFilter, sortBy, customAttributesToPairs])
+
+  const totalCount = (creators || []).length
+  const isFiltered = Boolean(search.trim() || platformFilter)
+
+  const clearFilters = () => {
+    setSearch('')
+    setPlatformFilter('')
+  }
 
   useEffect(() => {
     if (!editingId) {
@@ -138,7 +216,7 @@ function CreatorsPage({
   return (
     <article className="card mds-surface mds-prose form-card page-stack">
       <MdsKicker>Creator Directory</MdsKicker>
-      <h3>3. Add creator</h3>
+      <h3>Add creator</h3>
       <MdsSectionRule />
       <p>Store creator profile details so assignments can be tied and tracked accurately.</p>
       <form onSubmit={onCreateCreator} className="inline-form page-form-grid">
@@ -187,8 +265,78 @@ function CreatorsPage({
           Add creator
         </button>
       </form>
+      <MdsSectionRule />
+      <div className="creator-directory-header">
+        <h4>
+          Your creators
+          <span className="creator-count">
+            {isFiltered ? `${visibleCreators.length} of ${totalCount}` : totalCount}
+          </span>
+        </h4>
+      </div>
+
+      {totalCount > 0 ? (
+        <div className="creator-filter-bar">
+          <label className="creator-search-field">
+            <span className="visually-hidden">Search creators</span>
+            <input
+              type="search"
+              value={search}
+              placeholder="Search by name, handle, email, or attribute…"
+              onChange={(event) => setSearch(event.target.value)}
+              aria-label="Search creators"
+            />
+          </label>
+          <label className="creator-filter-field">
+            <span className="visually-hidden">Filter by platform</span>
+            <select
+              value={platformFilter}
+              onChange={(event) => setPlatformFilter(event.target.value)}
+              aria-label="Filter by platform"
+            >
+              <option value="">All platforms</option>
+              {availablePlatforms.map((platform) => (
+                <option key={platform} value={platform}>
+                  {platform.charAt(0).toUpperCase() + platform.slice(1)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="creator-filter-field">
+            <span className="visually-hidden">Sort creators</span>
+            <select value={sortBy} onChange={(event) => setSortBy(event.target.value)} aria-label="Sort creators">
+              {SORT_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          {isFiltered ? (
+            <button type="button" className="ghost-btn" onClick={clearFilters}>
+              Clear
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {totalCount === 0 ? (
+        <p className="custom-attributes-empty">
+          No creators yet. Import your spreadsheet or add one above to get started.
+        </p>
+      ) : null}
+
+      {totalCount > 0 && visibleCreators.length === 0 ? (
+        <p className="custom-attributes-empty">
+          No creators match {search.trim() ? `"${search.trim()}"` : 'this filter'}.{' '}
+          <button type="button" className="link-btn" onClick={clearFilters}>
+            Clear filters
+          </button>
+        </p>
+      ) : null}
+
       <ul className="simple-list">
-        {creators.map((creator) => (
+        {visibleCreators.map((creator) => (
           <li key={creator.id}>
             <>
               <strong>{creator.name}</strong>

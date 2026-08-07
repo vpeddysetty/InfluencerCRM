@@ -117,7 +117,9 @@ function PayoutsPage({
       <MdsSectionRule />
       <h4>Pending commissions ({pending.length})</h4>
       {pending.length === 0 ? (
-        <p className="custom-attributes-empty">No pending commissions. Simulate orders on the Dashboard to accrue some.</p>
+        <p className="custom-attributes-empty">
+          No commissions owed yet. These appear once creators start driving attributed sales.
+        </p>
       ) : (
         <ul className="simple-list">
           {pending.map((c) => (

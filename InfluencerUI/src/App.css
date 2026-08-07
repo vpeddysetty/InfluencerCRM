@@ -2384,3 +2384,340 @@ button:focus {
   border: 0;
   display: block;
 }
+
+/* ── Creator directory: search, filter, sort ─────────────────────────────── */
+
+.creator-directory-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.creator-directory-header h4 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+}
+
+.creator-count {
+  font-family: var(--sans);
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--ink-2);
+  background: rgba(155, 168, 191, 0.18);
+  border-radius: 999px;
+  padding: 2px 10px;
+}
+
+.creator-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 0 18px;
+}
+
+.creator-search-field {
+  flex: 1 1 260px;
+  min-width: 200px;
+}
+
+.creator-search-field input {
+  width: 100%;
+}
+
+.creator-filter-field select {
+  min-width: 150px;
+}
+
+.link-btn {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 700;
+  color: var(--ink-3);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ── Import: stepper + confidence-grouped mapping ────────────────────────── */
+
+.import-intro {
+  max-width: 60ch;
+}
+
+.import-step {
+  display: grid;
+  grid-template-columns: 34px 1fr;
+  gap: 14px;
+  padding: 20px 0;
+  border-top: 1px solid var(--line);
+}
+
+.import-step:first-of-type {
+  border-top: 0;
+}
+
+.import-step-body h3 {
+  margin: 2px 0 10px;
+}
+
+.import-step-marker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 0.9rem;
+  border: 1px solid var(--line-strong);
+  color: var(--ink-2);
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.import-step-active .import-step-marker {
+  color: var(--ink-0);
+  border-color: transparent;
+  background: linear-gradient(135deg, #0f766e 0%, #1e40af 100%);
+}
+
+.import-step-done .import-step-marker {
+  color: #0f766e;
+  border-color: #0f766e;
+  background: rgba(15, 118, 110, 0.12);
+}
+
+.import-step-idle .import-step-body {
+  opacity: 0.62;
+}
+
+.mapping-confidence-summary {
+  margin: 4px 0 16px;
+}
+
+.mapping-confidence-line {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: rgba(155, 168, 191, 0.12);
+}
+
+.mapping-confidence-line.success {
+  border-color: rgba(15, 118, 110, 0.4);
+  background: rgba(15, 118, 110, 0.1);
+}
+
+.mapping-rows-flagged {
+  margin-bottom: 8px;
+}
+
+.mapping-row-card.needs-attention {
+  border-left: 3px solid #b45309;
+  background: rgba(180, 83, 9, 0.06);
+}
+
+.mapping-flag {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: #b45309;
+}
+
+.mapping-confident-block {
+  margin: 12px 0 4px;
+}
+
+/* ── Grouped workspace nav ───────────────────────────────────────────────── */
+
+.workspace-nav {
+  align-items: center;
+  gap: 18px;
+}
+
+.workspace-nav-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.workspace-nav-group + .workspace-nav-group {
+  padding-left: 18px;
+  border-left: 1px solid var(--line);
+}
+
+.workspace-nav-group-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.workspace-nav-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+@media (max-width: 760px) {
+  .workspace-nav-group {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+
+  .workspace-nav-group + .workspace-nav-group {
+    padding-left: 0;
+    border-left: 0;
+  }
+}
+
+/* ── First-run checklist ─────────────────────────────────────────────────── */
+
+.getting-started {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 18px 20px;
+  margin-bottom: 18px;
+  background: rgba(255, 255, 255, 0.7);
+  box-shadow: var(--surface-shadow);
+}
+
+.getting-started-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.getting-started-header h3 {
+  margin: 0;
+}
+
+.getting-started-progress {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--ink-2);
+}
+
+.getting-started-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.getting-started-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+}
+
+.getting-started-step.is-next {
+  background: rgba(155, 168, 191, 0.14);
+}
+
+.getting-started-step.is-done .getting-started-label {
+  color: var(--ink-2);
+  text-decoration: line-through;
+}
+
+.getting-started-check {
+  font-weight: 700;
+  color: var(--ink-2);
+}
+
+.getting-started-step.is-done .getting-started-check {
+  color: #0f766e;
+}
+
+.getting-started-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  font-weight: 600;
+}
+
+.getting-started-hint {
+  font-size: 0.82rem;
+  font-weight: 400;
+  color: var(--ink-2);
+}
+
+.getting-started-action {
+  text-decoration: none;
+  padding: 8px 14px;
+  border-radius: 10px;
+  font-size: 0.88rem;
+  white-space: nowrap;
+}
+
+/* ── Revenue: pre-attribution setup path ─────────────────────────────────── */
+
+.revenue-setup-panel {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 22px 24px;
+  background: rgba(155, 168, 191, 0.1);
+}
+
+.revenue-setup-panel h4 {
+  margin: 0 0 8px;
+}
+
+.revenue-setup-panel p {
+  margin: 0 0 16px;
+  max-width: 62ch;
+  color: var(--ink-2);
+}
+
+/* Anchors styled as buttons: the .primary-btn/.ghost-btn colour rules are scoped to button
+   elements, so a Link needs the colour restated or it inherits the default link blue — which
+   on the primary gradient is close to unreadable. */
+.revenue-setup-action {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  padding: 10px 16px;
+  border-radius: 10px;
+  font-weight: 700;
+}
+
+a.primary-btn,
+a.primary-btn:visited,
+.getting-started-action,
+.getting-started-action:visited {
+  color: var(--ink-0);
+  text-decoration: none;
+}
+
+a.ghost-btn,
+a.ghost-btn:visited {
+  color: var(--ink-4);
+  text-decoration: none;
+}

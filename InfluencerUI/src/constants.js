@@ -194,6 +194,13 @@ export function createImportMappingJson(headers) {
   return JSON.stringify(headers.map(inferMappingForHeader), null, 2)
 }
 
+/**
+ * Below this, a suggestion is presented as "needs your input" rather than pre-accepted.
+ * The agent returns a 0–1 confidence per recommendation; surfacing it is what lets the
+ * review step focus on the few columns the model was unsure about instead of all of them.
+ */
+export const MAPPING_CONFIDENCE_THRESHOLD = 0.7
+
 export function createImportMappingJsonFromAgent(headers, recommendations) {
   const mappedByColumn = new Map(
     (Array.isArray(recommendations) ? recommendations : [])
@@ -205,12 +212,16 @@ export function createImportMappingJsonFromAgent(headers, recommendations) {
     headers.map((header) => {
       const mapped = mappedByColumn.get(header)
       if (!mapped) {
-        return inferMappingForHeader(header)
+        // No recommendation at all is itself low confidence: a locally-inferred guess the
+        // agent never saw, which is exactly the kind of row a human should look at.
+        return { ...inferMappingForHeader(header), confidence: 0 }
       }
+      const confidence = Number(mapped.confidence)
       return {
         spreadsheetColumn: header,
         targetEntity: mapped.target_entity || 'campaign',
         targetAttribute: mapped.target_attribute || '',
+        ...(Number.isFinite(confidence) ? { confidence } : {}),
       }
     }),
     null,

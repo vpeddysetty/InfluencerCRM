@@ -1,6 +1,7 @@
 import { NavLink, Outlet } from 'react-router-dom'
 import { MdsKicker, MdsNote } from './Mds'
-import { visibleRoutes } from '../shell/routeManifest'
+import { groupedVisibleRoutes } from '../shell/routeManifest'
+import GettingStarted from './GettingStarted'
 
 function WorkspaceLayout({
   brandName,
@@ -12,10 +13,12 @@ function WorkspaceLayout({
   onSwitchBrand,
   role = '',
   permissions = [],
+  progress = null,
+  isFirstVisit = false,
 }) {
   // Nav comes from the route manifest, so adding a page — or later moving one behind a
   // federated remote — is a manifest edit rather than a change here.
-  const navItems = visibleRoutes(permissions)
+  const navGroups = groupedVisibleRoutes(permissions)
 
   // Solo accounts have exactly one brand: render the name as plain text rather than a
   // one-option dropdown. Same data path, different affordance.
@@ -44,7 +47,7 @@ function WorkspaceLayout({
           ) : (
             <p className="eyebrow">{brandName}</p>
           )}
-          <h2>Welcome back, {userName}</h2>
+          <h2>{isFirstVisit ? `Welcome, ${userName}` : `Welcome back, ${userName}`}</h2>
           <p className="subcopy">
             Campaign execution and creator relationship management dashboard.
             {role ? <span className="role-badge"> {role}</span> : null}
@@ -56,14 +59,23 @@ function WorkspaceLayout({
       </header>
 
       <nav className="workspace-nav" aria-label="Workspace views">
-        {navItems.map((item) => (
-          <NavLink key={item.path} to={item.path}>
-            {item.label}
-          </NavLink>
+        {navGroups.map((bucket) => (
+          <div className="workspace-nav-group" key={bucket.group}>
+            <span className="workspace-nav-group-label">{bucket.group}</span>
+            <div className="workspace-nav-links">
+              {bucket.routes.map((item) => (
+                <NavLink key={item.path} to={item.path}>
+                  {item.label}
+                </NavLink>
+              ))}
+            </div>
+          </div>
         ))}
       </nav>
 
       {workspaceError ? <MdsNote className="workspace-error-banner">{workspaceError}</MdsNote> : null}
+
+      {progress ? <GettingStarted {...progress} /> : null}
 
       <section className="workspace-content mds-theme">
         <Outlet />

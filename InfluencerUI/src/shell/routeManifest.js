@@ -53,21 +53,31 @@ const PayoutsPage = contextPage('mf_finance/PayoutsPage', () => import('../pages
 // A plain lazy import rather than contextPage(): there is no identity remote to fall back to.
 const MembersPage = lazy(() => import('../pages/MembersPage'))
 
+/**
+ * Nav groups, in display order.
+ *
+ * Ten flat links gave equal weight to the board someone opens every morning and the import
+ * they run once. Grouping restores that hierarchy: WORK is the daily loop, MONEY is the
+ * attribution story, SETUP is what you touch rarely. Paths are unchanged, so existing links
+ * and bookmarks still resolve.
+ */
+export const NAV_GROUPS = ['Work', 'Money', 'Setup']
+
 export const ROUTE_MANIFEST = [
   {
-    context: 'campaign',
-    path: '/import',
-    label: 'Import',
-    permission: 'import:execute',
-    component: ImportPage,
-    // Which api/ slice this route depends on. Recorded so the extraction runbook can
-    // answer "what moves with this page?" without reading every import.
-    apiSlice: 'imports',
+    context: 'workflow',
+    path: '/workflow',
+    label: 'Board',
+    group: 'Work',
+    permission: 'workflow:read',
+    component: WorkflowPage,
+    apiSlice: 'workflow',
   },
   {
     context: 'campaign',
     path: '/campaigns',
     label: 'Campaigns',
+    group: 'Work',
     permission: 'campaign:read',
     component: CampaignsPage,
     apiSlice: 'campaigns',
@@ -76,6 +86,7 @@ export const ROUTE_MANIFEST = [
     context: 'creator',
     path: '/creators',
     label: 'Creators',
+    group: 'Work',
     permission: 'creator:read',
     component: CreatorsPage,
     apiSlice: 'creators',
@@ -84,49 +95,57 @@ export const ROUTE_MANIFEST = [
     context: 'content',
     path: '/content',
     label: 'Content',
+    group: 'Work',
     permission: 'content:read',
     component: ContentPage,
     apiSlice: 'content',
   },
   {
-    context: 'workflow',
-    path: '/workflow',
-    label: 'Workflow',
-    permission: 'workflow:read',
-    component: WorkflowPage,
-    apiSlice: 'workflow',
+    context: 'attribution',
+    path: '/dashboard',
+    label: 'Revenue',
+    group: 'Money',
+    permission: 'attribution:read',
+    component: DashboardPage,
+    apiSlice: 'commerce',
   },
   {
     context: 'attribution',
     path: '/coupons',
     label: 'Coupons',
+    group: 'Money',
     permission: 'coupon:read',
     component: CouponsPage,
-    apiSlice: 'commerce',
-  },
-  {
-    context: 'attribution',
-    path: '/marketplace',
-    label: 'Marketplace',
-    permission: 'marketplace:connect',
-    component: MarketplacePage,
-    apiSlice: 'commerce',
-  },
-  {
-    context: 'attribution',
-    path: '/dashboard',
-    label: 'Dashboard',
-    permission: 'attribution:read',
-    component: DashboardPage,
     apiSlice: 'commerce',
   },
   {
     context: 'finance',
     path: '/payouts',
     label: 'Payouts',
+    group: 'Money',
     permission: 'payout:read',
     component: PayoutsPage,
     apiSlice: 'finance',
+  },
+  {
+    context: 'attribution',
+    path: '/marketplace',
+    label: 'Marketplace',
+    group: 'Money',
+    permission: 'marketplace:connect',
+    component: MarketplacePage,
+    apiSlice: 'commerce',
+  },
+  {
+    context: 'campaign',
+    path: '/import',
+    label: 'Import',
+    group: 'Setup',
+    permission: 'import:execute',
+    component: ImportPage,
+    // Which api/ slice this route depends on. Recorded so the extraction runbook can
+    // answer "what moves with this page?" without reading every import.
+    apiSlice: 'imports',
   },
   {
     // Account administration rather than a bounded context, so it stays in the shell and is
@@ -135,11 +154,15 @@ export const ROUTE_MANIFEST = [
     context: 'identity',
     path: '/members',
     label: 'Members',
+    group: 'Setup',
     permission: 'member:invite',
     component: MembersPage,
     apiSlice: 'core',
   },
 ]
+
+/** Where a signed-in user lands: the board they work out of, not a dashboard of zeros. */
+export const DEFAULT_ROUTE = '/workflow'
 
 /** Nav entries the given permission set may see. */
 export function visibleRoutes(permissions) {
@@ -149,6 +172,20 @@ export function visibleRoutes(permissions) {
     return ROUTE_MANIFEST
   }
   return ROUTE_MANIFEST.filter((route) => permissions.includes(route.permission))
+}
+
+/**
+ * Visible routes bucketed into nav groups, in NAV_GROUPS order.
+ *
+ * Empty groups are dropped rather than rendered as a bare heading — a marketer whose
+ * permissions exclude every Money route should see no Money section at all.
+ */
+export function groupedVisibleRoutes(permissions) {
+  const visible = visibleRoutes(permissions)
+  return NAV_GROUPS.map((group) => ({
+    group,
+    routes: visible.filter((route) => route.group === group),
+  })).filter((bucket) => bucket.routes.length > 0)
 }
 
 /** Routes grouped by owning context — the extraction unit. */
