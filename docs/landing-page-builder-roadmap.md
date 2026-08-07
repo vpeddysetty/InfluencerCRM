@@ -40,6 +40,33 @@ provisioning, Kanban sync, social publishing. Those are adopted below.
 
 ---
 
+## Implementation status — updated 2026-08-06
+
+Phases A, B, C and D are **built, tested and committed**. 136 E2E assertions across five
+suites plus 77 unit/ArchUnit tests, all passing against the live stack. Full results in
+[E2E-CONSOLIDATED-REPORT.md](E2E-CONSOLIDATED-REPORT.md).
+
+| Phase | Status | Commit |
+|---|---|---|
+| A — visual builder | Shipped | `dd5ef3f` |
+| B — asset library | Shipped (filesystem adapter; S3 + presigned URLs still open) | `f31c99c` |
+| C — creator onboarding | Shipped **against a mocked platform adapter** | `a2504cd` |
+| — stage-rename bug fix | Shipped | `8bfa4d4` |
+| D — stage automation | Shipped (reconciliation job still open) | `07a98b4` |
+| C2, C3, E, F, G, H | Not started | — |
+
+**The long pole has not moved.** §10.1's app registrations are still unstarted, so Phase C
+runs on a mock adapter that labels its own output `metrics_source = 'mock'` and never
+`platform_api`. Phase F blocks on the same approvals.
+
+Three departures from this roadmap were made deliberately during implementation, each argued
+in the phase's report section: `document` is a new column beside `blocks` rather than a
+replacement (Phase A §3); Phase A also had to add a coupon-free render path, because the
+"already works" `/s/{slug}` route did not exist (§2); and Phase B ships a filesystem adapter
+rather than MinIO (§Phase B).
+
+---
+
 ## 2. What already exists
 
 The PRD reads as though it were greenfield. A material portion is built and tested.
@@ -58,10 +85,10 @@ The PRD reads as though it were greenfield. A material portion is built and test
 | Vector search for AI retrieval | **Built** | pgvector, `mapping.mapping_examples` |
 | Role-based permissions | **Built** | 6 roles × 32 permissions, enforced server-side |
 | Domain provisioning / SSL / CDN | **Not built** | — |
-| Drag-and-drop visual editor | **Not built** | Blocks are stored; nothing edits them visually |
-| Device preview framing | **Not built** | — |
-| Creator metrics from platform APIs | **Not built** | Needs app registrations — the long pole (§10.2) |
-| AI classification & scoring | **Not built** | `creators.brand_safety_score` column exists, unused |
+| Drag-and-drop visual editor | **BUILT 2026-08-05** (Phase A, `dd5ef3f`) | GrapesJS in `LandingBuilder.jsx`; output sanitized on render |
+| Device preview framing | **BUILT 2026-08-05** (A.4) | 390 / 820 / 1440 via the GrapesJS device manager |
+| Creator metrics from platform APIs | **Port + MOCK adapter built** (Phase C) | Real adapter still blocked on app registration — see §10.1 |
+| AI classification & scoring | **BUILT 2026-08-05** (Phase C, `a2504cd`) | `/creators/classify`; niche + themes + risk flags, LLM with a heuristic fallback |
 | Per-brand vetting rules | **Not built** | No `vetting_status` yet — Phase C2 |
 | Authenticity / fake-follower signals | **Not built** | Coarse in-house signal first; vendor on complaint ([analysis](group2-build-vs-buy.md)) |
 | Post-approval health monitoring | **Not built** | No metric history kept today — Phase C3 |
