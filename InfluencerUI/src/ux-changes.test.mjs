@@ -15,6 +15,7 @@ import { NAV_GROUPS, ROUTE_MANIFEST, DEFAULT_ROUTE, groupedVisibleRoutes } from 
 import { EVENTS, analyticsProvider, identify, resetIdentity, track } from './api/analytics.js'
 import { toCsv } from './api/csv.js'
 import { rangeToParams, toIsoDate } from './shell/dateRange.js'
+import { accessTokenExpiryMs, msUntilRefresh, REFRESH_LEAD_MS } from './shell/sessionExpiry.js'
 
 // ── P3: confidence survives the agent → UI transform ────────────────────────
 
@@ -970,4 +971,95 @@ test('on-tint text tokens are defined for both themes', () => {
   const dark = index.slice(index.indexOf('@media (prefers-color-scheme: dark)'))
   assert.match(dark, /--success-on-tint: #5eead4/)
   assert.match(dark, /--danger-on-tint: #fca5a5/)
+})
+
+// ── Session expiry: proactive refresh and the re-prompt ─────────────────────
+
+/** Builds an unsigned JWT whose payload carries the given `exp`. Only the claims are read here. */
+function tokenExpiringAt(epochSeconds) {
+  const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64')
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+  return `${b64({ alg: 'RS256' })}.${b64({ exp: epochSeconds, perms: [] })}.sig`
+}
+
+test('token expiry is read from the exp claim in seconds, not milliseconds', () => {
+  // RFC 7519 says exp is seconds. Treating it as ms puts expiry in 1970 and makes every token
+  // look already-expired, which would spin the refresh timer.
+  const expSeconds = 1786140000
+  assert.equal(accessTokenExpiryMs(tokenExpiringAt(expSeconds)), expSeconds * 1000)
+})
+
+test('refresh is scheduled ahead of expiry, not at it', () => {
+  // Refreshing at expiry means the token dies in flight for any request already on the wire.
+  const now = 1786140000000
+  const token = tokenExpiringAt((now + 30 * 60 * 1000) / 1000)
+
+  assert.equal(msUntilRefresh(token, now), 30 * 60 * 1000 - REFRESH_LEAD_MS)
+})
+
+test('a token already inside the lead window schedules a floored delay, not a negative one', () => {
+  // setTimeout with a negative delay fires immediately; combined with a refresh that returns
+  // another near-expired token that is a hot loop.
+  const now = 1786140000000
+  const token = tokenExpiringAt((now + 10 * 1000) / 1000)
+  const delay = msUntilRefresh(token, now)
+
+  assert.ok(delay >= 5000, `expected a floored delay, got ${delay}`)
+})
+
+test('an unreadable token schedules nothing rather than guessing', () => {
+  // Falls back to the API layer's reactive 401 retry. A guessed cadence would either spin or
+  // never fire, and both are worse than the existing behaviour.
+  assert.equal(msUntilRefresh('not-a-jwt'), null)
+  assert.equal(msUntilRefresh(''), null)
+  assert.equal(accessTokenExpiryMs('a.b.c'), null)
+})
+
+test('expiry detection does not throw on malformed input', () => {
+  // An unreadable token is a 401 for the request layer to surface, not a render crash.
+  for (const bad of ['', 'x', 'a.b', 'a.!!!.c', null, undefined]) {
+    assert.doesNotThrow(() => accessTokenExpiryMs(bad))
+  }
+})
+
+test('a failed refresh prompts instead of clearing the session', () => {
+  // The old onSessionExpired cleared every field and returned the user to the login screen
+  // mid-task, taking any open drawer with it. A failed refresh is often recoverable.
+  const app = read('App.jsx')
+  const handler = app.slice(app.indexOf('onSessionExpired:'), app.indexOf('onSessionExpired:') + 400)
+
+  assert.match(handler, /setSessionPrompt\(true\)/)
+  assert.doesNotMatch(handler, /setIsLoggedIn\(false\)/)
+})
+
+test('the session dialog renders over the workspace, not in place of it', () => {
+  // Outside <Routes>, so the page underneath stays mounted and unsaved work survives the
+  // decision. Gated on isLoggedIn so a stale flag cannot cover the login screen.
+  const app = read('App.jsx')
+
+  assert.match(app, /\{isLoggedIn && sessionPrompt \? \(\s*<SessionExpiredDialog/)
+  assert.ok(app.indexOf('<SessionExpiredDialog') > app.indexOf('</Routes>'),
+    'the dialog must render after </Routes> so it overlays the current page')
+})
+
+test('the session dialog cannot be dismissed without choosing', () => {
+  // Dismissing does not give the session back — it hides the only control that can recover it
+  // and leaves a workspace whose every request 401s.
+  const dialog = read('components/ui/SessionExpiredDialog.jsx')
+
+  // Escape is swallowed, not forwarded to a cancel handler.
+  assert.match(dialog, /if \(event\.key === 'Escape'\) \{\s*event\.preventDefault\(\)\s*return/)
+  // No overlay click-to-close, unlike ConfirmDialog.
+  assert.doesNotMatch(dialog, /className="confirm-overlay"[^>]*onClick=\{[^}]*onCancel/)
+  assert.match(dialog, /role="alertdialog"/)
+  assert.match(dialog, /aria-modal="true"/)
+})
+
+test('the proactive refresh timer is cleared on unmount', () => {
+  // Without the cleanup a token change would stack timers, each firing its own refresh and
+  // rotating the refresh token out from under the others.
+  const app = read('App.jsx')
+  const effect = app.slice(app.indexOf('const delay = msUntilRefresh(authToken)'))
+
+  assert.match(effect.slice(0, 900), /return \(\) => clearTimeout\(timer\)/)
 })

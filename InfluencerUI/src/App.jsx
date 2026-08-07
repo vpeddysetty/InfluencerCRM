@@ -2,8 +2,9 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import { useCallback, useEffect, useState } from 'react'
 import './App.css'
 import './components/ui/ui.css'
-import { ToastProvider } from './components/ui'
+import { SessionExpiredDialog, ToastProvider } from './components/ui'
 import { DEFAULT_ROUTE } from './shell/routeManifest'
+import { msUntilRefresh } from './shell/sessionExpiry'
 import LandingPage from './pages/LandingPage'
 import AcceptInvitationPage from './pages/AcceptInvitationPage'
 import ImportPage from './pages/ImportPage'
@@ -80,6 +81,7 @@ import {
   login,
   previewImportBatch,
   logout,
+  refreshSession,
   setAuthHandlers,
   setActiveBrandId,
   listBrands,
@@ -360,6 +362,12 @@ function App() {
   // credential the server will actually evaluate.
   const permissions = readPermissionsFromToken(authToken)
   const [authError, setAuthError] = useState('')
+  // Shown when a token could not be renewed silently. Held as state rather than handled inside
+  // the API layer so the workspace stays mounted underneath — the user keeps their place, and
+  // anything unsaved survives long enough for them to decide.
+  const [sessionPrompt, setSessionPrompt] = useState(false)
+  const [sessionRetrying, setSessionRetrying] = useState(false)
+  const [sessionRetryError, setSessionRetryError] = useState('')
   const [workspaceError, setWorkspaceError] = useState('')
 
   const [campaigns, setCampaigns] = useState(initialCampaigns)
@@ -533,18 +541,53 @@ function App() {
         setRefreshToken(authResponse?.refreshToken || '')
         applyBrandFromAuth(authResponse)
       },
+      // Ask rather than evict. This previously cleared the session and returned the user to the
+      // login screen mid-task — including any open drawer with unsaved edits. A failed refresh is
+      // often recoverable (another tab rotated the token, the server restarted), so the user gets
+      // the choice: retry, or sign out deliberately. Everything stays on screen until they pick.
       onSessionExpired: () => {
-        setIsLoggedIn(false)
-        setAuthToken('')
-        setRefreshToken('')
-        setUserId('')
-        setBrandId('')
-        setAvailableBrands([])
-        setActiveBrandId('')
-        setAuthError('Your session expired. Please sign in again.')
+        setSessionPrompt(true)
       },
     })
   }, [refreshToken])
+
+  /**
+   * Renew the access token shortly before it expires.
+   *
+   * <p>The API layer already retries once through /api/auth/refresh on a 401, but only *after* a
+   * request has failed — so the user sees an error banner first and the recovery second. This
+   * timer moves the renewal ahead of the failure, which is what makes the refresh invisible.
+   *
+   * <p>Keyed on the access token: each successful refresh installs a new one and re-arms the timer
+   * for the next window.
+   */
+  useEffect(() => {
+    if (!isLoggedIn || !authToken || !refreshToken) {
+      return undefined
+    }
+
+    const delay = msUntilRefresh(authToken)
+    if (delay === null) {
+      // No readable `exp`. Leave it to the API layer's reactive 401 retry rather than guessing at
+      // a refresh cadence — a wrong guess would either spin or never fire.
+      return undefined
+    }
+
+    const timer = setTimeout(async () => {
+      try {
+        const refreshed = await refreshSession(refreshToken)
+        setAuthToken(refreshed?.accessToken || '')
+        setRefreshToken(refreshed?.refreshToken || '')
+        applyBrandFromAuth(refreshed)
+      } catch {
+        // The refresh token is dead. Prompt rather than evict — same reasoning as
+        // onSessionExpired above.
+        setSessionPrompt(true)
+      }
+    }, delay)
+
+    return () => clearTimeout(timer)
+  }, [isLoggedIn, authToken, refreshToken])
 
   // Restore the API layer's brand after a page reload: module state does not survive it,
   // so without this the first request would go out with no brand header.
@@ -1626,6 +1669,50 @@ function App() {
     resetIdentity()
   }
 
+  /**
+   * "Continue working" — try the refresh token once more, on demand.
+   *
+   * <p>Worth offering rather than going straight to the login screen: the common causes of a
+   * failed silent refresh are transient. Another tab may have rotated the token a moment earlier,
+   * or the network may have dropped. On success the workspace resumes exactly where it was.
+   */
+  const handleSessionRetry = async () => {
+    if (!refreshToken) {
+      // Nothing left to retry with. Say so plainly rather than spinning on a doomed request.
+      setSessionRetryError('This session cannot be restored. Please sign in again.')
+      return
+    }
+    setSessionRetrying(true)
+    setSessionRetryError('')
+    try {
+      const refreshed = await refreshSession(refreshToken)
+      setAuthToken(refreshed?.accessToken || '')
+      setRefreshToken(refreshed?.refreshToken || '')
+      applyBrandFromAuth(refreshed)
+      setSessionPrompt(false)
+      // Deliberately not re-pulling the workspace here: refreshWorkspaceData() reads authToken
+      // from closure, which at this point is still the expired one — calling it would fire a
+      // batch of doomed requests. The state update above re-renders with the new token, and the
+      // next interaction loads fresh data through it.
+    } catch (error) {
+      setSessionRetryError(
+        error instanceof Error && error.message
+          ? error.message
+          : 'Could not restore the session. Please sign in again.',
+      )
+    } finally {
+      setSessionRetrying(false)
+    }
+  }
+
+  /** "Sign out" — the deliberate exit, as opposed to being evicted mid-task. */
+  const handleSessionSignOut = async () => {
+    setSessionPrompt(false)
+    setSessionRetryError('')
+    await handleLogout()
+    setAuthError('Your session expired. Please sign in again.')
+  }
+
   return (
     <ToastProvider>
     <Routes>
@@ -1875,6 +1962,17 @@ function App() {
         </>
       )}
     </Routes>
+    {/* Outside <Routes> so it overlays whatever page is mounted rather than replacing it. That is
+        the point: the workspace stays underneath, so a user mid-edit keeps their place while they
+        decide. Gated on isLoggedIn so a stale flag can never cover the login screen itself. */}
+    {isLoggedIn && sessionPrompt ? (
+      <SessionExpiredDialog
+        busy={sessionRetrying}
+        error={sessionRetryError}
+        onRetry={handleSessionRetry}
+        onSignOut={handleSessionSignOut}
+      />
+    ) : null}
     </ToastProvider>
   )
 }

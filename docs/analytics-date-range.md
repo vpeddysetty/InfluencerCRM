@@ -45,7 +45,7 @@ This was a correction to the original estimate: the range control was scoped as 
 
 ## Bugs found by end-to-end testing
 
-All three were found by running the real stack, not by reading code. Two are fixed here; the third is noted for follow-up.
+All three were found by running the real stack, not by reading code. All three are fixed.
 
 ### Bug 1 — flat fees were charged to every window (CRITICAL, fixed)
 
@@ -88,13 +88,29 @@ The narrower the window, the worse ROI looked — from one unchanged fee. A bran
 
 Measured after the fix: dark 9.94:1 / 12.44:1, light 6.08:1 / 7.53:1 — all four pass AA.
 
-### Bug 3 — 30-minute access token with no refresh in the UI (NOT fixed, needs a decision)
+### Bug 3 — session expiry interrupted work (fixed; see the correction below)
 
-**Symptom.** After ~30 minutes the dashboard shows "A valid Authorization Bearer token is required" and stops loading data. The user is not signed out and gets no prompt.
+**Symptom.** After ~30 minutes the dashboard shows "A valid Authorization Bearer token is required" and stops loading data.
 
-**Cause.** `accessToken` expires in 30 minutes. Signup and login both return a `refreshToken`, but the UI never uses it.
+**Correction to the original write-up.** This was first recorded as "the UI never uses its refresh token". That was wrong. `api/core.js` already retries once through `/api/auth/refresh` on a 401, and `App.jsx` already wires `setAuthHandlers`. The machinery was there and works — verified live: `POST /api/auth/refresh` returns a new access token and rotates the refresh token.
 
-**Why it is not fixed here.** This is a session-management change spanning auth storage, a refresh path, and a decision about what should happen on expiry (silent refresh vs. re-prompt). That is out of scope for a date-range feature, and guessing at the intended behaviour would be worse than naming it. **Recommend scheduling explicitly.**
+**What was actually wrong**, once the existing code was read properly:
+
+1. **Refresh was reactive only.** It fired *after* a request had already failed, so the user saw an error banner first and the recovery second.
+2. **A failed refresh evicted the user.** `onSessionExpired` cleared every session field and returned them to the login screen mid-task, taking any open drawer with unsaved edits.
+
+**Fix.** Two changes, per the chosen behaviour (silent refresh, prompt only on failure):
+
+- `shell/sessionExpiry.js` reads the `exp` claim from the JWT the app already decodes for `perms`, and `App.jsx` schedules a refresh **two minutes before expiry**. The renewal now happens ahead of the failure rather than after it.
+- `SessionExpiredDialog` replaces the hard logout. It renders *outside* `<Routes>`, so the workspace stays mounted underneath and the user keeps their place while deciding between "Continue working" and "Sign out".
+
+The dialog is deliberately **not** a `ConfirmDialog`: that component dismisses on Escape and on an overlay click, which is right for "are you sure you want to delete this" and wrong here. Dismissing does not give the session back — it hides the only control that can recover it and leaves a workspace whose every request 401s. Escape is swallowed and there is no overlay click handler.
+
+**Verified in a browser** against the live stack, light and dark: an analytics 401 triggers `POST /api/auth/refresh`; when that refresh is forced to 401, the dialog appears with the workspace intact behind it, focus lands on "Continue working", it survives both Escape and an overlay click, and "Continue working" restores the session in place without bouncing to the login screen.
+
+**Testing note worth keeping.** Tokens are held **in memory only** — never in `localStorage`, deliberately, so a stale snapshot cannot resurrect a session. A full page load therefore sends *no* `Authorization` header, and `request()` skips refresh entirely because it only refreshes a 401 that carried a token. Any test of this path must use SPA navigation (clicking a rail link); `page.goto()` silently tests a different, unauthenticated scenario. Three test iterations failed for this reason before it was diagnosed.
+
+**Adjacent gap, not fixed.** `establishSession` in `App.jsx` is defined and never called — it is the restore path for social sign-in and page-reload session recovery, and it is unfinished work predating this change. It is the reason a full page reload leaves the workspace shell rendered with no token. Fixing it is a separate piece of session work and would need its own decision about what a reload should restore.
 
 ---
 
@@ -139,7 +155,7 @@ These were confirmed to actually catch the bug: reverting only the flat-fee fix 
 
 The suite uses a hand-written `DaoGatewayClient` subclass rather than Mockito — Mockito's bundled bytecode engine cannot mock that class under Java 26, and a stub this small does not need a framework.
 
-**Totals:** 113 Java tests, 88 UI tests, all passing.
+**Totals:** 113 Java tests, 97 UI tests, all passing.
 
 ---
 
@@ -156,6 +172,8 @@ The suite uses a hand-written `DaoGatewayClient` subclass rather than Mockito �
 | `App.css` | tokenised `.row-save-feedback` |
 | `index.css` | new `--success-on-tint` / `--danger-on-tint` |
 | `ux-changes.test.mjs` | range arithmetic + contrast regressions |
+| `shell/sessionExpiry.js` | new — `exp` parsing and refresh scheduling |
+| `components/ui/SessionExpiredDialog.jsx` | new — the re-prompt |
 
 ## Operational note
 
