@@ -919,9 +919,14 @@ test('the content grid track has a zero minimum so wide tables do not stretch th
   const ui = read('components/ui/ui.css')
   const content = app.slice(app.indexOf('.workspace-content {'), app.indexOf('.page-stack'))
   const main = ui.slice(ui.indexOf('.workspace-main {'), ui.indexOf('.workspace-main > *'))
+  // .page-stack is the third such grid, found on the kanban board: 7x260px of columns resolved
+  // its track to 1926px inside a 1136px column and pushed 758px of scroll onto the page, while
+  // .columns (overflow-x: auto) had nothing constraining it to scroll against.
+  const stack = app.slice(app.indexOf('.page-stack {'), app.indexOf('.page-form-grid'))
 
   assert.match(content, /grid-template-columns: minmax\(0, 1fr\)/)
   assert.match(main, /grid-template-columns: minmax\(0, 1fr\)/)
+  assert.match(stack, /grid-template-columns: minmax\(0, 1fr\)/)
 })
 
 test('the legacy prose-table rule does not repaint the design system table', () => {

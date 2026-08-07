@@ -796,6 +796,13 @@ textarea:focus {
 
 .page-stack {
   display: grid;
+  /* The third grid needing an explicit zero-floor track, after .workspace-content and
+     .workspace-main. Without it the implicit `auto` track is sized by its widest child, so the
+     kanban board's 7x260px of columns resolved this track to 1926px inside a 1136px column and
+     pushed 758px of horizontal scroll onto the whole page — while .columns, which has
+     overflow-x: auto and is supposed to absorb exactly that, had nothing constraining it to
+     scroll against. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
 }
 
