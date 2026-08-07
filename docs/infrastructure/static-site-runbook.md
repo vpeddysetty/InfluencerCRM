@@ -66,6 +66,24 @@ short TTL exists only because the current version is a draft.
 
 ---
 
+## Publish updated Data Deletion Instructions
+
+The page Meta's *Data Deletion Instructions URL* points at. Keep its retention periods in step with
+the Privacy Policy — reviewers compare the two pages.
+
+```powershell
+& $aws s3 cp "c:\AI\InfluencerCRM\docs\legal\data-deletion.html" `
+  s3://tejdux-legal-static/data-deletion/index.html `
+  --content-type "text/html; charset=utf-8" `
+  --cache-control "public, max-age=300" `
+  --profile tejdux
+
+& $aws cloudfront create-invalidation --distribution-id ESJ9LTY0C74G0 `
+  --paths "/data-deletion/*" --profile tejdux
+```
+
+---
+
 ## Add a new page
 
 No infrastructure changes needed. The `tejdux-dir-index` function maps any `<name>/index.html` to
@@ -137,13 +155,15 @@ curl.exe -s -o NUL -w "terms www:    HTTP %{http_code}\n" "https://www.tejdux.co
 curl.exe -s -o NUL -w "terms apex:   HTTP %{http_code}\n" "https://tejdux.com/terms/"
 curl.exe -s -o NUL -w "privacy www:  HTTP %{http_code}\n" "https://www.tejdux.com/privacy/"
 curl.exe -s -o NUL -w "privacy apex: HTTP %{http_code}\n" "https://tejdux.com/privacy/"
+curl.exe -s -o NUL -w "deletion www: HTTP %{http_code}\n" "https://www.tejdux.com/data-deletion/"
+curl.exe -s -o NUL -w "deletion apex:HTTP %{http_code}\n" "https://tejdux.com/data-deletion/"
 curl.exe -s -o NUL -w "http->https:  HTTP %{http_code} -> %{redirect_url}\n" "http://www.tejdux.com/terms/"
 curl.exe -s -o NUL -w "s3 direct:    HTTP %{http_code} (expect 403)\n" `
   "https://tejdux-legal-static.s3.us-east-1.amazonaws.com/terms/index.html"
 curl.exe -s -o NUL -w "tls:          verify=%{ssl_verify_result} (expect 0)\n" "https://www.tejdux.com/terms/"
 ```
 
-Expected: 200, 200, 200, 200, 301, 403, 0.
+Expected: 200, 200, 200, 200, 200, 200, 301, 403, 0.
 
 ---
 
@@ -212,5 +232,5 @@ In order — CloudFront must be disabled and fully deployed before it can be del
 Leave the ACM certificate and hosted zone unless the domain itself is being retired — the
 certificate is free, and deleting the zone breaks all DNS for `tejdux.com`.
 
-> Do not run teardown while the Terms or Privacy URLs are submitted to a platform app review. Meta
-> and TikTok re-check both URLs during review, and a dead link fails the submission.
+> Do not run teardown while the Terms, Privacy or Data Deletion URLs are submitted to a platform app
+> review. Meta and TikTok re-check these URLs during review, and a dead link fails the submission.

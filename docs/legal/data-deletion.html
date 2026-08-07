@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Data Deletion Instructions — InfluencerCRM</title>
+<meta name="description" content="How to request deletion of your data from the InfluencerCRM influencer marketing platform, including data obtained through Facebook Login.">
+<style>
+  :root{
+    --bg:#ffffff; --fg:#1a1d21; --muted:#5b6470; --rule:#e3e6ea;
+    --accent:#2f5bd8; --card:#f6f8fa; --warn-bg:#fff8e6; --warn-br:#e0b44a; --warn-fg:#6b4e08;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#14171a; --fg:#e6e9ed; --muted:#9aa4b0; --rule:#2a2f36;
+      --accent:#7ea1ff; --card:#1b1f24; --warn-bg:#2b2410; --warn-br:#7d6320; --warn-fg:#e8cf92;
+    }
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0; background:var(--bg); color:var(--fg);
+    font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  .wrap{max-width:820px; margin:0 auto; padding:48px 24px 96px}
+  header{border-bottom:1px solid var(--rule); padding-bottom:24px; margin-bottom:8px}
+  .brand{font-size:14px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); margin:0 0 8px}
+  h1{font-size:32px; line-height:1.2; margin:0 0 12px; letter-spacing:-.02em}
+  .meta{color:var(--muted); font-size:14px; margin:0}
+  h2{font-size:20px; margin:40px 0 12px; letter-spacing:-.01em; scroll-margin-top:24px}
+  h3{font-size:16px; margin:24px 0 8px}
+  p,li{color:var(--fg)}
+  a{color:var(--accent)}
+  ul,ol{padding-left:22px}
+  li{margin:6px 0}
+  .toc{background:var(--card); border:1px solid var(--rule); border-radius:10px; padding:20px 24px; margin:32px 0}
+  .toc h2{margin:0 0 12px; font-size:15px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted)}
+  .toc ol{margin:0}
+  .toc a{text-decoration:none}
+  .toc a:hover{text-decoration:underline}
+  .notice{
+    background:var(--warn-bg); border:1px solid var(--warn-br); color:var(--warn-fg);
+    border-radius:10px; padding:16px 20px; margin:28px 0; font-size:14.5px;
+  }
+  .notice strong{display:block; margin-bottom:4px}
+  .callout{
+    background:var(--card); border:1px solid var(--rule); border-left:3px solid var(--accent);
+    border-radius:8px; padding:16px 20px; margin:20px 0; font-size:15px;
+  }
+  .ph{background:rgba(127,127,127,.16); border-bottom:1px dashed var(--muted); padding:0 4px; border-radius:3px}
+  .tw{overflow-x:auto; margin:20px 0; -webkit-overflow-scrolling:touch}
+  table{border-collapse:collapse; width:100%; min-width:520px; font-size:15px}
+  th,td{text-align:left; padding:10px 12px; border-bottom:1px solid var(--rule); vertical-align:top}
+  th{font-weight:600; color:var(--muted); font-size:13px; text-transform:uppercase; letter-spacing:.04em}
+  .steps{counter-reset:step; list-style:none; padding-left:0}
+  .steps li{
+    counter-increment:step; position:relative; padding-left:44px; margin:16px 0;
+  }
+  .steps li::before{
+    content:counter(step); position:absolute; left:0; top:1px;
+    width:28px; height:28px; border-radius:50%; background:var(--card);
+    border:1px solid var(--rule); color:var(--accent);
+    font-size:14px; font-weight:600; display:flex; align-items:center; justify-content:center;
+  }
+  footer{margin-top:64px; padding-top:24px; border-top:1px solid var(--rule); color:var(--muted); font-size:14px}
+  footer a{color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <p class="brand">InfluencerCRM</p>
+  <h1>Data Deletion Instructions</h1>
+  <p class="meta">Last updated: <span class="ph">[EFFECTIVE DATE]</span></p>
+</header>
+
+<p>
+  This page explains how to request that we delete your data, including any data we obtained when
+  you signed in with Facebook or Google. It is a companion to our
+  <a href="/privacy/">Privacy Policy</a>, which describes what we collect and why.
+</p>
+
+<div class="toc">
+  <h2>On this page</h2>
+  <ol>
+    <li><a href="#which">Which kind of user are you?</a></li>
+    <li><a href="#account">If you have an InfluencerCRM account</a></li>
+    <li><a href="#social">If you signed in with Facebook or Google</a></li>
+    <li><a href="#creator">If a brand added you as a creator</a></li>
+    <li><a href="#what">What gets deleted, and what does not</a></li>
+    <li><a href="#timing">How long it takes</a></li>
+    <li><a href="#contact">Contact</a></li>
+  </ol>
+</div>
+
+<h2 id="which">1. Which kind of user are you?</h2>
+<p>
+  The route differs depending on how your data reached us, because it determines who controls it.
+</p>
+<div class="tw">
+<table>
+  <thead>
+    <tr><th>Your situation</th><th>Go to</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>You signed up and use the platform to manage creator partnerships</td>
+      <td><a href="#account">Section 2</a></td>
+    </tr>
+    <tr>
+      <td>You used <strong>Continue with Facebook</strong> or <strong>Continue with Google</strong></td>
+      <td><a href="#social">Section 3</a></td>
+    </tr>
+    <tr>
+      <td>You are a creator a brand added to their workspace, and you never signed up</td>
+      <td><a href="#creator">Section 4</a></td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<h2 id="account">2. If you have an InfluencerCRM account</h2>
+<p>Email us and we will delete your account and the data associated with it.</p>
+<ol class="steps">
+  <li>
+    Send an email to <a href="mailto:tejduxprivacy@kmpsglobal.com">tejduxprivacy@kmpsglobal.com</a> from
+    <strong>the address your account uses</strong>. Sending from the registered address is how we
+    confirm the request is yours — a deletion request we cannot attribute is one we must refuse.
+  </li>
+  <li>
+    Use the subject line <strong>Data deletion request</strong>.
+  </li>
+  <li>
+    Tell us whether you want your entire account deleted, or only the data obtained from a specific
+    connected provider. Both are available; they are described in
+    <a href="#what">section 5</a>.
+  </li>
+</ol>
+<p>
+  We will confirm receipt and tell you what will be deleted before we act, so a request made in
+  error can be withdrawn.
+</p>
+
+<div class="notice">
+  <strong>If you own a workspace, deletion affects more than you.</strong>
+  Deleting an owner account can remove the workspace and the campaign, creator and payout records it
+  contains, including data your colleagues rely on. We will tell you what is in scope and ask you to
+  confirm, or help you transfer ownership first.
+</div>
+
+<h2 id="social">3. If you signed in with Facebook or Google</h2>
+<p>
+  When you sign in through a provider, we receive your name, email address and that provider's
+  account identifier. We do not receive or store your password, and we do not post anything on your
+  behalf.
+</p>
+
+<h3>3.1 Removing the connection only</h3>
+<p>
+  You can disconnect the provider without deleting your InfluencerCRM account. For Facebook:
+</p>
+<ol class="steps">
+  <li>Go to <strong>Settings &amp; Privacy → Settings</strong> in Facebook.</li>
+  <li>Select <strong>Apps and Websites</strong>.</li>
+  <li>Find <strong>InfluencerCRM</strong> and select <strong>Remove</strong>.</li>
+</ol>
+<p>
+  This revokes our access to your Facebook profile and removes the link between your Facebook
+  account and ours. Your InfluencerCRM account and its workspace data remain, and you will need
+  another way to sign in — a password, or another connected provider.
+</p>
+
+<div class="callout">
+  <strong>Removing the app is not the same as deleting your account.</strong>
+  <p style="margin:8px 0 0">
+    We treat it as "stop using Facebook to sign in", not "delete everything", because for a brand
+    owner those are very different intentions and only one of them is reversible. If you want your
+    account deleted as well, follow <a href="#account">section 2</a> — or say so in the same email
+    and we will do both.
+  </p>
+</div>
+
+<h3>3.2 Deleting the data we received from the provider</h3>
+<p>
+  To have the profile data we obtained from Facebook or Google erased, email
+  <a href="mailto:tejduxprivacy@kmpsglobal.com">tejduxprivacy@kmpsglobal.com</a> with the subject
+  <strong>Data deletion request</strong> and name the provider. We will delete the stored provider
+  identifier, the profile details received from it, and the connection itself.
+</p>
+
+<h2 id="creator">4. If a brand added you as a creator</h2>
+<p>
+  You may be in our systems without ever having signed up, because a brand added you to their
+  workspace or imported a spreadsheet containing your details.
+</p>
+<p>
+  In that situation the brand — not us — decides what happens to that data; we hold it on their
+  behalf. <strong>If you know which brand it is, contact them first.</strong> They can delete your
+  record directly and are best placed to explain why they held it.
+</p>
+<p>
+  If you do not know which brand holds your data, or a brand does not respond, email
+  <a href="mailto:tejduxprivacy@kmpsglobal.com">tejduxprivacy@kmpsglobal.com</a>. We will identify the relevant brand or brands and
+  forward your request, and we will assist them in responding. Where we are legally permitted to act
+  directly, we will.
+</p>
+
+<h2 id="what">5. What gets deleted, and what does not</h2>
+<div class="tw">
+<table>
+  <thead>
+    <tr><th>Data</th><th>On an account deletion request</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Your user record — name, email, sign-in credentials</td><td>Deleted</td></tr>
+    <tr><td>Connected provider identifiers and profile data (Facebook, Google)</td><td>Deleted</td></tr>
+    <tr><td>Sessions and access tokens</td><td>Revoked immediately, then deleted</td></tr>
+    <tr><td>Workspace content owned by your account — campaigns, creator records, pages</td><td>Deleted, unless ownership is transferred first</td></tr>
+    <tr>
+      <td>Billing, tax and transaction records</td>
+      <td>Retained where law requires, typically <span class="ph">[6–7 years]</span></td>
+    </tr>
+    <tr>
+      <td>Security and access logs</td>
+      <td>Retained for <span class="ph">[PERIOD]</span>, then deleted on the normal cycle</td>
+    </tr>
+    <tr>
+      <td>Backups</td>
+      <td>Overwritten on the backup cycle, within <span class="ph">[BACKUP PERIOD]</span></td>
+    </tr>
+  </tbody>
+</table>
+</div>
+<p>
+  We keep records we are legally required to keep — chiefly financial and tax records for completed
+  transactions. Retaining these is an obligation, not a choice, and they are not used for any other
+  purpose after your account is deleted.
+</p>
+
+<h2 id="timing">6. How long it takes</h2>
+<p>
+  We acknowledge requests within <span class="ph">[PERIOD]</span> and complete them within
+  <strong>30 days</strong>, which is the limit set by the GDPR and comparable laws. Complex requests
+  may take longer; if so, we will tell you why and give a date before the 30 days elapse.
+</p>
+<p>
+  Deletion from live systems happens first. Removal from backups follows the backup rotation and
+  completes within <span class="ph">[BACKUP PERIOD]</span>. Data awaiting rotation is not accessible
+  in the product and is not used for anything.
+</p>
+
+<h2 id="contact">7. Contact</h2>
+<p>
+  Data deletion requests:
+  <a href="mailto:tejduxprivacy@kmpsglobal.com">tejduxprivacy@kmpsglobal.com</a>
+</p>
+<p>
+  If you are not satisfied with how we handle your request, you may complain to your local data
+  protection authority. Doing so does not affect any other rights you have.
+</p>
+
+<div class="notice">
+  <strong>Before submitting this URL for app review</strong>
+  Replace the remaining highlighted placeholders — the effective date and the retention periods in
+  sections 5 and 6 — and confirm those periods match the ones in the Privacy Policy. Meta reviewers
+  compare the two pages, and a mismatch between them is a common cause of rejection. This page's
+  URL is what goes in the App Dashboard field <em>Data Deletion Instructions URL</em>.
+</div>
+
+<footer>
+  <p>
+    InfluencerCRM · <a href="https://www.tejdux.com">www.tejdux.com</a> ·
+    <a href="/privacy/">Privacy Policy</a> ·
+    <a href="/terms/">Terms of Service</a><br>
+    Data Deletion Instructions, last updated <span class="ph">[EFFECTIVE DATE]</span>.
+  </p>
+</footer>
+
+</div>
+</body>
+</html>

@@ -59,6 +59,27 @@ Instagram and Facebook share one Meta app, so #1 covers both.
 - A **public privacy policy URL** and terms of service URL
 - A **screencast** demonstrating each permission in use
 
+### URLs to paste into App Settings → Basic
+
+All three are live and served over HTTPS on both the apex and `www` hostnames:
+
+| Dashboard field | URL |
+|---|---|
+| Privacy Policy URL | <https://www.tejdux.com/privacy/> |
+| Terms of Service URL | <https://www.tejdux.com/terms/> |
+| **User Data Deletion** → *Data Deletion Instructions URL* | <https://www.tejdux.com/data-deletion/> |
+
+The **User Data Deletion** field offers two mutually exclusive options: a *Data Deletion Instructions
+URL* (a page telling users how to request deletion) or a *Data Deletion Request Callback URL* (an
+endpoint Meta POSTs a signed request to when a user removes the app). **Either satisfies the
+requirement** — select *Instructions URL* and use the link above.
+
+The callback is the better long-term answer because it deletes automatically rather than by email,
+but it needs a signed-request handler in the BFF plus a public status page, and it is not required
+to pass review. The groundwork is done: social sign-in now records the provider's subject id in
+`identity.federated_identities`, which is what lets a callback resolve a Facebook user id back to a
+local account. Before that, no such lookup was possible.
+
 ### Steps
 
 1. Go to <https://developers.facebook.com/> → **My Apps** → **Create App**
@@ -171,6 +192,7 @@ Phase A (the builder) runs in parallel throughout and needs none of this.
 
 | Platform | Owner | Submitted | Approved | Notes |
 |---|---|---|---|---|
+| Public URLs — privacy, terms, data deletion | peddysetty | — | n/a | Live on tejdux.com since 2026-08-07; dates and retention periods still placeholders |
 | Meta — business verification | | | | |
 | Meta — `instagram_basic` | | | | |
 | Meta — `instagram_manage_insights` | | | | |

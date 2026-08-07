@@ -2,6 +2,7 @@ package com.influencer.webe.identity.application;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.influencer.webe.identity.infrastructure.DaoFederatedIdentityClient;
 import com.influencer.webe.identity.infrastructure.DaoTenancyClient;
 import com.influencer.webe.identity.infrastructure.DaoUserClient;
 import com.influencer.webe.security.AccountRole;
@@ -18,6 +19,7 @@ import java.util.UUID;
 public class AuthService {
     private final DaoUserClient daoUserClient;
     private final DaoTenancyClient daoTenancyClient;
+    private final DaoFederatedIdentityClient daoFederatedIdentityClient;
     private final OAuthProfileService oauthProfileService;
     private final SessionService sessionService;
     private final ObjectMapper objectMapper;
@@ -26,11 +28,13 @@ public class AuthService {
     public AuthService(
             DaoUserClient daoUserClient,
             DaoTenancyClient daoTenancyClient,
+            DaoFederatedIdentityClient daoFederatedIdentityClient,
             OAuthProfileService oauthProfileService,
             SessionService sessionService,
             ObjectMapper objectMapper) {
         this.daoUserClient = daoUserClient;
         this.daoTenancyClient = daoTenancyClient;
+        this.daoFederatedIdentityClient = daoFederatedIdentityClient;
         this.oauthProfileService = oauthProfileService;
         this.sessionService = sessionService;
         this.objectMapper = objectMapper;
@@ -179,9 +183,19 @@ public class AuthService {
      */
     private AuthResponse signupWithSocial(String provider, String accessToken, String fallbackEmail, String fallbackDisplayName, String brandName) {
         OAuthProfileService.OAuthProfile profile = oauthProfileService.resolveProfile(provider, accessToken, fallbackEmail, fallbackDisplayName);
-        DaoUserClient.UserRecord existing = daoUserClient.findByEmail(profile.email()).orElse(null);
 
-        if (existing != null && !profile.emailVerified()) {
+        // The provider's subject id is checked before the email, because it is the only stable
+        // identifier of the external account. A user who changes their Facebook email is the same
+        // person and must land on the same local account; matching on email alone would strand them
+        // on a new one. An already-linked subject also skips the verification check below — the link
+        // itself is the proof of ownership that check exists to demand.
+        DaoFederatedIdentityClient.FederatedIdentityRecord linked =
+                daoFederatedIdentityClient.findBySubject(provider, profile.providerUserId()).orElse(null);
+        DaoUserClient.UserRecord existing = linked != null
+                ? daoUserClient.findById(linked.userId()).orElse(null)
+                : daoUserClient.findByEmail(profile.email()).orElse(null);
+
+        if (linked == null && existing != null && !profile.emailVerified()) {
             // Deliberately not "email already exists": that would confirm to an unauthenticated
             // caller which addresses hold accounts. The user who genuinely owns this address can
             // still sign in with their password and link the provider from account settings.
@@ -218,6 +232,18 @@ public class AuthService {
             // through the provider redirect is separate work (roadmap Stage 1 follow-up).
             provisionWorkspace(saved, resolvedBrandName, ACCOUNT_TYPE_BRAND);
         }
+
+        // Record the provider link. Until this existed the subject id was resolved on every social
+        // sign-in and then thrown away, which is why federated_identities sat empty from the day its
+        // migration ran. Without a row here, an external account cannot be resolved back to a local
+        // user at all — the lookup Meta's data-deletion callback depends on.
+        daoFederatedIdentityClient.link(new DaoFederatedIdentityClient.LinkPayload(
+                saved.id(),
+                provider,
+                profile.providerUserId(),
+                profile.email(),
+                profile.emailVerified()));
+
         SessionService.SessionInfo session = sessionService.createSession(saved.id(), saved.email(), provider);
         return AuthResponse.from(saved, session);
     }

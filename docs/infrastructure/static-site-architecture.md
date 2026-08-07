@@ -3,7 +3,8 @@
 **Deployed:** 2026-08-05
 **Account:** `099933382956`
 **Region:** us-east-1 (ACM certificates for CloudFront must live here)
-**Live:** https://www.tejdux.com/terms/ · https://www.tejdux.com/privacy/
+**Live:** https://www.tejdux.com/terms/ · https://www.tejdux.com/privacy/ ·
+https://www.tejdux.com/data-deletion/
 
 Serves the public legal and marketing pages for InfluencerCRM. The Terms of Service and Privacy
 Policy are published — both are required as public URLs by the Meta and TikTok developer app reviews
@@ -15,9 +16,15 @@ described in [../platform-app-registration.md](../platform-app-registration.md).
 |---|---|---|---|
 | `/terms/` | `terms/index.html` | [../legal/terms-of-service.html](../legal/terms-of-service.html) | 2026-08-05 |
 | `/privacy/` | `privacy/index.html` | [../legal/privacy-policy.html](../legal/privacy-policy.html) | 2026-08-05 |
+| `/data-deletion/` | `data-deletion/index.html` | [../legal/data-deletion.html](../legal/data-deletion.html) | 2026-08-07 |
 
-Both are served on `www.tejdux.com` and the apex `tejdux.com`, with or without a trailing slash.
-The root `/` is unpublished and returns 403.
+All three are served on `www.tejdux.com` and the apex `tejdux.com`, with or without a trailing
+slash. The root `/` is unpublished and returns 403.
+
+`/data-deletion/` is the **Data Deletion Instructions URL** Meta requires of any app that accesses
+user data. Meta accepts either that or a deletion *callback* endpoint; the instructions page was
+published first because it unblocks app review without waiting on the callback, which needs a
+signed-request handler in the BFF and a public status page.
 
 Adding a page requires no infrastructure change — upload to `<name>/index.html` and invalidate. The
 directory-index function described below handles the routing.
