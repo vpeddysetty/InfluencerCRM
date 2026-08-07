@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { MdsKicker, MdsSectionRule, MdsNote } from '../components/Mds'
+import { ConfirmDialog, EmptyState, useToast } from '../components/ui'
 
 const CHANNEL_OPTIONS = ['', 'instagram', 'tiktok', 'youtube', 'email', 'blog', 'other']
 const DISCOUNT_TYPES = [
@@ -46,6 +47,27 @@ function CouponsPage({
   onPersonalizeCoupon,
   onDecidePersonalization,
 }) {
+  const [pendingDelete, setPendingDelete] = useState(null)
+  const [deleting, setDeleting] = useState(false)
+  const toast = useToast()
+
+  const confirmDelete = async () => {
+    if (!pendingDelete) {
+      return
+    }
+    const code = pendingDelete.code
+    try {
+      setDeleting(true)
+      await onDeleteCoupon(pendingDelete.id)
+      toast.success(`Coupon ${code} deleted.`)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : `Unable to delete ${code}.`)
+    } finally {
+      setDeleting(false)
+      setPendingDelete(null)
+    }
+  }
+
   const [mode, setMode] = useState('single') // 'single' | 'bulk'
   const [single, setSingle] = useState(EMPTY_SINGLE)
   const [bulk, setBulk] = useState({
@@ -261,7 +283,7 @@ function CouponsPage({
         <code>{'{CREATOR}{DISCOUNT}'}</code>.
       </p>
 
-      <div className="row-actions" style={{ marginBottom: '0.5rem' }}>
+      <div className="row-actions coupon-mode-switch">
         <button
           type="button"
           className={mode === 'single' ? 'primary-btn' : 'ghost-btn'}
@@ -429,8 +451,8 @@ function CouponsPage({
       )}
 
       <MdsSectionRule />
-      <div className="row-actions" style={{ justifyContent: 'space-between' }}>
-        <h4 style={{ margin: 0 }}>Coupons ({visibleCoupons.length})</h4>
+      <div className="section-head">
+        <h4>Coupons ({visibleCoupons.length})</h4>
         <select value={filterCampaign} onChange={(event) => setFilterCampaign(event.target.value)}>
           <option value="">All campaigns</option>
           {campaigns.map((campaign) => (
@@ -440,7 +462,20 @@ function CouponsPage({
       </div>
 
       {visibleCoupons.length === 0 ? (
-        <p className="custom-attributes-empty">No coupons yet. Generate one above.</p>
+        // Distinguishes "you have none" from "your filter matched none" — the same line for
+        // both used to read as though generating a coupon were the fix for a stale filter.
+        coupons.length === 0 ? (
+          <EmptyState
+            icon="◆"
+            title="No discount codes yet"
+            description="A code per creator is what ties a sale back to the person who drove it. Generate one above to start attributing revenue."
+          />
+        ) : (
+          <EmptyState
+            title="No coupons match this filter"
+            description="Try a different campaign or creator."
+          />
+        )
       ) : (
         <ul className="simple-list">
           {visibleCoupons.map((coupon) => {
@@ -494,9 +529,7 @@ function CouponsPage({
                   <button
                     type="button"
                     className="ghost-btn"
-                    onClick={() => {
-                      if (window.confirm(`Delete coupon ${coupon.code}?`)) onDeleteCoupon(coupon.id)
-                    }}
+                    onClick={() => setPendingDelete(coupon)}
                   >
                     Delete
                   </button>
@@ -528,6 +561,23 @@ function CouponsPage({
           })}
         </ul>
       )}
+
+      {/* A synced coupon exists in the store as well as here, so the dialog distinguishes the
+          two — deleting the record does not retract a code customers may already hold. */}
+      {pendingDelete ? (
+        <ConfirmDialog
+          title={`Delete coupon ${pendingDelete.code}?`}
+          consequence={
+            pendingDelete.syncStatus === 'synced'
+              ? 'The code stays live in your connected store and must be removed there separately. Sales already attributed to it are kept.'
+              : 'Sales already attributed to this code are kept. The code itself stops being tracked.'
+          }
+          confirmLabel="Delete coupon"
+          busy={deleting}
+          onConfirm={confirmDelete}
+          onCancel={() => setPendingDelete(null)}
+        />
+      ) : null}
     </article>
   )
 }
