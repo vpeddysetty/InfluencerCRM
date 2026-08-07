@@ -1,7 +1,7 @@
 # Landing Page Builder — Consolidated E2E Report
 
 **Date:** 2026-08-06
-**Scope:** Roadmap Phases A, B, C, D + one bug fix — [landing-page-builder-roadmap.md](landing-page-builder-roadmap.md)
+**Scope:** Every roadmap phase except F — [landing-page-builder-roadmap.md](landing-page-builder-roadmap.md)
 **Environment:** live stack, not mocks — UI build → BFF `:8081` → DAO `:8443` → PostgreSQL 15 → agent_service `:8000`
 
 | Suite | Feature | Assertions | Result |
@@ -11,8 +11,13 @@
 | [`e2e_creator_onboarding.sh`](../tests/e2e_creator_onboarding.sh) | Phase C — creator onboarding | 32 | PASS |
 | [`e2e_workflow_stage_identity.sh`](../tests/e2e_workflow_stage_identity.sh) | Stage-rename regression | 16 | PASS |
 | [`e2e_stage_automation.sh`](../tests/e2e_stage_automation.sh) | Phase D — stage automation | 36 | PASS |
-| **Total E2E** | | **136** | **0 failures** |
-| `mvn test` (InfluencerWebExperience) | unit + ArchUnit boundaries | 77 | PASS |
+| [`e2e_creator_vetting.sh`](../tests/e2e_creator_vetting.sh) | Phase C2 — per-brand vetting | 31 | PASS |
+| [`e2e_creator_health.sh`](../tests/e2e_creator_health.sh) | Phase C3 — health monitoring | 30 | PASS |
+| [`e2e_page_collaboration.sh`](../tests/e2e_page_collaboration.sh) | Phase G — co-editing | 29 | PASS |
+| [`e2e_domains_hosting.sh`](../tests/e2e_domains_hosting.sh) | Phase E — domains + hosting | 35 | PASS |
+| [`e2e_observability.sh`](../tests/e2e_observability.sh) | Phase H — observability | 19 | PASS |
+| **Total E2E** | | **280** | **0 failures** |
+| `mvn test` (InfluencerWebExperience) | unit + ArchUnit boundaries | 92 | PASS |
 
 Detailed per-phase results, design rationale and known gaps are in
 [E2E-LANDING-BUILDER-REPORT.md](E2E-LANDING-BUILDER-REPORT.md). This document is the
@@ -29,6 +34,11 @@ by-feature summary and the test data.
 | `a2504cd` | C | Handle resolution, LLM classification, lead capture, public signup — mocked platform APIs |
 | `8bfa4d4` | — | Stage-rename bug: renaming one stage silently unplaced every card on the board |
 | `07a98b4` | D | Bidirectional Kanban sync, transition map, stage mappings, transition log |
+| `ab09ffc` | C2 | Per-brand vetting rules, audit trail, dry-run, review queue, quality reports |
+| `2623503` | C3 | Metric snapshots, per-brand thresholds, decline alerts that never revoke |
+| `e5e62bd` | G | Page collaborators gated on a confirmed identity link; no publish right |
+| `8a20097` | E | Brand-owned domains, DNS + SSL, two-month hosting window, 410 on expiry |
+| `2f63721` | H | Actuator + Micrometer, narrow exposure, domain counters |
 
 ---
 
@@ -202,10 +212,18 @@ classification — the one-row-per-(creator, brand) rule holding in the data.
 | 5 | Repeated transitions vanished from the audit trail | D10 | "Why did this card move?" unanswerable |
 | 6 | `placeCard` had **no authorization at all** | Phase D review | Any caller could place any card by id |
 | 7 | `ResponseShapeService.creator()` returned 9 fields | Phase C build | Metric columns could never reach the UI |
+| 8 | The vetting rule engine matched **nothing at all** | C2 smoke test | Every rule inert while the UI showed them active |
+| 9 | Collaborator revoke returned 404 for everyone | G12 | Access could be granted but never withdrawn |
 
-Defects 1, 2 and 4 share a root cause worth recording: **the DAO maps `jsonb` columns as Java
-`String`**, so anything reading one must parse before judging it. This trap appeared three
-times — Phase A (`blocks`), Phase C (`audienceDemographics`), Phase D (the publish guard).
+Defects 1, 2, 4 and 8 share a root cause worth recording: **the DAO maps `jsonb` columns as Java
+`String`**, so anything reading one must parse before judging it and anything writing one must
+send text. This trap appeared **four** times — Phase A (`blocks`), Phase C
+(`audienceDemographics`), Phase D (the publish guard), and Phase C2 (rule `condition`, where it
+silently disabled the entire rule engine).
+
+Defect 9 has its own lesson: the DAO's list endpoints return an empty array when unfiltered,
+*on purpose*, because an unfiltered list would be a cross-tenant leak. Using one as a lookup by
+id therefore always fails.
 
 Defect 6 was found by reading rather than testing, while implementing rule 1. Defects 1 and 2
 came from reusing jsoup's comment-oriented safelist for page content: `basicWithImages()`
@@ -224,18 +242,23 @@ Stated plainly, because a report that only lists passes is not a status report.
   above the port is built and tested; only the adapter waits. **This is still the longest lead
   time in the roadmap and none of it is code.**
 
-**Deliberately deferred:**
-- **Presigned uploads / S3 adapter (B.3).** The port is the durable decision; the filesystem
-  adapter makes Phase B usable today. Bytes currently proxy through the BFF, which B.3 rules
-  out at production scale.
-- **Nightly reconciliation (§4).** Needs a scheduler that is not wired up.
-- **Outbox integration for Phase D.** The outbox has one producer and its relay is enabled only
-  in the DAO; the Workflow service has no events package at all.
-- **Rate limiting on the public signup endpoint.** Needs infrastructure the platform lacks.
-- **Optimistic drag-and-revert UI.** Server-side rules are enforced; the board surfaces a
-  refusal as an error rather than an animation.
-- **Phases C2 (vetting rules), C3 (health monitoring), E (domains), F (social publishing),
-  G (co-editing), H (observability).**
+**Deliberately deferred, with the reason:**
+- **Schedulers.** C3's tiered refresh cadence and E's expiry warnings (30/7/1 days) both need a
+  scheduler that is not wired up. The endpoints a scheduler would call are built and tested.
+- **Phase D reconciliation** (§4) — same reason.
+- **Presigned uploads / S3 adapter** (B.3). The port is the durable decision; the adapter is
+  filesystem, so bytes currently proxy through the BFF.
+- **Outbox integration for Phase D.** The Workflow service has no events package and the relay
+  is enabled only in the DAO.
+- **Rate limiting** on public signup — needs infrastructure the platform lacks.
+- **G.6 simultaneous editing** (a CRDT). Version history makes the non-simultaneous case safe,
+  and the roadmap says to defer until users report losing each other's work.
+- **A Prometheus registry.** The endpoint name is deliberately absent from the exposure list
+  rather than listed-and-broken — add the dependency and the name together.
+- **Welcome package automation** (C2.7). The approval trigger exists; the package does not.
+- **Phase F — social publishing.** Blocked on the same app registrations, and the roadmap calls
+  it the most security-sensitive item in the plan: posting to a creator's personal account needs
+  per-brand consent, separate token stores, and creator pre-approval of content.
 
 **Not lifted:**
 - `uq_landing_templates_campaign` still enforces one landing page per campaign. Changing that

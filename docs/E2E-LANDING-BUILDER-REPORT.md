@@ -1,7 +1,7 @@
 # Landing Page Builder — E2E Test Report
 
 **Date:** 2026-08-05
-**Scope:** Phases A, B, C and D of [landing-page-builder-roadmap.md](landing-page-builder-roadmap.md)
+**Scope:** ALL roadmap phases except F — [landing-page-builder-roadmap.md](landing-page-builder-roadmap.md)
 
 | Suite | Assertions | Result |
 |---|---|---|
@@ -10,7 +10,12 @@
 | [`tests/e2e_creator_onboarding.sh`](../tests/e2e_creator_onboarding.sh) — Phase C | 32 | all passing |
 | [`tests/e2e_workflow_stage_identity.sh`](../tests/e2e_workflow_stage_identity.sh) — stage-rename fix | 16 | all passing |
 | [`tests/e2e_stage_automation.sh`](../tests/e2e_stage_automation.sh) — Phase D | 36 | all passing |
-| **Total E2E** | **136** | **all passing** |
+| [`tests/e2e_creator_vetting.sh`](../tests/e2e_creator_vetting.sh) — Phase C2 | 31 | all passing |
+| [`tests/e2e_creator_health.sh`](../tests/e2e_creator_health.sh) — Phase C3 | 30 | all passing |
+| [`tests/e2e_page_collaboration.sh`](../tests/e2e_page_collaboration.sh) — Phase G | 29 | all passing |
+| [`tests/e2e_domains_hosting.sh`](../tests/e2e_domains_hosting.sh) — Phase E | 35 | all passing |
+| [`tests/e2e_observability.sh`](../tests/e2e_observability.sh) — Phase H | 19 | all passing |
+| **Total E2E** | **280** | **all passing** |
 | `mvn test` in `InfluencerWebExperience` (incl. ArchUnit) | 77 | all passing |
 
 Run against the live stack (UI → BFF `:8081` → DAO `:8443` → PostgreSQL), not mocks. Every
@@ -630,3 +635,228 @@ is what hid it.
 - **No optimistic-move-and-revert in the UI.** §4 rule 1 describes the card snapping back on a
   refusal. The server-side rules are enforced and a refused drag returns 409 with a reason, but
   the board currently surfaces that as an error rather than an animation.
+
+---
+
+# Phases C2, C3, G, E, H — the remaining roadmap
+
+**Date:** 2026-08-06
+
+| Suite | Feature | Assertions | Result |
+|---|---|---|---|
+| [`e2e_creator_vetting.sh`](../tests/e2e_creator_vetting.sh) | C2 — per-brand vetting | 31 | PASS |
+| [`e2e_creator_health.sh`](../tests/e2e_creator_health.sh) | C3 — health monitoring | 30 | PASS |
+| [`e2e_page_collaboration.sh`](../tests/e2e_page_collaboration.sh) | G — co-editing | 29 | PASS |
+| [`e2e_domains_hosting.sh`](../tests/e2e_domains_hosting.sh) | E — domains + hosting | 35 | PASS |
+| [`e2e_observability.sh`](../tests/e2e_observability.sh) | H — observability | 19 | PASS |
+
+Plus `VettingRuleEngineTest` — 15 unit assertions on the rule engine, since it decides whether
+a real person is rejected from a brand's programme.
+
+---
+
+## C2 — Per-brand vetting
+
+**The decision the whole phase rests on (roadmap #5): rules may reject and advance, they may
+never approve.** Rejection is reversible and at worst costs a brand one partnership; approval
+grants access to briefs, assets and eventually money, and is what a brand will be asked to
+justify.
+
+Enforced in three places, deliberately: the engine has no code path producing `approved`, the
+`action` check constraint has no such value, and a rule submitted with `action: "approve"` is
+refused at the API with an explanation rather than a validation error.
+
+| Capability | Verified by |
+|---|---|
+| A rule with `action: approve` is refused, with a reason | V2, V2b |
+| Rules run automatically on lead creation | V3, V3b |
+| A creator no rule matches goes to a **human**, never to approved | V4 |
+| The audit trail names the rule and its reason | V5, V5b, V5c |
+| Events snapshot the creator as they were at decision time | V5d |
+| The dry-run reports a **percentage**, and writes nothing | V7b, V7c |
+| Only a human approves, and the approval carries a user id | V8, V8c |
+| Re-running rules does **not** overturn a human decision | V9 |
+| A missing metric never matches | V11 |
+| Quality reports snapshot what our own signal said | V12b |
+
+> V7c matters more than it looks: a dry-run must not move a status or write an event. Asking
+> "what would this rule do?" cannot be the same act as doing it.
+>
+> V11 is C.6 resurfacing. An unresolved handle leaves `follower_count` null, and treating null
+> as zero would make `follower_count < 5000` reject every creator whose platform lookup failed.
+
+**Defect found by these tests:** the rule engine matched *nothing at all*. Conditions are stored
+as jsonb but the DAO maps jsonb as Java `String`, so every stored condition came back as TEXT,
+failed the `isObject()` check, and left every rule inert while the UI showed them as active. The
+fourth appearance of this trap; two regression tests pin it.
+
+---
+
+## C3 — Creator health monitoring
+
+**Alerts inform a decision; they never take one (roadmap #13).** Nothing in this phase changes a
+creator's vetting status, access or campaign assignment, and there is no `revoke` status to
+find. A creator mid-campaign has delivered work, may be owed money, and may have declined other
+offers to take this one.
+
+| Capability | Verified by |
+|---|---|
+| Per-brand thresholds, with the roadmap defaults until a brand sets its own | H1, H1b, H1d |
+| The **first** reading is a baseline, not a decline | H3 |
+| A real decline raises alerts with checkable numbers | H4, H4b |
+| Snapshots accumulate; the trend is readable | H5, H5b |
+| **Growth** raises nothing | H6 |
+| Three refreshes produce **one** alert, not three | H7 |
+| An alert never changes the creator's standing | H8 |
+| An alert cannot be resolved by "revoking" | H9, H9b |
+| Acknowledge / snooze / act, each with a user id | H10–H10e |
+| Once handled, the same condition can alert again | H11 |
+| An unresolvable handle is **not** a decline | H13, H13b |
+
+> H6 exists because a "-40% drop" in a digest reads as a fall to anyone scanning it. Growth must
+> produce no alert rather than a negative one.
+>
+> H7 is the alert-fatigue guard. An alert nobody reads is worse than no alert, because it looks
+> like coverage.
+>
+> H10e: a snooze always gets an end date. A snooze with no end is a dismissal wearing a
+> different name.
+
+---
+
+## G — Brand-creator co-editing
+
+**Page access is a narrowing of a relationship the brand already approved.** An invite is
+refused unless the creator holds a *confirmed* identity link for that brand, and the link is
+re-checked on every edit rather than only at invite time — so revoking the link revokes page
+access with it. One place to cut off a creator, not two.
+
+| Capability | Verified by |
+|---|---|
+| Invite refused without a confirmed link, with a reason | G2, G2b |
+| Invite works once the claim is approved | G4 |
+| `rights: publish` is refused — publishing stays with the brand | G5 |
+| The creator sees and edits the page through the portal | G6–G6d |
+| A collaborator save writes a **version** | G7 |
+| A collaborator sending `status: published` changes **nothing** | G8, G8b |
+| A creator cannot author a page of their own | G9 |
+| An uninvited page is 404, not 403 | G11 |
+| Revoking marks the row rather than deleting it | G12d |
+| Revoking the **identity link** removes page access too | G13b, G13c |
+
+> G8 is the assertion that matters most. The collaborator save rebuilds its payload from the
+> *stored* page for status, stage and slug, so publishing cannot be reached by including a field
+> in the body.
+>
+> G7 is why simultaneous editing (G.6, a CRDT) stays deferred: every save is versioned, so an
+> overwrite by either side is recoverable. Two people editing at different times is a different
+> problem from two at the same instant.
+
+**Defect found by these tests:** revoke returned 404 for everyone. The tenancy check looked the
+grant up through the list endpoint with an empty filter, which the DAO answers with an empty
+array *on purpose* — an unfiltered list would be a cross-tenant leak. Fixed with a proper
+single-row read.
+
+---
+
+## E — Domains and hosting
+
+**Decision #9 removes most of what a domains feature usually needs.** The brand pays the
+registrar directly and the platform never resells, so there is no purchase endpoint, no price,
+no order, no billing integration — and no question about who owns a domain when a brand leaves.
+The roadmap's "connect existing" and "provision new" paths collapse into one flow.
+
+| Capability | Verified by |
+|---|---|
+| Connect a brand-owned domain; exact DNS records returned | E1, E2, E2b |
+| The instructions state the brand keeps ownership | E2c |
+| The registrar reports `provider: mock`, never a real name | E3 |
+| "Not verified yet" is a 200 with `verified: false`, not an error | E4, E4b |
+| DNS and SSL are **separate** states | E4g, E4h |
+| The hosting clock starts at **first publish**, not signup | E5, E5b |
+| Two months (60 days) | E5c |
+| Republishing does **not** restart the clock | E6 |
+| An expired page returns **410 Gone** with an explanation | E8, E8b, E8c |
+| The page, blocks and document all **survive** expiry | E9 |
+| Extending brings it straight back | E10, E10b |
+| An already-expired page gets a fresh window from *now* | E10c |
+| A domain cannot be claimed twice | E12 |
+
+> E9 is the one to keep. Deleting a brand's work because a trial lapsed is the kind of thing
+> that ends a customer relationship permanently, so expiry unpublishes and never deletes —
+> re-publishing after payment is a stage change, not a rebuild.
+>
+> E8's 410 rather than 404 is deliberate: the page existed and may exist again, and a visitor
+> (or a search engine) should be able to tell that apart from "never existed".
+
+---
+
+## H — Observability
+
+The roadmap: *"the platform currently has no error tracking and no metrics, which is a gap
+regardless of whether the builder ships."*
+
+Actuator + Micrometer rather than Sentry or Datadog as a first step — no external account, no
+egress, no per-seat cost, so it ships now rather than after a procurement conversation.
+
+| Capability | Verified by |
+|---|---|
+| Health is reachable **without** a token (liveness probes cannot hold one) | O1 |
+| …but returns a bare status, not which dependency is failing | O1c |
+| Metrics require a token | O2, O2b |
+| `env`, `beans`, `configprops`, `heapdump`, `threaddump`, `loggers` return **404 even with a valid token** | O3 |
+| The public app port serves no actuator at all | O5 |
+| Domain counters record and tag correctly | O6–O6c |
+| Tagged by service, and **not** by brand | O7, O7b |
+| Vetting decisions separate rule from human | O8 |
+
+> O3 is the assertion worth keeping. Those endpoints leak configuration keys — including the
+> *names* of secrets, and for `heapdump` their values. Being authenticated is not the same as
+> being entitled to a heap dump, so they are absent rather than merely protected.
+>
+> O7b: tenant-cardinality tags are the standard way to make a metrics backend fall over.
+> Per-brand questions belong in the database, where the audit trails already answer them.
+
+---
+
+## Test data after a full run
+
+| Table | Rows | Note |
+|---|---|---|
+| `creator.vetting_rules` | 6 | Across suite runs |
+| `creator.vetting_events` | 40 | Append-only; every decision, automated and human |
+| `creator.creator_quality_reports` | 2 | Each with a signal snapshot |
+| `creator.creator_metric_snapshots` | 17 | The series behind the trend view |
+| `creator.creator_health_alerts` | 10 | Includes acknowledged and snoozed |
+| `content.landing_page_collaborators` | 6 | Includes revoked grants, which are retained |
+| `content.brand_domains` | 8 | Mixed pending / active / ssl-failed |
+| `content.landing_templates` with an expiry | 3 | Only pages that have been published |
+
+Fixture handles are deterministic by design (FNV-1a over the handle), so `@glow_daily`,
+`@casino_king` and `@fit_mike` return the same figures on every run and in every suite.
+
+---
+
+## Still not built
+
+**Waiting on external approval:**
+- **Real platform adapters** (Phase C) and **a real registrar** (Phase E). Both are mocked and
+  both mocks report themselves as mocks. The platform app registration tracker remains empty;
+  Meta review is 2–4 weeks and resets on reviewer changes, TikTok 5–10 business days.
+
+**Deliberately deferred, with the reason:**
+- **Schedulers.** C3's tiered refresh cadence and E's expiry warnings (30/7/1 days) both need a
+  scheduler that is not wired up. The endpoints a scheduler would call are built and tested.
+- **Phase D reconciliation** (§4) — same reason.
+- **Presigned uploads / S3 adapter** (B.3) — the port is done, the adapter is filesystem.
+- **Outbox integration** for Phase D — the Workflow service has no events package, and the
+  relay is enabled only in the DAO.
+- **Rate limiting** on public signup — needs infrastructure the platform lacks.
+- **Phase F — social publishing.** Blocked on the same app registrations, and the roadmap calls
+  it the most security-sensitive item in the plan: it means posting to a creator's personal
+  account, which needs per-brand consent, separate token stores and creator pre-approval of
+  content. Not started.
+- **G.6 simultaneous editing** (a CRDT) — version history makes the non-simultaneous case safe,
+  and the roadmap says to defer this until users report losing each other's work.
+- **A Prometheus registry.** The `prometheus` endpoint name is deliberately *absent* from the
+  exposure list rather than listed-and-broken: add the dependency and the name together.

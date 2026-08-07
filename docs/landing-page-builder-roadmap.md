@@ -42,8 +42,8 @@ provisioning, Kanban sync, social publishing. Those are adopted below.
 
 ## Implementation status — updated 2026-08-06
 
-Phases A, B, C and D are **built, tested and committed**. 136 E2E assertions across five
-suites plus 77 unit/ArchUnit tests, all passing against the live stack. Full results in
+**Every phase except F is built, tested and committed.** 280 E2E assertions across ten suites
+plus 92 unit/ArchUnit tests, all passing against the live stack. Full results in
 [E2E-CONSOLIDATED-REPORT.md](E2E-CONSOLIDATED-REPORT.md).
 
 | Phase | Status | Commit |
@@ -53,7 +53,12 @@ suites plus 77 unit/ArchUnit tests, all passing against the live stack. Full res
 | C — creator onboarding | Shipped **against a mocked platform adapter** | `a2504cd` |
 | — stage-rename bug fix | Shipped | `8bfa4d4` |
 | D — stage automation | Shipped (reconciliation job still open) | `07a98b4` |
-| C2, C3, E, F, G, H | Not started | — |
+| C2 — per-brand vetting | Shipped | `ab09ffc` |
+| C3 — creator health | Shipped (scheduler still open) | `2623503` |
+| G — co-editing | Shipped (G.6 simultaneous editing deferred) | `e5e62bd` |
+| E — domains + hosting | Shipped **against a mocked registrar** | `8a20097` |
+| H — observability | Shipped (Prometheus registry still open) | `2f63721` |
+| **F — social publishing** | **Not started** — blocked on app registration | — |
 
 **The long pole has not moved.** §10.1's app registrations are still unstarted, so Phase C
 runs on a mock adapter that labels its own output `metrics_source = 'mock'` and never
@@ -84,19 +89,19 @@ The PRD reads as though it were greenfield. A material portion is built and test
 | AI service with LLM orchestration | **Built** | `agent_service` — FastAPI + LangGraph + OpenAI, has `/content/draft` |
 | Vector search for AI retrieval | **Built** | pgvector, `mapping.mapping_examples` |
 | Role-based permissions | **Built** | 6 roles × 32 permissions, enforced server-side |
-| Domain provisioning / SSL / CDN | **Not built** | — |
+| Domain provisioning / SSL / CDN | **BUILT 2026-08-06** (Phase E, `8a20097`) | Brand-owned domains, DNS verification, SSL — against a mocked registrar |
 | Drag-and-drop visual editor | **BUILT 2026-08-05** (Phase A, `dd5ef3f`) | GrapesJS in `LandingBuilder.jsx`; output sanitized on render |
 | Device preview framing | **BUILT 2026-08-05** (A.4) | 390 / 820 / 1440 via the GrapesJS device manager |
 | Creator metrics from platform APIs | **Port + MOCK adapter built** (Phase C) | Real adapter still blocked on app registration — see §10.1 |
 | AI classification & scoring | **BUILT 2026-08-05** (Phase C, `a2504cd`) | `/creators/classify`; niche + themes + risk flags, LLM with a heuristic fallback |
-| Per-brand vetting rules | **Not built** | No `vetting_status` yet — Phase C2 |
+| Per-brand vetting rules | **BUILT 2026-08-06** (Phase C2, `ab09ffc`) | Ordered rules that reject and advance but never approve |
 | Authenticity / fake-follower signals | **Not built** | Coarse in-house signal first; vendor on complaint ([analysis](group2-build-vs-buy.md)) |
-| Post-approval health monitoring | **Not built** | No metric history kept today — Phase C3 |
+| Post-approval health monitoring | **BUILT 2026-08-06** (Phase C3, `2623503`) | Append-only snapshots, per-brand thresholds, alerts that never revoke |
 | Social publishing | **Not built** | `coupon:push` exists for marketplaces, not social posts |
 | Publishing as a creator's handle | **Not built** | Most security-sensitive item here — Phase F |
-| Brand ↔ creator co-editing | **Not built** | Foundation exists — confirmed `creator_identity_links` (§6.1) |
+| Brand ↔ creator co-editing | **BUILT 2026-08-06** (Phase G, `e5e62bd`) | Gated on a confirmed identity link; publishing is never granted |
 | Real-time (simultaneous) collaboration | **Not built** | Deferred, possibly never — Phase G.6 |
-| Welcome package automation | **Not built** | — |
+| Welcome package automation | **Not built** | C2.7 — the `CreatorApproved` trigger exists; the package itself does not |
 
 **Roughly half the PRD is already delivered.** Planning it as six greenfield phases would rebuild
 working, tested code.
