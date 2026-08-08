@@ -1498,3 +1498,98 @@ test('the free tier still reads correctly as the only tier', () => {
   assert.match(free.note, /no time limit/i)
   assert.doesNotMatch(free.tagline, /upgrade|paid|pro\b/i)
 })
+
+// ── Landing page: the accessibility pass ──────────────────────────────────
+
+test('hero text does not use a token that inverts with the theme', () => {
+  // --ink-0 aliases --fg-inverse, which flips to #0b1017 in dark mode. The hero gradient is
+  // dark in BOTH themes, so that combination painted the headline near-black on dark teal.
+  // Twice regressed; this pins the fixed value instead.
+  const css = read('App.css')
+  const hero = css.slice(css.indexOf('.hero-panel {'), css.indexOf('.hero-panel::before'))
+
+  assert.match(hero, /--hero-fg:\s*#fffdf7/, 'the hero needs a theme-independent foreground')
+  assert.doesNotMatch(hero, /color:\s*var\(--ink-0\)/, '--ink-0 inverts and must not paint the hero')
+
+  for (const selector of ['.landing-title', '.landing-stat-value', '.landing-tier-name']) {
+    const rule = css.slice(css.indexOf(`${selector} {`), css.indexOf('}', css.indexOf(`${selector} {`)))
+    assert.match(rule, /var\(--hero-fg\)/, `${selector} must take the fixed hero foreground`)
+  }
+})
+
+test('the auth panel follows the theme instead of a hard-coded cream', () => {
+  // It used to be rgba(255, 252, 249, 0.78) in both themes, which read as a lit rectangle
+  // inside a dark window, with black-on-black social buttons.
+  const css = read('App.css')
+  const panel = css.slice(css.indexOf('.auth-panel {'), css.indexOf('.landing-auth-header'))
+
+  assert.match(panel, /background:\s*var\(--surface\)/)
+  assert.doesNotMatch(panel, /rgba\(255,\s*252,\s*249/)
+})
+
+test('the landing legal footnote links somewhere', () => {
+  // Asking people to agree to terms the page gives them no way to read is a compliance
+  // problem, not only a UX one. These are the same URLs registered with Meta and TikTok.
+  const page = read('pages/LandingPage.jsx')
+
+  assert.match(page, /https:\/\/www\.tejdux\.com\/terms\//)
+  assert.match(page, /https:\/\/www\.tejdux\.com\/privacy\//)
+  assert.match(page, /rel="noreferrer noopener"/)
+})
+
+test('landing controls clear the 44px touch target floor', () => {
+  const css = read('App.css')
+
+  for (const selector of ['.landing-cta-btn', '.auth-alt-btn']) {
+    const rule = css.slice(css.indexOf(`${selector} {`), css.indexOf('}', css.indexOf(`${selector} {`)))
+    assert.match(rule, /min-height:\s*44px/, `${selector} was under the WCAG 2.2 SC 2.5.8 minimum`)
+  }
+
+  const tab = css.slice(css.indexOf('.auth-switch button {'), css.indexOf('.auth-switch button:not'))
+  assert.match(tab, /min-height:\s*44px/)
+})
+
+test('the hero stat cards do not present rhetoric as measurement', () => {
+  // They read 5x / 1 / 0. "1" and "0" are not statistics, and they sat in the largest type
+  // on the page while the real enforced limits were bullets further down.
+  const page = read('pages/LandingPage.jsx')
+  const values = [...page.matchAll(/landing-stat-value">([^<]+)</g)].map((m) => m[1].trim())
+
+  assert.equal(values.length, 3)
+  for (const value of values) {
+    assert.doesNotMatch(value, /^[01]$/, `"${value}" is a rhetorical device, not a metric`)
+  }
+})
+
+test('the tier heading is a subsection of the hero, not a sibling of the form', () => {
+  // As an h2 it was a peer of the auth panel's own h2, so navigating by heading presented a
+  // pricing title and a form title as the same level.
+  const page = read('pages/LandingPage.jsx')
+
+  assert.match(page, /<h3 className="landing-tiers-title">/)
+  assert.equal((page.match(/<h2>/g) || []).length, 1, 'the auth header should own the only h2')
+})
+
+test('the signup form comes before the pitch on a phone', () => {
+  // Stacked, the hero ran 1179px tall and pushed the form 1.6 viewports down, so a returning
+  // user scrolled past the whole pitch to reach a password field.
+  const css = read('App.css')
+  const mobile = css.slice(css.indexOf('@media (max-width: 900px)'))
+  const shell = mobile.slice(mobile.indexOf('.app-shell {'), mobile.indexOf('.hero-panel,'))
+
+  assert.match(shell, /flex-direction:\s*column/)
+  assert.match(mobile, /\.landing-auth-panel\s*\{\s*order:\s*-1/)
+})
+
+test('the workspace copy avoids internal vocabulary', () => {
+  // Nobody self-identifies as an "operator", and the log-in title said "tejdux.io" while the
+  // badge said "Tejdux Influencer CRM" — one spelling of the brand is enough.
+  // Matched against the rendered heading rather than the whole file: the comment above the
+  // JSX explains the old wording and would otherwise trip a plain file-wide search.
+  const page = read('pages/LandingPage.jsx')
+  const heading = page.slice(page.indexOf('<h2>'), page.indexOf('</h2>'))
+
+  assert.doesNotMatch(heading, /operator workspace/i)
+  assert.doesNotMatch(heading, /tejdux\.io/)
+  assert.match(heading, /Create your workspace/)
+})

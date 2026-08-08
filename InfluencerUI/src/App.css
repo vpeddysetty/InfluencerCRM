@@ -6,13 +6,25 @@
   padding: 14px;
 }
 
+/* The gradient below is dark in BOTH themes, so the text on it must not follow the
+   theme. --ink-0 aliases --fg-inverse, which flips to #0b1017 in dark mode and used
+   to paint the headline near-black on dark teal. A fixed light value is correct here
+   precisely because this surface never inverts. */
 .hero-panel {
+  --hero-fg: #fffdf7;
+  --hero-fg-muted: rgba(232, 248, 255, 0.94);
+  /* Was rgba(224, 242, 254, 0.9), which measured 4.22:1 against the lightest stop of
+     the gradient below — under the AA floor for the small text that uses it. Opaque,
+     so the ground can no longer bleed through and lift it. */
+  --hero-fg-subtle: #dbeafe;
   padding: 72px 56px;
-  color: var(--ink-0);
+  color: var(--hero-fg);
   position: relative;
   overflow: hidden;
   border-radius: 24px;
-  background: linear-gradient(150deg, rgba(8, 47, 73, 0.96) 0%, rgba(15, 118, 110, 0.94) 42%, rgba(14, 116, 144, 0.96) 100%);
+  /* Mid stop pulled down from rgba(15, 118, 110) — it was the brightest ground in the
+     panel and set the contrast ceiling for every piece of small text sitting on it. */
+  background: linear-gradient(150deg, rgba(8, 47, 73, 0.96) 0%, rgba(13, 102, 96, 0.95) 42%, rgba(12, 100, 125, 0.96) 100%);
   border: 1px solid rgba(255, 255, 255, 0.18);
   box-shadow: 0 28px 46px rgba(6, 39, 61, 0.26);
 }
@@ -33,12 +45,15 @@
   background: radial-gradient(circle, rgba(56, 189, 248, 0.52) 0%, rgba(56, 189, 248, 0) 70%);
 }
 
+/* 0.35 alpha put the bottom-left corner at rgb(60,153,159) — light enough that even
+   #fffdf7 only reached 3.3:1, and the tier footnote sits right on it. Dimming the
+   decoration is the fix; making the text heavier would not have reached AA. */
 .hero-panel::after {
   width: 340px;
   height: 340px;
   left: -110px;
   bottom: -130px;
-  background: radial-gradient(circle, rgba(165, 243, 252, 0.35) 0%, rgba(165, 243, 252, 0) 70%);
+  background: radial-gradient(circle, rgba(165, 243, 252, 0.1) 0%, rgba(165, 243, 252, 0) 70%);
 }
 
 .hero-panel > * {
@@ -64,7 +79,7 @@
 
 .lead {
   max-width: 52ch;
-  color: rgba(232, 248, 255, 0.94);
+  color: var(--hero-fg-muted, rgba(232, 248, 255, 0.94));
 }
 
 .landing-badge {
@@ -77,7 +92,7 @@
   letter-spacing: 0.14em;
   font-size: 0.68rem;
   font-weight: 700;
-  color: rgba(224, 242, 254, 0.94);
+  color: var(--hero-fg-muted);
   background: rgba(7, 89, 133, 0.34);
 }
 
@@ -87,6 +102,9 @@
   max-width: 14ch;
   line-height: 0.95;
   font-size: clamp(2.3rem, 4.8vw, 4.25rem);
+  /* Stated rather than inherited: this is the element the theme bug actually broke,
+     so it should not depend on an ancestor keeping the right colour. */
+  color: var(--hero-fg);
 }
 
 .landing-lead {
@@ -114,24 +132,25 @@
   box-shadow: 0 8px 16px rgba(6, 39, 61, 0.2);
 }
 
+/* Was 1.7rem, sized for the one- and two-character values ("5x", "0") this used to
+   hold. The labels are words now, so the display face needs to sit closer to them. */
 .landing-stat-value {
   margin: 0;
   font-family: var(--display);
-  font-size: 1.7rem;
-  color: #f0f9ff;
+  font-size: 1.25rem;
+  color: var(--hero-fg);
 }
 
 .landing-stat-label {
   margin: 2px 0 0;
-  color: rgba(224, 242, 254, 0.9);
+  color: var(--hero-fg-subtle);
   font-size: 0.84rem;
 }
 
 /* ── Landing tier table (M2.3) ────────────────────────────────────────────
-   Colour literals rather than theme variables, matching .landing-stat-card
-   above. The landing page is deliberately bespoke and always dark — it is
-   signed out, so there is no theme preference to honour yet, and pulling in
-   --surface here would render a white card on a dark hero. */
+   Foregrounds come from the --hero-fg* trio on .hero-panel rather than theme
+   variables: this surface is dark in both themes, so a token that inverts
+   (--fg, --ink-0) paints dark-on-dark. See the note on .hero-panel. */
 .landing-tiers {
   margin-top: 26px;
 }
@@ -140,7 +159,7 @@
   margin: 0 0 12px;
   font-family: var(--display);
   font-size: 1.15rem;
-  color: #f0f9ff;
+  color: var(--hero-fg);
 }
 
 .landing-tier-grid {
@@ -149,39 +168,45 @@
   gap: 10px;
 }
 
+/* This card carries the only verifiable numbers on the page, so it gets the
+   strongest surface in the hero — it used to be the faintest, which inverted the
+   credibility order against the unsourced stat cards above it. */
 .landing-tier-card {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  border: 1px solid rgba(186, 230, 253, 0.28);
+  border: 1px solid rgba(186, 230, 253, 0.42);
   border-radius: 14px;
-  padding: 14px 14px 12px;
-  background: linear-gradient(180deg, rgba(12, 74, 110, 0.34) 0%, rgba(14, 116, 144, 0.2) 100%);
+  padding: 18px 18px 16px;
+  background: linear-gradient(180deg, rgba(8, 47, 73, 0.58) 0%, rgba(12, 74, 110, 0.44) 100%);
+  box-shadow: 0 10px 22px rgba(6, 39, 61, 0.24);
 }
 
 /* Free is the emphasised one, not the cheapest-looking one. The signup form is
    right beside it and free is what the button actually gets you today. */
 .landing-tier-card-featured {
-  border-color: rgba(186, 230, 253, 0.55);
+  border-color: rgba(186, 230, 253, 0.62);
 }
 
 /* While paid plans are hidden there is one card, and a lone card stretched across
    a three-column track reads as a banner rather than a plan. Cap it near the width
-   it would have had beside the others. */
+   it would have had beside the others — and centre it, so the leftover track reads
+   as deliberate rather than as a card whose siblings failed to render. */
 .landing-tier-grid-single {
-  grid-template-columns: minmax(0, 22rem);
+  grid-template-columns: minmax(0, 26rem);
+  justify-content: center;
 }
 
 .landing-tier-name {
   margin: 0;
   font-family: var(--display);
-  font-size: 1.1rem;
-  color: #f0f9ff;
+  font-size: 1.2rem;
+  color: var(--hero-fg);
 }
 
 .landing-tier-tagline {
   margin: 0;
-  color: rgba(224, 242, 254, 0.9);
+  color: var(--hero-fg-subtle);
   font-size: 0.84rem;
 }
 
@@ -189,9 +214,9 @@
   margin: 4px 0 0;
   padding-left: 18px;
   display: grid;
-  gap: 3px;
-  color: rgba(224, 242, 254, 0.9);
-  font-size: 0.82rem;
+  gap: 4px;
+  color: var(--hero-fg-muted);
+  font-size: 0.86rem;
 }
 
 /* Pushed to the bottom so the notes align across cards of unequal list length,
@@ -199,18 +224,17 @@
 .landing-tier-note {
   margin: auto 0 0;
   padding-top: 8px;
-  color: rgba(186, 230, 253, 0.75);
+  color: var(--hero-fg-subtle);
   font-size: 0.76rem;
 }
 
+/* Full-strength rather than --hero-fg-subtle: this line sits at the bottom of the
+   panel, over the light cyan radial glow (::after), which is the brightest ground in
+   the hero. The subtle step measures 2.75:1 there. */
 .landing-tier-footnote {
   margin: 10px 0 0;
-  color: rgba(186, 230, 253, 0.75);
+  color: var(--hero-fg);
   font-size: 0.78rem;
-}
-
-.landing-pill-row {
-  margin-top: 18px;
 }
 
 .landing-hero-panel {
@@ -254,26 +278,14 @@
   --delay: 270ms;
 }
 
-.hero-points {
-  margin-top: 26px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.hero-points span {
-  padding: 8px 13px;
-  border-radius: 99px;
-  border: 1px solid rgba(186, 230, 253, 0.4);
-  background: rgba(7, 89, 133, 0.26);
-  font-size: 0.88rem;
-}
-
+/* Themed, unlike .hero-panel: this side has no gradient of its own, so it should
+   follow the window. It used to be a hard-coded cream literal, which read as a lit
+   rectangle inside a dark app. */
 .auth-panel {
   padding: 58px 42px;
   border-radius: 24px;
-  background: rgba(255, 252, 249, 0.78);
-  border: 1px solid rgba(132, 146, 173, 0.34);
+  background: var(--surface);
+  border: 1px solid var(--border);
   backdrop-filter: blur(12px);
   display: flex;
   flex-direction: column;
@@ -288,28 +300,37 @@
 }
 
 .landing-auth-shell {
-  border: 1px solid rgba(148, 163, 184, 0.38);
+  border: 1px solid var(--border);
   border-radius: 18px;
   padding: 14px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.94) 0%, rgba(241, 245, 249, 0.75) 100%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
+  background: var(--surface-sunken);
 }
 
 .landing-auth-header h2 {
   margin: 0;
-  color: #0f172a;
+  color: var(--fg);
   font-size: clamp(1.35rem, 2vw, 1.8rem);
 }
 
 .landing-footnote {
   margin-top: 14px;
-  color: #64748b;
+  color: var(--fg-subtle);
   font-size: 0.77rem;
 }
 
+.landing-footnote a {
+  color: var(--fg-muted);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.landing-footnote a:hover {
+  color: var(--fg);
+}
+
 .auth-switch {
-  background: rgba(241, 245, 249, 0.86);
-  border: 1px solid rgba(148, 163, 184, 0.42);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
   border-radius: 999px;
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -321,11 +342,22 @@
   border: 0;
   background: transparent;
   border-radius: 999px;
+  /* 44px min-height: this is a primary affordance and was 43px, just under the
+     WCAG 2.2 SC 2.5.8 target minimum. */
+  min-height: 44px;
   padding: 9px;
   font-weight: 700;
-  color: #475569;
+  color: var(--fg-muted);
   letter-spacing: 0.01em;
   cursor: pointer;
+  transition: background 160ms ease, color 160ms ease;
+}
+
+/* The inactive tab had no hover state at all, leaving one of the two affordances
+   above the fold feeling inert. */
+.auth-switch button:not(.active):hover {
+  background: var(--surface);
+  color: var(--fg);
 }
 
 .auth-switch button.active {
@@ -422,15 +454,15 @@
   display: grid;
   gap: 2px;
   cursor: pointer;
-  border: 1px solid rgba(148, 163, 184, 0.5);
-  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid var(--border);
+  background: var(--surface);
   border-radius: 10px;
   padding: 10px 12px;
 }
 
 .auth-accounttype-option.selected {
-  border-color: #1e40af;
-  background: rgba(30, 64, 175, 0.06);
+  border-color: var(--focus);
+  background: color-mix(in srgb, var(--focus) 8%, var(--surface));
   box-shadow: 0 6px 14px rgba(30, 64, 175, 0.14);
 }
 
@@ -443,18 +475,18 @@
 }
 
 .auth-accounttype-option:focus-within {
-  outline: 2px solid #1e40af;
+  outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
 
 .auth-accounttype-title {
   font-weight: 700;
-  color: #0f172a;
+  color: var(--fg);
   font-size: 0.94rem;
 }
 
 .auth-accounttype-hint {
-  color: #64748b;
+  color: var(--fg-subtle-on-sunken);
   font-size: 0.78rem;
   line-height: 1.35;
 }
@@ -469,8 +501,8 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  border: 1px solid rgba(148, 163, 184, 0.5);
-  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid var(--border);
+  background: var(--surface);
   border-radius: 10px;
   padding: 0 10px;
   transition: border-color 140ms ease, box-shadow 140ms ease, background-color 140ms ease;
@@ -479,7 +511,7 @@
 .auth-input-icon {
   width: 24px;
   text-align: center;
-  color: #334155;
+  color: var(--fg-muted);
   font-weight: 700;
   font-size: 0.74rem;
   letter-spacing: 0.02em;
@@ -546,6 +578,10 @@ textarea {
 input[type='checkbox'],
 input[type='radio'] {
   min-height: 0;
+  /* 13px default is well under any usable target size. The wrapping label is
+     clickable too, but the glyph itself should not be the hard part to hit. */
+  width: 18px;
+  height: 18px;
   padding: 0;
   accent-color: var(--accent);
 }
@@ -598,7 +634,7 @@ textarea:focus {
   font-size: 0.8rem;
   letter-spacing: 0.03em;
   text-transform: uppercase;
-  color: #475569;
+  color: var(--fg-muted);
   font-weight: 700;
 }
 
@@ -610,17 +646,24 @@ textarea:focus {
   margin-top: 1px;
 }
 
+/* inline-flex on its own lost to the `display: grid` that .auth-form label sets, which
+   broke the box and its text onto separate lines. The override plus nowrap keeps
+   "Remember me" on one row beside its checkbox. */
 .auth-checkbox {
-  display: inline-flex;
+  display: inline-flex !important;
+  flex-direction: row !important;
   align-items: center;
+  width: auto;
   gap: 8px;
-  color: #475569;
+  color: var(--fg-muted);
   font-size: 0.84rem;
+  white-space: nowrap;
 }
 
+/* Matches the 18px global glyph size rather than shrinking back to 15px. */
 .auth-checkbox input {
-  width: 15px;
-  height: 15px;
+  width: 18px;
+  height: 18px;
   margin: 0;
 }
 
@@ -628,7 +671,7 @@ textarea:focus {
   padding: 0;
   border: 0;
   background: transparent;
-  color: #2563eb;
+  color: var(--fg-accent);
   font-size: 0.84rem;
   font-weight: 700;
   cursor: pointer;
@@ -706,6 +749,7 @@ textarea:focus {
   justify-content: center;
   gap: 8px;
   margin-top: 2px;
+  min-height: 44px;
   padding: 12px 14px;
   box-shadow: 0 12px 20px rgba(15, 118, 110, 0.24);
 }
@@ -763,7 +807,9 @@ textarea:focus {
   align-items: center;
   gap: 10px;
   margin: 12px 0 10px;
-  color: #64748b;
+  /* Sits inside .landing-auth-shell, which is --surface-sunken: plain --fg-subtle
+     measures 4.34:1 there, just under AA. */
+  color: var(--fg-subtle-on-sunken);
   font-size: 0.77rem;
   letter-spacing: 0.03em;
   text-transform: uppercase;
@@ -784,14 +830,16 @@ textarea:focus {
 }
 
 .auth-alt-btn {
-  border: 1px solid rgba(148, 163, 184, 0.52);
-  background: rgba(255, 255, 255, 0.85);
-  color: #0f172a;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--fg);
   font-weight: 700;
+  min-height: 44px;
 }
 
 .auth-alt-btn:hover {
-  background: #ffffff;
+  background: var(--surface-sunken);
+  border-color: var(--border-strong);
 }
 
 .auth-error-note,
@@ -2277,8 +2325,11 @@ textarea:focus {
 }
 
 @media (max-width: 1160px) {
+  /* Deliberately NOT 1fr. Stacking these three made the hero taller at exactly the
+     width where vertical space starts to matter; 2-up keeps the hero compact and the
+     third card wraps under. */
   .landing-stat-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   /* Three tier cards do not fit beside the auth panel below this width. Stacking
@@ -2316,10 +2367,19 @@ textarea:focus {
 }
 
 @media (max-width: 900px) {
+  /* Flex rather than grid so `order` can put the form first. Stacked, the hero ran
+     1179px tall and pushed the auth form 1.6 viewports down the page — a returning
+     user had to scroll past the whole pitch to reach a password field. The pitch
+     still follows; it just no longer blocks the door. */
   .app-shell {
-    grid-template-columns: 1fr;
+    display: flex;
+    flex-direction: column;
     padding: 10px;
     gap: 10px;
+  }
+
+  .landing-auth-panel {
+    order: -1;
   }
 
   .hero-panel,

@@ -58,31 +58,34 @@ function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit, onSocialLogin, authE
     <main className="app-shell">
       <section className="hero-panel landing-hero-panel">
         <p className="landing-badge landing-reveal delay-1">Tejdux Influencer CRM</p>
-        <h1 className="landing-title landing-reveal delay-2">Turn creator ops into a calm, high-velocity system.</h1>
+        {/* Names the span the product actually owns. The previous headline ("a calm,
+            high-velocity system") stacked three abstractions and the subhead called our
+            own UI "sleek" — a claim the user should reach, not be told. */}
+        <h1 className="landing-title landing-reveal delay-2">
+          Every creator, from first DM to final payout, on one board.
+        </h1>
         <p className="lead landing-lead landing-reveal delay-3">
-          A sleek operating layer for startup teams to import lists, launch campaigns, and move every
-          creator relationship from outreach to payout without spreadsheet drag.
+          Import your list, launch campaigns, and pay creators without a spreadsheet. Free for 25
+          creators — no card, no time limit.
         </p>
 
-        <div className="landing-stat-grid landing-reveal delay-4" aria-label="Product highlights">
+        {/* The stat cards here used to read 5x / 1 / 0. "1" and "0" are rhetorical devices
+            wearing the costume of metrics, and they sat in the largest type on the page while
+            the real, enforced numbers (25 creators, 3 members) were bullets further down. These
+            three are capabilities that are true today and checkable by using the product. */}
+        <div className="landing-stat-grid landing-reveal delay-4" aria-label="What you get">
           <article className="landing-stat-card">
-            <p className="landing-stat-value">5x</p>
-            <p className="landing-stat-label">Faster campaign setup</p>
+            <p className="landing-stat-value">CSV</p>
+            <p className="landing-stat-label">Import with a mapping preview before anything saves</p>
           </article>
           <article className="landing-stat-card">
-            <p className="landing-stat-value">1</p>
-            <p className="landing-stat-label">Unified creator workflow board</p>
+            <p className="landing-stat-value">Kanban</p>
+            <p className="landing-stat-label">Outreach to paid on one drag-and-drop board</p>
           </article>
           <article className="landing-stat-card">
-            <p className="landing-stat-value">0</p>
-            <p className="landing-stat-label">Manual status chaos</p>
+            <p className="landing-stat-value">Payouts</p>
+            <p className="landing-stat-label">Coupon attribution through to what each creator earned</p>
           </article>
-        </div>
-
-        <div className="hero-points landing-pill-row landing-reveal delay-5">
-          <span>CSV, XLS, XLSX import preview</span>
-          <span>Campaign and creator control center</span>
-          <span>Outreach to paid Kanban flow</span>
         </div>
 
         {/* The tier table (M2.3). Signed out, so there is no account to ask and the numbers come
@@ -97,11 +100,14 @@ function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit, onSocialLogin, authE
             is worse than advertising nothing: someone who wants to pay finds no way to, and
             someone who signs up expecting those limits gets the free ones instead. */}
         <div className="landing-tiers landing-reveal delay-5">
-          <h2 className="landing-tiers-title">
+          {/* h3, not h2: this is a subsection of the hero. As an h2 it was a sibling of the
+              auth panel's "Create your operator workspace", so a screen reader navigating by
+              heading heard a pricing title and a form title as peers of the same region. */}
+          <h3 className="landing-tiers-title">
             {billingLive
               ? 'Start free. Grow when the ceiling gets close.'
               : 'Free while we are in early access.'}
-          </h2>
+          </h3>
           <div className={`landing-tier-grid${tiers.length === 1 ? ' landing-tier-grid-single' : ''}`}>
             {tiers.map((tier) => (
               <article
@@ -130,7 +136,10 @@ function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit, onSocialLogin, authE
       <section className="auth-panel landing-auth-panel landing-reveal delay-3">
         <div className="landing-auth-header landing-reveal delay-4">
           <p className="eyebrow">Workspace Access</p>
-          <h2>{isSignUp ? 'Create your operator workspace' : 'Welcome back to tejdux.io'}</h2>
+          {/* "operator workspace" was internal vocabulary — nobody self-identifies as an
+              operator. The log-in title said "tejdux.io" while the badge says "Tejdux
+              Influencer CRM" and the tab says "tejdux"; one spelling of the brand is enough. */}
+          <h2>{isSignUp ? 'Create your workspace' : 'Welcome back to Tejdux'}</h2>
           <p className="helper">
             {isSignUp
               ? accountType === 'agency'
@@ -297,8 +306,19 @@ function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit, onSocialLogin, authE
           </div>
         </div>
 
+        {/* These were plain text: the page asked people to agree to terms it gave them no way
+            to read, which is a compliance problem as much as a UX one. The targets are the same
+            live pages registered with Meta and TikTok — see docs/platform-app-registration.md. */}
         <p className="landing-footnote">
-          By continuing you agree to platform terms and data handling policies.
+          By continuing you agree to our{' '}
+          <a href="https://www.tejdux.com/terms/" target="_blank" rel="noreferrer noopener">
+            Terms of Service
+          </a>{' '}
+          and{' '}
+          <a href="https://www.tejdux.com/privacy/" target="_blank" rel="noreferrer noopener">
+            Privacy Policy
+          </a>
+          .
         </p>
       </section>
     </main>
