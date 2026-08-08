@@ -118,7 +118,8 @@ Unchanged from UI-OPPORTUNITIES-ROADMAP §U1. It is the defining CRM gap — the
 | **M5.6** Expiry-warning scheduler | 1d | ✅ Done. `HostingExpiryScheduler` warns at 30/7/1 days |
 | **M8.3** Payout idempotency | — | ✅ Done. The payout id is now the idempotency key |
 | **M2.1 / M2.2** Subscriptions + billing | 6d | ✅ Path built behind a port — ⏳ **needs Stripe credentials** (see below) |
-| **M3.x** Shopify | 12d | Not started. **3.1 (envelope-encrypt credentials) must land before 3.2**, not after |
+| **M3.1** Envelope-encrypt credentials | 2d | ✅ Done 2026-08-08. See below |
+| **M3.2–3.5** Shopify OAuth + adapter | 10d | ⏳ **Needs a Shopify Partner app and a public callback URL.** 3.1 no longer blocks it |
 
 ---
 
@@ -419,6 +420,198 @@ provider name falls back to `manual`.
 
 `ContentPage` (641 lines — the significant one), `ImportPage`, `PayoutsPage`, `LandingPage`, `AcceptInvitationPage`. Landing is intentionally bespoke; AcceptInvitation is small and signed-out. **ContentPage is the one worth migrating.**
 
-### Known issue carried forward
+### Known issue carried forward — ✅ resolved 2026-08-08
 
-`establishSession` in `App.jsx` is defined and never called — the restore path for social sign-in and page-reload recovery. It is why a hard browser reload leaves the workspace shell rendered with no token. Needs its own decision about what a reload should restore. See [docs/analytics-date-range.md](docs/analytics-date-range.md).
+`establishSession` is now the single session-establishing path and the reload no longer renders a
+tokenless workspace. See the fifth cycle below. The remaining piece is genuine social sign-in
+*return*, which needs the DPS decision recorded there.
+
+---
+
+## Shipped 2026-08-08 (fifth cycle) — M3.1 and the reload bug
+
+**246 BFF tests (was 223), 22 DAO, 149 UI (was 135).**
+
+Both items here were picked for the same reason: they are the only things left on this document
+that are not waiting on someone else's approval. Everything else outstanding needs a Shopify
+Partner app, a Meta review, or your AWS console.
+
+### M3.1 — the column named `credentials_encrypted` now is
+
+`MarketplaceService` wrote credentials with `serializeCredentials(credentials)` and a
+`// TODO Phase 6: envelope-encrypt` beside it. Verified against the compiled class before the
+change: a connection stored `{"apiKey":"shpat_LIVE_SECRET_TOKEN","shop":"acme-store"}` verbatim.
+
+A column whose *name* asserts a property it does not have is worse than an honestly-named one.
+Every downstream reader — a DBA granting read access, a backup policy, an incident responder
+triaging a dump — reasonably treats `credentials_encrypted` as already safe. The name was doing
+active harm.
+
+**Why envelope and not just a cipher call.** A single key over every row cannot be rotated:
+rotation means decrypting and rewriting the whole table in one transaction, which is the migration
+nobody runs, so the key never rotates. Each row now gets its own random data key; only that key is
+wrapped with the long-lived KEK. Rotating rewrites a few hundred bytes per row, and a leaked data
+key exposes one connection instead of the table.
+
+The stored form is self-describing — `v1:<keyId>:<wrappedDek>:<dekIv>:<payloadIv>:<ciphertext>`.
+The version prefix is what lets the algorithm change later without guessing at old rows; the key id
+is what lets a rotation find rows it has not rewritten yet. Leaving either out is how a format
+becomes permanent by accident.
+
+**AES-256-GCM at both layers**, because GCM is authenticated. Under CBC or CTR, anyone who can
+write to that column can flip bits in the ciphertext and silently change the credentials the
+adapter then uses. The tag turns that into a loud failure. Every encryption draws a fresh IV from
+`SecureRandom` — a repeated nonce under GCM is not a weakening but a break, leaking the XOR of two
+messages and, worse, allowing the authentication key itself to be recovered.
+
+#### Three decisions worth keeping
+
+**It fails closed, and that was the whole design argument.** The tempting version encrypts when a
+key is present and writes plaintext when it is not, so development just works. That fallback *is*
+the incident: it is silent, it looks configured, and the one deployment where the variable was
+missed is the one holding real store tokens. A provider that handles real credentials now refuses
+to connect at all without a key.
+
+**The check runs before the vendor handshake, not after.** Connecting first would send the
+operator's real credentials to Shopify, establish a session, and only then discover there is
+nowhere safe to put it — leaving a live grant this system cannot record and the operator has to go
+revoke by hand. Refusing up front costs nothing.
+
+**The safe default is the silent one.** `usesRealCredentials()` defaults to `true` on the SPI, so
+an adapter author who never reads that method gets encryption; only an explicit `return false`,
+visible in review, gives it up. Inverting it would make plaintext what you get by forgetting —
+which is precisely how the column came to be misnamed. Only the mock overrides it, and requiring a
+key for a fake store is what would have produced a shared dummy key committed to the repo.
+
+**Legacy rows stay readable.** Existing rows hold bare JSON and no migration can help — they were
+never encrypted. Reads accept both shapes and log a warning naming the row; writes only ever emit
+an envelope, so rows re-encrypt as they are saved. Refusing them instead would have broken every
+existing connection on deploy.
+
+#### Caught by a test, and worth recording
+
+`"0123456789abcdef0123456789abcdef"` is 32 characters — and *also* valid base64 decoding to 24
+bytes. Deciding the format on syntax rejected it as "24 bytes" while the operator counts 32
+characters and concludes the check is broken. Length decides now, not syntax, and the error message
+reports both readings. A short key is still rejected outright rather than padded or hashed up to
+size: silently stretching a weak key encrypts fine while carrying far less entropy than "AES-256"
+implies, and nobody is told.
+
+**Verified against the compiled class, not only tests:** the stored blob contains no fragment of
+the token, round-trips, differs on every call for identical input, and the unconfigured case
+refuses with a message naming the exact setting.
+
+### The reload bug — a workspace with no token
+
+`isLoggedIn` was persisted to `localStorage`; the access and refresh tokens deliberately were not
+(writing them would hand an XSS payload the one thing that design exists to keep away). That flag
+alone gates the entire workspace branch of the router. So a hard reload rebuilt the shell in its
+signed-in state with nothing to authenticate with: every request went out bare and the user got a
+workspace full of error banners rather than a login screen.
+
+Restoring "you are logged in" from a source that cannot also restore "here is your proof" is what
+made the two disagree. `isLoggedIn` is no longer restored — and no longer written either, since a
+value nothing reads back would leave a stale `true` in storage that still reads as authoritative to
+anyone inspecting it. The snapshot's other fields stay: brand, role and cached rows are display
+state, harmless without a token, and keeping them is what lets a re-login land back in place.
+
+**`establishSession` is now the single path a session comes into existence through.** It was
+defined, correct, and never called, while `handleAuthSubmit` carried a near-identical copy — which
+is exactly how the two drifted until only the copy was reachable. Collapsing them leaves one answer
+to "what does being logged in consist of". The token is set before `isLoggedIn`, because the
+workspace-loading effect keys on both and the other order gives it one render with a stale token.
+
+**What this does not fix, deliberately.** Social sign-in still has no return handler in `App.jsx` —
+the flow navigates to the DPS and nothing brings it back. That was already true; the difference is
+that it now lands on a login page instead of a broken workspace. A real fix needs a decision this
+change should not make quietly: `App.jsx` is a bearer-token client, while `UiSession.java:15` says
+the DPS token is *"never serialised to the browser"*. Restoring a session into this SPA means
+either handing it a token (negating that property) or migrating it to the cookie-backed
+`PresentationGateway`. That is an architecture call, not a bug fix.
+
+### Still outstanding, and what each is waiting on
+
+| Item | Waiting on |
+|---|---|
+| **M5.1** hosting deploy | AWS console: `*.pages.tejdux.com` CNAME + ACM wildcard in **us-east-1**, then `WEBE_HOSTING_TARGET` |
+| **M3.2–3.5** Shopify | A Shopify Partner app and a public callback URL |
+| **M6** Instagram / TikTok bodies | Meta and TikTok approval |
+| Email delivery | `web-experience.email.provider` is still `log` — the expiry sweep marks pages warned and sends to nobody |
+| **U2** pagination | Nothing. Still the one whose failure mode is silent until severe |
+| ~~Social sign-in return~~ | ✅ Resolved 2026-08-08 — see the sixth cycle below |
+
+---
+
+## Shipped 2026-08-08 (sixth cycle) — session restore, as a cookie session
+
+**161 UI tests (was 149).** No server change: everything this needed already existed.
+
+The previous cycle left the reload landing honestly on a login page and recorded the architecture
+question. Investigating it changed the answer.
+
+### The bearer restore was the obvious fix and the wrong one
+
+`UiSession.java:15` says the access token is *"never serialised to the browser"*, and
+`AuthController:82` says the handoff endpoint is *"called server-to-server by the DPS, **never** by
+a browser"*. Both would have had to be reinterpreted to hand the SPA a token. Two independent
+comments stating the same invariant is a decision already made, not an omission.
+
+### It was cheap because the DPS proxy already does the work
+
+`/dps/api/**` forwards to `/api/**` attaching the bearer *and* the `X-Brand-Id` header
+server-side — the same two things `buildHeaders` does in `api/core.js`. And all ~90 `authToken`
+references funnel into a single `request()` function. So cookie mode is a transport switch in one
+place, not a 90-site refactor. That is the finding that made this a one-cycle change rather than
+the migration it looked like.
+
+Bearer mode is untouched and remains the default: a password sign-in still gets a token and still
+uses it. Cookie mode carries only the sessions the browser was never handed a token for.
+
+**`/dps/auth/oauth/complete` already redirects to `/` for this**, with a comment saying the cookie
+is set "so the session exists before the UI loads and its first /dps/session call already sees an
+authenticated user". The DPS was built expecting the call. The SPA simply never made it.
+
+### Decisions worth keeping
+
+**Permissions come from `SessionView` when there is no token.** Both paths trace to the same
+token — the DPS reads perms out of it rather than recomputing, deliberately, because two
+permission matrices disagreeing is what once locked FINANCE users out entirely.
+
+**Cookie mode is set before `establishSession` flips `isLoggedIn`.** That flag releases the
+workspace-loading effect; the other order fires one round of requests down the bearer path with
+nothing to send.
+
+**The first paint waits for the answer**, or the login page renders and is replaced by the
+workspace — a sign-in flashing past on every reload. `/accept-invitation` is exempt: an invitee has
+no session and came for that one page, so they should not wait on a lookup that will say anonymous.
+
+**An unreachable DPS resolves to anonymous rather than throwing.** On a first visit "no session" is
+the normal answer; treating it as an error would log a failure on every anonymous page load.
+
+### Caught by running it, not by a test
+
+Logout omitted the CSRF header, so the DPS answered **403 and the session survived**. The user is
+told they signed out while the cookie stays valid — and the next boot silently restores them. This
+is the failure mode the whole cycle was meant to remove, reintroduced at the exit. Verified live:
+403 without the header, **204** with it, `authenticated: false` after.
+
+**Verified end-to-end against the running DPS**, not only in tests: `/dps/session` restores a real
+session with 33 permissions; `/dps/api/creators` returns **200** with the cookie and **401**
+without; after logout both are anonymous.
+
+### Steps 2 and 3 — the recommendation
+
+Step 1 turned out to *be* most of step 2. What remains is smaller than planned:
+
+| | What | Worth doing? |
+|---|---|---|
+| **2** | Make `token` optional throughout `api/core.js` and drop it from the ~90 call sites | **Not yet.** The parameter is already ignored in cookie mode. Removing it is churn across every context slice for no behaviour change, and it forecloses bearer mode while password login still uses it |
+| **3** | Drop `authToken` from `SessionProvider` and handler signatures | **Only after** password sign-in also goes through the DPS (`POST /dps/auth/login`), which is what would make bearer mode genuinely dead code |
+
+**The real next step is neither.** It is to move password sign-in onto `/dps/auth/login`, which
+already exists and already sets the cookie. That collapses the two session architectures into one —
+at which point steps 2 and 3 become mechanical deletions rather than judgement calls, and
+`readPermissionsFromToken`, `refreshAccessToken` and the refresh timer all become removable.
+
+Doing 2 and 3 *before* that would mean carefully preserving a bearer path that is about to be
+deleted.
