@@ -62,6 +62,36 @@ public class DnsDomainRegistrar implements DomainRegistrarPort {
         this.hostingTarget = hostingTarget;
         this.timeoutMs = timeoutMs;
         this.retries = retries;
+
+        if (isPlaceholderTarget(hostingTarget)) {
+            // WARN at startup, and the instructions say so too (see instructionsFor). A brand who
+            // follows a CNAME to a reserved name points their domain at nothing and gets no error
+            // from anyone — their registrar accepts the record, DNS resolves NXDOMAIN, and the
+            // page simply never loads. The failure is silent at every layer except this one.
+            log.warn("""
+                    Hosting target "{}" is an RFC 2606 reserved name and CANNOT RESOLVE. Any brand \
+                    following the CNAME instructions will point their domain at nothing. Set \
+                    WEBE_HOSTING_TARGET to a real, already-provisioned hostname before inviting \
+                    anyone to connect a domain.""", hostingTarget);
+        }
+    }
+
+    /**
+     * Whether the configured target is a placeholder that cannot resolve.
+     *
+     * <p>Matches the RFC 2606 reserved TLDs plus {@code .example} second-level names. These exist
+     * precisely so that a placeholder fails loudly, and the default ships as one deliberately: a
+     * plausible-but-unprovisioned hostname would be worse, because it fails the same way while
+     * looking configured.
+     */
+    static boolean isPlaceholderTarget(String target) {
+        if (target == null || target.isBlank()) {
+            return true;
+        }
+        String name = target.trim().toLowerCase(Locale.ROOT).replaceAll("\\.$", "");
+        return name.endsWith(".example") || name.endsWith(".invalid")
+                || name.endsWith(".test") || name.endsWith(".localhost")
+                || name.equals("example.com") || name.endsWith(".example.com");
     }
 
     @Override
@@ -124,11 +154,31 @@ public class DnsDomainRegistrar implements DomainRegistrarPort {
     @Override
     public Instructions instructionsFor(String domainName, String verificationToken) {
         String name = normalize(domainName);
+
+        // Verification is real and works regardless of the hosting target, so the TXT step is
+        // always given as-is. Only the CNAME depends on somewhere to point at.
+        String note = "Add the TXT record first and verify, then point the domain with the CNAME. "
+                + "You keep ownership of the domain on your own registrar account — we only host the page.";
+
+        if (isPlaceholderTarget(hostingTarget)) {
+            // Say it here rather than only in the log. This string is copied verbatim into a
+            // registrar's zone editor; a brand who follows it gets a domain that resolves to
+            // nothing and no explanation from any layer of the stack. Telling them the target is
+            // not ready costs nothing and is the difference between "not available yet" and an
+            // afternoon spent debugging their own DNS.
+            return new Instructions(
+                    "TXT  " + CHALLENGE_PREFIX + name + "  \"" + verificationToken + "\"",
+                    "",
+                    "Custom-domain hosting is not yet available on this deployment — no hosting "
+                            + "target is configured, so there is nothing to point a CNAME at yet. "
+                            + "You can add the TXT record now to verify ownership; we will provide "
+                            + "the CNAME when hosting goes live.");
+        }
+
         return new Instructions(
                 "TXT  " + CHALLENGE_PREFIX + name + "  \"" + verificationToken + "\"",
                 "CNAME  " + name + "  " + hostingTarget,
-                "Add the TXT record first and verify, then point the domain with the CNAME. "
-                        + "You keep ownership of the domain on your own registrar account — we only host the page.");
+                note);
     }
 
     /**

@@ -74,6 +74,12 @@ public class LandingTemplateController {
         if (template.getFirstPublishedAt() != null) {
             existing.setFirstPublishedAt(template.getFirstPublishedAt());
         }
+        // M5.6. Deliberately NOT null-guarded like the two above: clearing this is a meaningful
+        // operation. Extending hosting must reset it so the new deadline gets its own warnings,
+        // and a guard would make that reset unexpressible — every extended page would then stay
+        // permanently silent. The cost is that a PUT omitting the field clears it, which at worst
+        // re-sends one warning; the guarded alternative loses them all.
+        existing.setHostingWarningSentAtDays(template.getHostingWarningSentAtDays());
         return repository.save(existing);
     }
 

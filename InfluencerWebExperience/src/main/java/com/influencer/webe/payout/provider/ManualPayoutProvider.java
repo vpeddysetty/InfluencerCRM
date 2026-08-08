@@ -24,9 +24,19 @@ public class ManualPayoutProvider implements PayoutProvider {
     }
 
     @Override
-    public PayoutResult pay(String creatorId, BigDecimal amount, String currency, String note) {
-        // No external call; generate a human-traceable reference.
-        String ref = "manual-" + creatorId.substring(0, Math.min(8, creatorId.length()));
-        return PayoutResult.paid(ref);
+    public PayoutResult pay(String payoutId, String creatorId, BigDecimal amount,
+                            String currency, String note) {
+        // No external call; the reference is derived from the payout id, which is unique per
+        // payout. It was previously derived from creatorId, which is not: every payout to the
+        // same creator produced the identical reference "manual-1a2b3c4d", so an operator
+        // reconciling a bank statement could not tell two payments apart, and any downstream
+        // lookup by reference matched an arbitrary one of them.
+        //
+        // Deriving from the payout id also makes this idempotent for free: recording the same
+        // payout twice yields the same reference rather than a second, indistinguishable one.
+        if (payoutId == null || payoutId.isBlank()) {
+            return PayoutResult.failed("No payout id — cannot generate a traceable reference");
+        }
+        return PayoutResult.paid("manual-" + payoutId);
     }
 }

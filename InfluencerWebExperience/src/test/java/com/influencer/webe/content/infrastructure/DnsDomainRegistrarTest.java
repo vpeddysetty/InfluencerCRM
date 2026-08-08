@@ -23,8 +23,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class DnsDomainRegistrarTest {
 
+    /** As shipped: the hosting target is still the unresolvable placeholder (M5.1 is not done). */
     private final DnsDomainRegistrar registrar =
             new DnsDomainRegistrar("pages.example.test", 1000, 0);
+
+    /** As deployed once M5.1's DNS record and certificate exist. */
+    private final DnsDomainRegistrar configured =
+            new DnsDomainRegistrar("pages.tejdux.com", 1000, 0);
 
     @Test
     @DisplayName("provider is reported as dns, never as a certificate authority")
@@ -73,13 +78,66 @@ class DnsDomainRegistrarTest {
     void instructionsMatchTheNameActuallyQueried() {
         // If these drift, a brand publishes a record at one name while the platform reads another
         // and verification never succeeds — with nothing on screen explaining why.
+        //
+        // Uses a configured (non-placeholder) target so this exercises the normal instruction path;
+        // the placeholder path is asserted separately below.
         DomainRegistrarPort.Instructions instructions =
-                registrar.instructionsFor("Brand.Example.COM", "influencrm-verify-xyz");
+                configured.instructionsFor("Brand.Example.COM", "influencrm-verify-xyz");
 
         assertTrue(instructions.verificationRecord().contains(DnsDomainRegistrar.CHALLENGE_PREFIX + "brand.example.com"),
                 "the TXT instruction must name the same label verifyDns queries");
         assertTrue(instructions.verificationRecord().contains("influencrm-verify-xyz"));
-        assertTrue(instructions.aliasRecord().contains("pages.example.test"));
+        assertTrue(instructions.aliasRecord().contains("pages.tejdux.com"));
+    }
+
+    // ---- M5.1: an unresolvable hosting target must not look configured ----
+
+    @Test
+    @DisplayName("RFC 2606 reserved names are recognised as placeholders")
+    void recognisesPlaceholderTargets() {
+        // The shipped default is one of these. A brand who CNAMEs to a reserved name gets no error
+        // from anywhere: the registrar accepts the record, DNS answers NXDOMAIN, the page never
+        // loads. Recognising it here is the only layer that can say so.
+        assertTrue(DnsDomainRegistrar.isPlaceholderTarget("pages.influencrm.example"));
+        assertTrue(DnsDomainRegistrar.isPlaceholderTarget("pages.example.test"));
+        assertTrue(DnsDomainRegistrar.isPlaceholderTarget("host.invalid"));
+        assertTrue(DnsDomainRegistrar.isPlaceholderTarget("example.com"));
+        assertTrue(DnsDomainRegistrar.isPlaceholderTarget("pages.example.com"));
+        // Trailing dots are legal in a zone file and must not smuggle a placeholder through.
+        assertTrue(DnsDomainRegistrar.isPlaceholderTarget("pages.influencrm.example."));
+        assertTrue(DnsDomainRegistrar.isPlaceholderTarget("PAGES.INFLUENCRM.EXAMPLE"));
+        // Unset is a placeholder too — there is still nothing to point at.
+        assertTrue(DnsDomainRegistrar.isPlaceholderTarget(null));
+        assertTrue(DnsDomainRegistrar.isPlaceholderTarget("   "));
+    }
+
+    @Test
+    @DisplayName("a real hosting target is not flagged")
+    void acceptsRealTargets() {
+        // The decided M5.1 target, plus a plain one. Note this check cannot tell whether a
+        // plausible name is actually provisioned — only that it is not a reserved placeholder.
+        // Provisioning is a deployment step, not something the application can verify for itself.
+        assertFalse(DnsDomainRegistrar.isPlaceholderTarget("pages.tejdux.com"));
+        assertFalse(DnsDomainRegistrar.isPlaceholderTarget("d111111abcdef8.cloudfront.net"));
+    }
+
+    @Test
+    @DisplayName("with no real target, the CNAME is withheld rather than pointing at nothing")
+    void placeholderTargetWithholdsTheAliasRecord() {
+        // The defect M5.1 names: instructions were handed out with a CNAME to an unresolvable
+        // name. Giving no CNAME and saying why is better than giving one that cannot work — the
+        // brand knows to wait instead of debugging their own zone.
+        DomainRegistrarPort.Instructions instructions =
+                registrar.instructionsFor("brand.com", "influencrm-verify-xyz");
+
+        assertEquals("", instructions.aliasRecord(),
+                "no CNAME should be offered while there is nothing to point at");
+        assertTrue(instructions.note().toLowerCase().contains("not yet available"),
+                "the note must say hosting is not ready: " + instructions.note());
+
+        // Verification is unaffected — proving ownership works regardless of where pages are
+        // served, so a brand can still complete the TXT step today.
+        assertTrue(instructions.verificationRecord().contains("influencrm-verify-xyz"));
     }
 
     @Test

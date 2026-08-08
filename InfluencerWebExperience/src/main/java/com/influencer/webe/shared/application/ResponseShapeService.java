@@ -120,6 +120,14 @@ public class ResponseShapeService {
         return pick(source,
                 "id", "brandId", "name", "handle", "platform", "email", "customAttributes",
                 "status", "createdAt", "updatedAt",
+                // The per-brand negotiated rate. It sits on the per-brand creators row, so the
+                // same creator legitimately holds a different value under each brand — the one
+                // capability MARKET-ANALYSIS.md §4 finds no documented competitor equivalent for.
+                //
+                // It was absent from this list, which is exactly the failure the note above
+                // describes: the column exists, the DAO returns it, and the projection dropped it
+                // silently. No UI could show it however hard it tried.
+                "preferredRate",
                 // Platform-reported facts, with provenance.
                 "followerCount", "engagementRate", "averageViews", "lastActiveAt",
                 "audienceDemographics", "metricsSource", "metricsFetchedAt", "metricsPlatformVerified",
@@ -357,7 +365,12 @@ public class ResponseShapeService {
                 "status", "stage", "createdAt", "updatedAt",
                 // Phase E. Exposed so a brand can see when free hosting ends before it does,
                 // rather than discovering it from a 410 on their own live page.
-                "hostingExpiresAt", "firstPublishedAt");
+                "hostingExpiresAt", "firstPublishedAt",
+                // M5.6. Included so the value survives a read-modify-write: BrandDomainService
+                // and the expiry sweep both PUT back a page they read through this projection,
+                // and a field dropped here would be cleared on every save — silently re-arming
+                // warnings that had already been sent.
+                "hostingWarningSentAtDays");
         out.set("blocks", parseJsonOrDefault(source, "blocks", objectMapper.createArrayNode()));
         out.set("theme", parseJsonOrDefault(source, "theme", objectMapper.createObjectNode()));
         // `document` is passed through as JSON null when absent rather than defaulted to {}:

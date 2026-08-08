@@ -114,11 +114,78 @@ Unchanged from UI-OPPORTUNITIES-ROADMAP §U1. It is the defining CRM gap — the
 | Item | Size | Verified state 2026-08-07 |
 |---|---|---|
 | **M2.3** `accounts.plan` enforcement | 3d | Zero repo-wide hits for `entitlement`, `quota`, or `PlanPolicy`. Still completely inert |
-| **M5.1** Real hosting target | 2d | Still `pages.influencrm.example` — an RFC 2606 reserved name that **cannot resolve**. A brand following the on-screen instructions points their domain at nothing |
-| **M5.6** Expiry-warning scheduler | 1d | Endpoints built and tested; **nothing calls them**. `@Scheduled` exists in five services, none for expiry |
-| **M8.3** Payout idempotency | — | `ManualPayoutProvider:29` builds `"manual-" + creatorId.substring(0,8)` — **not unique per payout**. Two payouts to the same creator collide |
+| **M5.1** Real hosting target | 2d | ✅ Code done — ⏳ **deployment step outstanding** (see below) |
+| **M5.6** Expiry-warning scheduler | 1d | ✅ Done. `HostingExpiryScheduler` warns at 30/7/1 days |
+| **M8.3** Payout idempotency | — | ✅ Done. The payout id is now the idempotency key |
 | **M2.1 / M2.2** Stripe checkout + webhooks | 6d | Not started |
 | **M3.x** Shopify | 12d | Not started. **3.1 (envelope-encrypt credentials) must land before 3.2**, not after |
+
+---
+
+## Shipped 2026-08-07 (second cycle) — the three small defects
+
+**Totals after:** 158 Java tests in the BFF (was 132), 22 in the DAO, all passing.
+
+### M8.3 — payout references collided
+
+`ManualPayoutProvider` built `"manual-" + creatorId.substring(0,8)`, so **every** payout to a given
+creator carried the identical reference. There is no unique constraint on `provider_ref` — which is
+why this was silent rather than a database error. An operator reconciling a bank statement could
+not tell two payments apart.
+
+The fix is at the SPI, not the string: `pay()` now takes the payout id as its first argument. That
+id already existed — `PayoutService` creates the payout row *before* calling the provider — it was
+simply never passed. It is the correct idempotency key precisely because it survives a retry, so a
+real Stripe/PayPal adapter passes it as `Idempotency-Key` and a timeout retry settles once.
+
+**Also fixed while there:** a throw from `pay()` left the row stranded in `processing` with its
+commissions still `approved` — invisible to the payouts list *and* to the next payout attempt.
+
+### M5.1 — a real hosting target, and why the default did not change
+
+The decision doc names `pages.tejdux.com`. **Checked with a live DNS lookup: that name does not
+resolve.** `www.tejdux.com` resolves to CloudFront; `pages.tejdux.com` returns NXDOMAIN — the
+record has not been created.
+
+So the default was deliberately **left** as the RFC 2606 placeholder. Both names fail, but a
+plausible one fails *silently and looks configured*, while `.example` is recognisable as a
+placeholder. Swapping it would have closed the roadmap item while making the failure harder to see.
+
+What changed instead is that an unconfigured target can no longer masquerade as a working one:
+`DnsDomainRegistrar` logs a WARN at startup and **omits the CNAME line entirely**, replacing it with
+"custom-domain hosting is not yet available on this deployment". Ownership verification is
+unaffected — the TXT step still works, since proving ownership does not depend on where pages are
+served. Verified against the real bean, not only in tests.
+
+**To finish M5.1 (deployment, not code):**
+1. Create `*.pages.tejdux.com` pointing at the CloudFront distribution
+2. Issue the ACM wildcard for `*.pages.tejdux.com` (**us-east-1** — CloudFront requires it)
+3. Set `WEBE_HOSTING_TARGET=pages.tejdux.com`
+
+Step 3 alone restores the CNAME instructions; nothing else changes.
+
+### M5.6 — expiry warnings now actually fire
+
+`HostingExpiryScheduler` sweeps daily and warns the account owner at 30, 7 and 1 days. The BFF had
+no `@EnableScheduling` at all, so this is its first scheduled job; it is off by default
+(`WEBE_EXPIRY_WARNINGS`), like the event relay.
+
+**The part worth knowing:** it does *not* ask "is this page exactly 7 days out today?". That reads
+naturally and is wrong — one missed run (a deploy, an outage, a DST boundary) and the threshold is
+skipped *permanently*, because tomorrow the answer is 6. It asks instead for the **smallest
+threshold now passed and not yet sent**, recorded in a new `hosting_warning_sent_at_days` column.
+That is idempotent within a day and self-healing across missed days.
+
+Two bugs the tests caught before this shipped, both under-warning near the deadline — the worst
+possible direction:
+- A page at day 7 already warned at day 30 returned "nothing due", because 30 was passed *and* sent.
+- A page with 20 hours left returned 30 rather than 1.
+
+`extendHosting` clears the marker, or a page extended at day 1 would keep `1` forever and go dark
+unannounced at the end of its extension.
+
+**Still required to actually deliver mail:** `web-experience.email.provider` is `log`. With the
+default the sweep runs, marks pages warned, and sends to nobody.
 
 ### UI depth
 

@@ -233,6 +233,10 @@ public class BrandDomainService {
 
         ObjectNode body = page.deepCopy();
         body.put("hostingExpiresAt", base.plus(Duration.ofDays(days)).toString());
+        // M5.6: a new deadline is owed a new set of warnings. Leaving the old marker in place
+        // would silence every future warning for this page — a page extended at day 1 would never
+        // be warned again, and would go dark unannounced at the end of the extension.
+        body.putNull("hostingWarningSentAtDays");
         stringifyJsonb(body, "document", "blocks", "theme");
         return shape.landingTemplate(dao.put("/landing-templates/" + templateId, body));
     }

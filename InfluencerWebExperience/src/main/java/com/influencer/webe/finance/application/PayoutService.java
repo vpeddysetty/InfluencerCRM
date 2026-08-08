@@ -112,8 +112,27 @@ public class PayoutService {
         JsonNode payout = dao.post("/influencer-payouts", payoutPayload);
         String payoutId = payout.get("id").asText();
 
-        // Execute payment.
-        PayoutProvider.PayoutResult result = provider.pay(creatorId.toString(), total, currency, "Influencer commission payout");
+        // Execute payment. The payout row is created first precisely so its id can serve as the
+        // idempotency key: if this call times out and is retried, the provider sees the same key
+        // and settles once. A key generated here instead would differ on the retry and pay twice.
+        PayoutProvider.PayoutResult result;
+        try {
+            result = provider.pay(payoutId, creatorId.toString(), total, currency,
+                    "Influencer commission payout");
+        } catch (RuntimeException e) {
+            // A throw would otherwise leave the row stranded in "processing" forever, with the
+            // commissions still "approved" — invisible to both the payouts list and the next
+            // payout attempt. Record the failure against the row, then report it.
+            ObjectNode failed = payout.deepCopy();
+            failed.put("status", "failed");
+            try {
+                dao.put("/influencer-payouts/" + payoutId, failed);
+            } catch (RuntimeException ignored) {
+                // Nothing further to do; the original failure is the one worth reporting.
+            }
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
+                    "Payout failed: " + e.getMessage());
+        }
 
         ObjectNode payoutUpdate = payout.deepCopy();
         payoutUpdate.put("providerRef", result.getProviderRef());

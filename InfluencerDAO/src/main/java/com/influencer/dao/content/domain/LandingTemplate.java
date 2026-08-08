@@ -68,6 +68,16 @@ public class LandingTemplate {
     @Column(name = "first_published_at")
     private Instant firstPublishedAt;
 
+    /**
+     * Smallest expiry-warning threshold already emailed for the current window (30, 7 or 1).
+     *
+     * <p>NULL means none sent. Makes the daily warning sweep idempotent — without it the job
+     * either re-sends every day or fires only on an exact day-count match, which silently skips a
+     * warning forever if one run is missed. Reset to NULL when hosting is extended (M5.6).
+     */
+    @Column(name = "hosting_warning_sent_at_days")
+    private Integer hostingWarningSentAtDays;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -232,5 +242,13 @@ public class LandingTemplate {
 
     public void setFirstPublishedAt(Instant firstPublishedAt) {
         this.firstPublishedAt = firstPublishedAt;
+    }
+
+    public Integer getHostingWarningSentAtDays() {
+        return hostingWarningSentAtDays;
+    }
+
+    public void setHostingWarningSentAtDays(Integer hostingWarningSentAtDays) {
+        this.hostingWarningSentAtDays = hostingWarningSentAtDays;
     }
 }

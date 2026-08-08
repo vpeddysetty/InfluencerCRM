@@ -17,8 +17,17 @@ public interface PayoutProvider {
     /**
      * Execute a payout to a creator. For the manual provider this just records the
      * intent; real providers move money. Returns a provider reference + status.
+     *
+     * <p><b>{@code payoutId} is the idempotency key.</b> It is the id of the already-persisted
+     * payout row, so it is unique per payout and stable across a retry of the same one. Real
+     * providers must pass it as their idempotency token (Stripe {@code Idempotency-Key}, PayPal
+     * {@code sender_batch_id}) so that a retry after a timeout settles once rather than twice —
+     * the failure mode that costs real money and is invisible until reconciliation.
+     *
+     * <p>Derive the returned reference from this, never from {@code creatorId}: a creator is paid
+     * many times, so a creator-derived reference collides on the second payout.
      */
-    PayoutResult pay(String creatorId, BigDecimal amount, String currency, String note);
+    PayoutResult pay(String payoutId, String creatorId, BigDecimal amount, String currency, String note);
 
     /** Result of a payout attempt. */
     class PayoutResult {
