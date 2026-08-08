@@ -123,6 +123,10 @@
      4.35:1 if it reuses them. Darkened only for the text role. */
   --success-on-tint: #134e4a;
   --danger-on-tint: #991b1b;
+  /* --warning (#b45309) measures 4.24:1 on --warning-bg — the same shortfall, and it is the tone
+     the "Simulated" provenance badge uses, so it had to be fixed before that badge shipped. */
+  --warning-on-tint: #78350f;
+  --info-on-tint: #1e40af;
 
   /* ── Button state ───────────────────────────────────────────────────────
      .primary-btn had no :hover, :active or :disabled rule, yet disabled={busy}
@@ -215,6 +219,8 @@
        same lightened hues as --success/--danger and measure ~10:1 and ~9.9:1. */
     --success-on-tint: #5eead4;
     --danger-on-tint: #fca5a5;
+    --warning-on-tint: #fcd34d;
+    --info-on-tint: #93b4fc;
 
     /* fg-inverse (#0b1017) on the blue end of the dark accent gradient
        (#2563eb) is 3.69:1 — fine for large text, FAIL for the 13-14px label a

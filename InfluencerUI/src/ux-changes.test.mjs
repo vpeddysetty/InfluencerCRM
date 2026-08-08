@@ -16,6 +16,7 @@ import { EVENTS, analyticsProvider, identify, resetIdentity, track } from './api
 import { toCsv } from './api/csv.js'
 import { rangeToParams, toIsoDate } from './shell/dateRange.js'
 import { accessTokenExpiryMs, msUntilRefresh, REFRESH_LEAD_MS } from './shell/sessionExpiry.js'
+import { formatFetchedAt, isPlatformVerified } from './shell/provenance.js'
 
 // ── P3: confidence survives the agent → UI transform ────────────────────────
 
@@ -1067,4 +1068,105 @@ test('the proactive refresh timer is cleared on unmount', () => {
   const effect = app.slice(app.indexOf('const delay = msUntilRefresh(authToken)'))
 
   assert.match(effect.slice(0, 900), /return \(\) => clearTimeout\(timer\)/)
+})
+
+// ── M6 / U4 / U1: provenance and the creator record page ───────────────────
+
+test('provenance ages are rounded to the decision-relevant unit', () => {
+  // A real number of unknown age is its own trust problem. "3 days ago" is what a decision turns
+  // on; a precise timestamp would imply a precision the refresh cadence does not have.
+  const now = Date.parse('2026-08-07T12:00:00Z')
+  const at = (iso) => formatFetchedAt(iso, now)
+
+  assert.equal(at('2026-08-07T11:59:30Z'), 'just now')
+  assert.equal(at('2026-08-07T11:30:00Z'), '30 minutes ago')
+  assert.equal(at('2026-08-07T09:00:00Z'), '3 hours ago')
+  assert.equal(at('2026-08-04T12:00:00Z'), '3 days ago')
+  assert.equal(at('2026-06-07T12:00:00Z'), '2 months ago')
+})
+
+test('a future-dated read reads as "just now" rather than negative time', () => {
+  // Clock skew between the browser and the server is ordinary. "in -3 seconds" is not a thing to
+  // put in front of a customer.
+  const now = Date.parse('2026-08-07T12:00:00Z')
+
+  assert.equal(formatFetchedAt('2026-08-07T12:00:20Z', now), 'just now')
+})
+
+test('a missing or unparseable timestamp renders nothing, not "Invalid Date"', () => {
+  assert.equal(formatFetchedAt(null), '')
+  assert.equal(formatFetchedAt(''), '')
+  assert.equal(formatFetchedAt('not-a-date'), '')
+})
+
+test('only a platform read counts as verified', () => {
+  // The single invariant the whole provenance design protects: a simulated number must never be
+  // presentable as a measured one.
+  assert.equal(isPlatformVerified('platform_api'), true)
+  assert.equal(isPlatformVerified('PLATFORM_API'), true)
+  assert.equal(isPlatformVerified('mock'), false)
+  assert.equal(isPlatformVerified('manual'), false)
+  assert.equal(isPlatformVerified('import'), false)
+  assert.equal(isPlatformVerified(null), false)
+  assert.equal(isPlatformVerified(''), false)
+})
+
+test('badge text colours use the on-tint tokens, not the semantic accents', () => {
+  // --success and --warning are tuned to carry a large shape at 3:1 and measure 4.35:1 and
+  // 4.24:1 as 11px badge text — both under AA. Caught by measuring before shipping the
+  // provenance badges, which use exactly those two tones.
+  const ui = read('components/ui/ui.css')
+  const badges = ui.slice(ui.indexOf('.badge-success'), ui.indexOf('.badge-info') + 200)
+
+  assert.match(badges, /\.badge-success[^}]*color: var\(--success-on-tint\)/)
+  assert.match(badges, /\.badge-warning[^}]*color: var\(--warning-on-tint\)/)
+  assert.doesNotMatch(badges, /color: var\(--success\)/)
+  assert.doesNotMatch(badges, /color: var\(--warning\)/)
+})
+
+test('every on-tint token is defined for both themes', () => {
+  const index = read('index.css')
+  const dark = index.slice(index.indexOf('@media (prefers-color-scheme: dark)'))
+
+  for (const token of ['success-on-tint', 'danger-on-tint', 'warning-on-tint', 'info-on-tint']) {
+    assert.match(index, new RegExp(`--${token}: #`), `${token} missing from the light palette`)
+    assert.match(dark, new RegExp(`--${token}: #`), `${token} missing from the dark palette`)
+  }
+})
+
+test('the record page is a route but never a nav entry', () => {
+  // ROUTE_MANIFEST drives the rail. A detail route has no place there — it is reached from a row
+  // or a pasted link, which is the entire reason it has a URL.
+  const app = read('App.jsx')
+
+  assert.match(app, /path="creators\/:creatorId"/)
+  assert.ok(!ROUTE_MANIFEST.some((route) => route.path.includes(':')),
+    'no manifest entry may carry a path parameter')
+})
+
+test('a row click opens the record, with editing still one click away', () => {
+  // Finding and reading is the daily loop; editing is occasional. The row used to open the edit
+  // drawer, which is what made a creator unlinkable.
+  const page = read('pages/CreatorsPage.jsx')
+
+  assert.match(page, /onRowClick=\{\(creator\) => navigate\(`\/creators\/\$\{creator\.id\}`\)\}/)
+  // stopPropagation, or the Edit button would also fire the row's navigation.
+  assert.match(page, /event\.stopPropagation\(\)\s*\n\s*openEdit\(creator\)/)
+})
+
+test('an unknown creator id gets an answer, not a blank screen', () => {
+  // Stale links are the expected cost of making records shareable, so the miss case is part of
+  // the feature rather than an edge case.
+  const page = read('pages/CreatorRecordPage.jsx')
+
+  assert.match(page, /No such creator/)
+  assert.match(page, /Back to creators/)
+})
+
+test('the record page never shows zeroed metrics for an unmeasured creator', () => {
+  // 0 followers and "nobody has looked them up" are different facts, and 0 silently fails every
+  // vetting rule written as `followers < 5000`.
+  const page = read('pages/CreatorRecordPage.jsx')
+
+  assert.match(page, /creator\.followerCount !== null && creator\.followerCount !== undefined/)
 })

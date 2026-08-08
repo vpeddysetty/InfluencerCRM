@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import CustomAttributesEditor from '../components/CustomAttributesEditor'
 import { exportCsv } from '../api/csv'
 import {
@@ -10,6 +11,8 @@ import {
   EmptyState,
   Field,
   FilterBar,
+  MetricsProvenance,
+  MetricsSourceBadge,
   PageHeader,
   useToast,
 } from '../components/ui'
@@ -115,6 +118,7 @@ function CreatorsPage({
   onUpdateCreator,
 }) {
   const toast = useToast()
+  const navigate = useNavigate()
 
   // '' (closed) | 'create' | 'edit'. One drawer serves both: creation moved off the page so the
   // directory owns the first screen, and an edit is the same form with different initial values.
@@ -370,6 +374,29 @@ function CreatorsPage({
       render: (creator) => formatRate(creator.preferredRate) || <span className="identity-sub">—</span>,
     },
     {
+      key: 'followerCount',
+      header: 'Audience',
+      sortable: true,
+      align: 'right',
+      // The number and its provenance in one cell, because neither is safe to read alone.
+      // Influencer fraud is a top-three buyer objection, and until now the only place a brand
+      // could tell a measured follower count from a generated one was the CSV export — a file
+      // that goes to their client.
+      render: (creator) => {
+        if (creator.followerCount === null || creator.followerCount === undefined) {
+          // Em dash, not 0. "Nobody has looked this creator up" and "this creator has no
+          // audience" are different facts, and 0 silently fails every `followers < 5000` rule.
+          return <span className="identity-sub">—</span>
+        }
+        return (
+          <span className="audience-cell">
+            <span className="audience-count">{Number(creator.followerCount).toLocaleString()}</span>
+            <MetricsSourceBadge source={creator.metricsSource} />
+          </span>
+        )
+      },
+    },
+    {
       key: 'attributes',
       header: 'Attributes',
       render: (creator) => {
@@ -391,7 +418,33 @@ function CreatorsPage({
         )
       },
     },
+    {
+      key: 'edit',
+      header: '',
+      width: '1%',
+      // Editing kept reachable now that the row itself navigates to the record. stopPropagation
+      // so the button does not also fire the row's navigation — the same rule the selection
+      // checkbox follows.
+      render: (creator) => (
+        <button
+          type="button"
+          className="ghost-btn ghost-btn-sm"
+          onClick={(event) => {
+            event.stopPropagation()
+            openEdit(creator)
+          }}
+        >
+          Edit
+        </button>
+      ),
+    },
   ]
+
+  // The full record behind the drawer. The draft carries only editable fields; metrics are read
+  // from the platform and are not editable here, so they have to come from the row itself.
+  const editingCreator = drawerMode === 'edit'
+    ? (creators || []).find((creator) => creator.id === editingId)
+    : null
 
   const activeDraft = drawerMode === 'edit' ? editDraft : creatorForm
   const setActiveDraft = drawerMode === 'edit' ? setEditDraft : setCreatorForm
@@ -459,7 +512,10 @@ function CreatorsPage({
         columns={columns}
         rows={visibleCreators}
         rowKey={(creator) => creator.id}
-        onRowClick={openEdit}
+        // A row now opens the record, not the edit form. Finding and reading is the daily loop;
+        // editing is occasional, and it stays one click away as an explicit action in the row.
+        // This is also what makes a creator linkable — the reason the record page exists.
+        onRowClick={(creator) => navigate(`/creators/${creator.id}`)}
         selectedKeys={selectedIds}
         onSelectionChange={setSelectedIds}
         selectionLabel={(creator) => `Select ${creator.name || creator.handle || 'creator'}`}
@@ -495,6 +551,38 @@ function CreatorsPage({
           title={drawerMode === 'create' ? 'New creator' : 'Edit creator'}
           onClose={requestClose}
         >
+          {/* Read-only, and above the form on purpose: these are the numbers a brand decides on,
+              and they are the only ones on this screen nobody on the team can type. Shown only
+              when someone has actually been looked up — an empty panel would imply a failed
+              lookup rather than one that never happened. */}
+          {editingCreator?.followerCount !== null && editingCreator?.followerCount !== undefined ? (
+            <section className="audience-panel">
+              <h3 className="audience-panel-title">Audience</h3>
+              <dl className="audience-stats">
+                <div>
+                  <dt>Followers</dt>
+                  <dd>{Number(editingCreator.followerCount).toLocaleString()}</dd>
+                </div>
+                {editingCreator.engagementRate !== null && editingCreator.engagementRate !== undefined ? (
+                  <div>
+                    <dt>Engagement</dt>
+                    <dd>{Number(editingCreator.engagementRate).toFixed(2)}%</dd>
+                  </div>
+                ) : null}
+                {editingCreator.averageViews !== null && editingCreator.averageViews !== undefined ? (
+                  <div>
+                    <dt>Avg. views</dt>
+                    <dd>{Number(editingCreator.averageViews).toLocaleString()}</dd>
+                  </div>
+                ) : null}
+              </dl>
+              <MetricsProvenance
+                source={editingCreator.metricsSource}
+                fetchedAt={editingCreator.metricsFetchedAt}
+              />
+            </section>
+          ) : null}
+
           <form
             className="drawer-form"
             onSubmit={drawerMode === 'create' ? submitCreate : (event) => { event.preventDefault(); submitEdit() }}

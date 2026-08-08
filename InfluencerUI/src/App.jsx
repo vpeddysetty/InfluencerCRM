@@ -10,6 +10,7 @@ import AcceptInvitationPage from './pages/AcceptInvitationPage'
 import ImportPage from './pages/ImportPage'
 import CampaignsPage from './pages/CampaignsPage'
 import CreatorsPage from './pages/CreatorsPage'
+import CreatorRecordPage from './pages/CreatorRecordPage'
 import WorkflowPage from './pages/WorkflowPage'
 import CouponsPage from './pages/CouponsPage'
 import MarketplacePage from './pages/MarketplacePage'
@@ -1830,6 +1831,26 @@ function App() {
                   customAttributesToPairs={customAttributesToPairs}
                   onCreateCreator={createCreatorRecord}
                   onUpdateCreator={updateCreatorRecord}
+                />
+              }
+            />
+            {/* The record page. Deliberately not in ROUTE_MANIFEST: the manifest drives the nav
+                rail, and a detail route has no place there — it is reached from a row, or from a
+                pasted link, which is the whole point of it having a URL at all. */}
+            <Route
+              path="creators/:creatorId"
+              element={
+                <CreatorRecordPage
+                  creators={creators}
+                  campaigns={campaigns}
+                  // Workflow cards ARE the campaign-to-creator link: each card carries both
+                  // campaignId and creatorId. There is no separate campaignCreators collection in
+                  // the shell, which is why WorkflowPage receives these under that prop name too.
+                  campaignCreators={workflowCards}
+                  coupons={coupons}
+                  workflowCards={workflowCards}
+                  onLoadRevenue={loadInfluencerRevenue}
+                  onLoadCommissions={loadCommissions}
                 />
               }
             />

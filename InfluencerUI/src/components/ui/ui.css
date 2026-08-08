@@ -301,6 +301,137 @@
   background: var(--surface-sunken);
 }
 
+/* ── Creator record page ──────────────────────────────────────────────────
+   Identity first, then audience, then the relationship: campaigns, codes,
+   commissions, workflow. The order answers "who are they", "can I trust the
+   numbers", "what have we done together" — in that sequence. */
+.record-identity {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin-bottom: var(--space-5);
+}
+
+.avatar-lg {
+  width: 56px;
+  height: 56px;
+  font-size: 1.1rem;
+}
+
+.record-identity-meta {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.record-identity-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.record-rate {
+  margin: 0;
+  font-family: var(--display);
+  font-size: var(--text-xl);
+  font-weight: 700;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+
+.record-rate span {
+  font-family: var(--sans);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  color: var(--fg-subtle);
+}
+
+/* An unset rate is stated, not blanked. "No rate agreed" and "$0" are different
+   facts, and the second is one someone would quote back in a negotiation. */
+.record-rate-unset {
+  font-family: var(--sans);
+  font-size: var(--text-md);
+  font-weight: 500;
+  color: var(--fg-subtle);
+}
+
+/* Row-level secondary action, sized down so it does not compete with the data. */
+.ghost-btn-sm {
+  height: var(--control-h-sm);
+  padding: 0 var(--space-3);
+  font-size: var(--text-xs);
+}
+
+/* ── Metrics provenance ───────────────────────────────────────────────────
+   The number and where it came from, always together. A follower count with
+   no provenance is exactly the claim influencer fraud exploits. */
+.audience-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  justify-content: flex-end;
+}
+
+.audience-count {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.metrics-provenance {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.metrics-provenance-age {
+  color: var(--fg-subtle);
+  font-size: var(--text-xs);
+}
+
+/* The read-only audience block at the top of the creator drawer. Sunken rather
+   than raised: it is context for the form below, not another thing to fill in. */
+.audience-panel {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  margin-bottom: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+}
+
+.audience-panel-title {
+  margin: 0;
+  font-family: var(--sans);
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--fg-subtle-on-sunken);
+}
+
+.audience-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+  margin: 0;
+}
+
+.audience-stats dt {
+  font-size: var(--text-xs);
+  color: var(--fg-subtle-on-sunken);
+}
+
+.audience-stats dd {
+  margin: 0;
+  font-family: var(--display);
+  font-size: var(--text-lg);
+  font-weight: 700;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+
 /* ── Theme toggle ─────────────────────────────────────────────────────────
    A three-way segmented control in the rail footer. Sized to --control-h-sm so
    it sits beside the log-out button without out-weighting it. */
@@ -431,10 +562,14 @@
   white-space: nowrap;
 }
 
-.badge-success { border-color: var(--success-border); background: var(--success-bg); color: var(--success); }
-.badge-warning { border-color: var(--warning-border); background: var(--warning-bg); color: var(--warning); }
-.badge-danger  { border-color: var(--danger-border);  background: var(--danger-bg);  color: var(--danger); }
-.badge-info    { border-color: var(--info-border);    background: var(--info-bg);    color: var(--info); }
+/* Text colours are the *-on-tint tokens, not the semantic accents. A badge is an 11px label on a
+   tinted ground: --success and --warning are tuned to carry a large shape at 3:1 and measure
+   4.35:1 and 4.24:1 here, both under the 4.5:1 AA floor for text this size. Caught by measuring
+   before shipping the provenance badges, which use exactly those two tones. */
+.badge-success { border-color: var(--success-border); background: var(--success-bg); color: var(--success-on-tint); }
+.badge-warning { border-color: var(--warning-border); background: var(--warning-bg); color: var(--warning-on-tint); }
+.badge-danger  { border-color: var(--danger-border);  background: var(--danger-bg);  color: var(--danger-on-tint); }
+.badge-info    { border-color: var(--info-border);    background: var(--info-bg);    color: var(--info-on-tint); }
 
 /* ── Empty state ──────────────────────────────────────────────────────── */
 .empty-state {
