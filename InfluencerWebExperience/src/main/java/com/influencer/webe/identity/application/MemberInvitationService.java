@@ -4,7 +4,12 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.influencer.webe.identity.infrastructure.DaoTenancyClient;
 import com.influencer.webe.identity.infrastructure.DaoUserClient;
 import com.influencer.webe.security.AccountRole;
+import com.influencer.webe.shared.application.EmailPort;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.web.util.UriUtils;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -35,13 +40,24 @@ public class MemberInvitationService {
      */
     private static final Duration INVITATION_TTL = Duration.ofDays(7);
 
+    private static final Logger log = LoggerFactory.getLogger(MemberInvitationService.class);
+
     private final DaoTenancyClient tenancyClient;
     private final DaoUserClient userClient;
+    private final EmailPort emailPort;
+    private final String uiBaseUrl;
     private final SecureRandom random = new SecureRandom();
 
-    public MemberInvitationService(DaoTenancyClient tenancyClient, DaoUserClient userClient) {
+    public MemberInvitationService(DaoTenancyClient tenancyClient,
+                                   DaoUserClient userClient,
+                                   EmailPort emailPort,
+                                   @Value("${web-experience.ui-base-url}") String uiBaseUrl) {
         this.tenancyClient = tenancyClient;
         this.userClient = userClient;
+        this.emailPort = emailPort;
+        // Trailing slash stripped once here rather than at each call site, so the accept URL
+        // cannot come out with a double slash that some mail clients decline to linkify.
+        this.uiBaseUrl = uiBaseUrl == null ? "" : uiBaseUrl.replaceAll("/+$", "");
     }
 
     /**
@@ -54,7 +70,8 @@ public class MemberInvitationService {
      * invite screen: it carries billing and the right to delete the account, and transferring it
      * should be a deliberate, separately-confirmed act rather than a dropdown selection.
      */
-    public InvitationCreated invite(UUID accountId, UUID invitedBy, String email, String role, UUID brandId) {
+    public InvitationCreated invite(UUID accountId, UUID invitedBy, String email, String role, UUID brandId,
+                                    String brandName, String inviterName) {
         String normalizedEmail = normalizeEmail(email);
         AccountRole resolved = AccountRole.parse(role)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown role: " + role));
@@ -68,7 +85,54 @@ public class MemberInvitationService {
                 accountId, normalizedEmail, resolved.name(), brandId,
                 hash(token), invitedBy, Instant.now().plus(INVITATION_TTL));
 
-        return new InvitationCreated(created, token);
+        boolean delivered = sendInvitationEmail(normalizedEmail, resolved, token, brandName, inviterName);
+
+        return new InvitationCreated(created, token, delivered);
+    }
+
+    /**
+     * Sends the invitation, best-effort.
+     *
+     * <p>Deliberately after the invitation is persisted and deliberately unable to fail the call.
+     * The token exists and is valid whether or not the mail server was reachable; rolling the
+     * invitation back over a transient SMTP problem would destroy a valid grant and leave the
+     * inviter with nothing to resend.
+     *
+     * <p>The response still carries the token (see {@link InvitationCreated}), so the UI can fall
+     * back to showing it when {@code provider()} is {@code log} — which is exactly the situation
+     * where nothing was actually delivered.
+     */
+    private boolean sendInvitationEmail(String email, AccountRole role, String token,
+                                        String brandName, String inviterName) {
+        try {
+            // The token travels in the query string, so it must be encoded: the alphabet is
+            // Base64-URL, but encoding here means a future change to the token format cannot
+            // silently produce a link that breaks on the first `+` or `=`.
+            String acceptUrl = uiBaseUrl + "/accept-invitation?token="
+                    + UriUtils.encodeQueryParam(token, StandardCharsets.UTF_8);
+
+            EmailPort.Result result = emailPort.send(
+                    InvitationEmail.compose(email, brandName, inviterName, role.name().toLowerCase(), acceptUrl));
+
+            if (!result.sent()) {
+                // Logged without the token: application logs are not a secret store, and this
+                // line exists to say delivery failed, not to provide a way around it.
+                log.warn("Invitation created but not delivered to {} via {}: {}",
+                        email, result.provider(), result.detail());
+                return false;
+            }
+
+            // The log-only provider reports `sent` so callers are not forced to special-case a
+            // local setup — but nothing left the building, and the UI must not claim it did.
+            // Asking the port which provider is active is the honest test.
+            return !"log".equals(emailPort.provider());
+        } catch (RuntimeException e) {
+            // EmailPort.send is documented not to throw, but a caller-side failure — a malformed
+            // base URL, an encoding problem — must not take down an invitation that already
+            // exists in the database.
+            log.warn("Invitation created but the notification could not be composed for {}", email, e);
+            return false;
+        }
     }
 
     /**
@@ -150,6 +214,11 @@ public class MemberInvitationService {
      * readable again — losing it means re-inviting, which is the correct trade for not storing a
      * live credential.
      */
-    public record InvitationCreated(JsonNode invitation, String token) {
+    /**
+     * @param emailDelivered whether a provider accepted the invitation email. False with the
+     *                       log-only provider, and false on a delivery failure — in both cases the
+     *                       invitation is still valid and the token is still the way in.
+     */
+    public record InvitationCreated(JsonNode invitation, String token, boolean emailDelivered) {
     }
 }

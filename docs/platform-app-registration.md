@@ -103,6 +103,16 @@ local account. Before that, no such lookup was possible.
 round later costs another 2–4 weeks, and reviewers do not object to a coherent product asking for a
 coherent set.
 
+### Screenshots for the submission
+
+[`snapshots/`](../snapshots/) holds captured PNGs of every screen that touches a Meta API,
+with a README mapping each one to the permission it justifies. Regenerate them with
+`node snapshots/capture.mjs` after any UI change, so what reviewers see matches the product.
+
+Note what they do **not** show: live Instagram metrics, because the integration is not
+approved yet. The README says so explicitly rather than implying an integration we do not
+have — a mockup presented as a working feature is its own rejection reason.
+
 ### The two things that most often cause rejection
 
 - **A screencast that does not clearly show the permission being used in the product.** Record the
@@ -126,18 +136,118 @@ coherent set.
 and accurate before submitting. There is **no expedited track and no way to pay for faster
 approval** — the only lever is submitting a complete application first time.
 
+### 2.1 Submission package — prepared 2026-08-07, ready to paste
+
+Deferred by decision, not by blocker. Nothing below needs further work; it is here so that whenever
+you choose to start, the queue starts the same day.
+
+**Do the sandbox first, separately.** Sandbox access arrives within hours and needs no review. It
+gives the M6 TikTok adapter something to develop against while production review runs, so there is
+no reason to couple them.
+
+#### App Settings → Basic
+
+| Field | Value |
+|---|---|
+| App name | InfluenCRM |
+| Category | Business tools / Marketing |
+| Website URL | <https://www.tejdux.com/> |
+| Privacy Policy URL | <https://www.tejdux.com/privacy/> |
+| Terms of Service URL | <https://www.tejdux.com/terms/> |
+| Redirect URI | *Set to the deployed BFF callback. Placeholder until deployment lands — do not submit with a localhost URI, it is a rejection reason* |
+
+#### App description
+
+> InfluenCRM is a B2B influencer marketing platform. Brands and agencies use it to evaluate creator
+> partnerships, track campaign performance, and attribute sales to individual creators. Brand
+> marketers add creators they already work with, review those creators' public profile metrics to
+> assess campaign fit, and — with the creator's explicit, revocable consent — publish approved
+> content to the creator's account on their behalf.
+
+#### Scopes to request — submit both in one application
+
+| Scope | Product surface | Justification to paste |
+|---|---|---|
+| `user.info.basic` | Creator profile card | Resolve a creator handle to a profile so a brand can confirm they have added the right person |
+| `user.info.profile` | Creator detail panel | Display profile metadata alongside the brand's own notes and negotiated rate |
+| `user.info.stats` | Creator list + vetting rules | Follower and engagement counts are the inputs to per-brand vetting rules and health monitoring |
+| `video.list` | Content review | Show recent public posts so a brand can assess content fit and brand safety before partnering |
+| `video.publish` | Phase F | Publish brand-approved content to the creator's account, only after the creator connects their own account and grants consent they can revoke at any time |
+
+**Request all five in the initial submission.** Same reasoning as Meta: a second round costs another
+5–10 business days, and reviewers do not object to a coherent product asking for a coherent set.
+
+#### Data-handling statement
+
+TikTok reviews this under Data Security Compliance. Vagueness is the most common rejection cause:
+
+> We store TikTok profile metrics (follower count, engagement rate, public video metadata) against
+> the brand record that added the creator. Data is scoped per brand and is never shared between
+> brands, never resold, and never used for advertising targeting. Creators may revoke access at any
+> time, which stops all further collection. Stored data is deleted on request via the process
+> published at https://www.tejdux.com/data-deletion/. Metrics are refreshed on a tiered cadence —
+> weekly for creators on active campaigns, monthly otherwise — rather than continuously polled.
+
+Every clause above is true of the design. The tiered cadence is C3; the per-brand scoping is the
+tenancy model verified in ddd-roadmap Phase 2. Do not add claims beyond these.
+
+#### Demo video — shot list
+
+Record the actual product, not a slide deck. That is the other common rejection cause.
+
+1. Brand marketer signs in and opens the creator list.
+2. Adds a creator by pasting a TikTok handle — show the handle being typed.
+3. The profile resolves; **show the metrics rendering on screen** (`user.info.basic`,
+   `user.info.profile`, `user.info.stats`).
+4. Open the creator detail panel showing recent public posts (`video.list`).
+5. Show the creator-consent screen and the revoke control (`video.publish`).
+6. Show the data-deletion page.
+
+**Blocked until:** steps 3–5 need the TikTok adapter (M6.4) running against sandbox credentials.
+This is the real reason to take sandbox access early — the video cannot be recorded against mock
+data. A mockup presented as a working integration is its own rejection reason.
+
 ---
 
-## 3. YouTube ▸ easiest, do it when convenient
+## 3. YouTube ▸ **DONE — 2026-08-07**
 
-1. <https://console.cloud.google.com/> → create a project
-2. Enable **YouTube Data API v3**
-3. Create an API key for public data — **channel statistics need no OAuth and no review**
-4. OAuth consent screen and verification are needed only for private data or publishing
+1. ~~<https://console.cloud.google.com/> → create a project~~
+2. ~~Enable **YouTube Data API v3**~~
+3. ~~Create an API key for public data~~ — **channel statistics need no OAuth and no review**
+4. OAuth consent screen and verification are needed only for private data or publishing — **not
+   done, and not needed** for anything currently on the roadmap
 
 Public channel statistics — subscriber count, view count, video count — are available immediately
-with just an API key. This is the fastest platform to get useful data from, and worth doing first
-if you want to see Phase C working end-to-end before Meta approval lands.
+with just an API key.
+
+### What this unblocks — read this before scheduling M6
+
+[EXECUTION-ROADMAP.md](../EXECUTION-ROADMAP.md) sizes M6 as a single XL block gated entirely on app
+approvals. **That is now only half true.** With a YouTube key in hand, the ungated portion is:
+
+| Roadmap item | Gated on approvals? | Note |
+|---|---|---|
+| 6.1 Outbound HTTP client | **No** | None exists. `DaoHttpClientFactory` is mTLS-to-DAO only |
+| 6.2 Per-platform dispatcher | **No** | `SocialProfileGateway.fetch(platform, handle)` has no per-platform routing today |
+| 6.4 YouTube adapter | **No** | API key only |
+| 6.5 Rate limiting, caching, quota | **No** | Quota applies to YouTube too |
+| 6.3 Creator OAuth token storage | Partly | Not needed for YouTube public stats; needed for Meta/TikTok |
+| 6.4 Instagram / TikTok adapters | **Yes** | Meta pending, TikTok not submitted |
+| 6.6 Tiered refresh scheduler | **No** | |
+
+So roughly **5 of M6's 15 dev-days are buildable today**, and they are the load-bearing
+infrastructure the other two adapters plug into. Building the YouTube slice first turns Meta
+approval from "start a 15-day project" into "drop in an adapter" — and it puts at least one real,
+non-hash-derived follower count on screen.
+
+**Not scheduled yet by decision (2026-08-07): M0 → M1 comes first.** Recorded here so the option is
+not lost.
+
+### API key handling
+
+The key is a credential. Do not commit it — supply it via environment variable to the deployed BFF,
+mirroring how the other provider properties are set. See §M0.4 note in the roadmap: the point of
+setting provider flags explicitly is that configuration should be a decision, not a default.
 
 ---
 
@@ -176,6 +286,8 @@ fake-follower detection on the strength of Graph API access; it is not in there.
 
 ## Suggested timeline
 
+~~Original plan, superseded 2026-08-07:~~
+
 ```
 Week 1   Meta app created, business verification submitted   ← the critical action
 Week 2   TikTok app + sandbox; YouTube API key
@@ -183,6 +295,19 @@ Week 3   Meta screencasts recorded, permissions submitted
 Week 4-6 Meta review (allow for one revision round)
 Week 5   TikTok production review
 ```
+
+### Actual state, 2026-08-07
+
+```
+DONE     YouTube Data API key          ← unblocks ~5 dev-days of M6 today
+RUNNING  Meta access requested          ← 2-4 weeks, resets on reviewer changes
+NOT SUBMITTED  TikTok                   ← deferred by decision; package ready in §2.1
+```
+
+**The one number worth watching:** TikTok is 5–10 business days *from submission*, and submission is
+a form. It is not on the critical path for M0–M5, so deferring it costs nothing **until M6 starts**.
+At that point it becomes the gate. The package in §2.1 exists so that day is a copy-paste, and the
+sandbox — same-day, no review — can be taken any time to develop the adapter against.
 
 Phase A (the builder) runs in parallel throughout and needs none of this.
 
@@ -193,13 +318,24 @@ Phase A (the builder) runs in parallel throughout and needs none of this.
 | Platform | Owner | Submitted | Approved | Notes |
 |---|---|---|---|---|
 | Public URLs — privacy, terms, data deletion | peddysetty | — | n/a | Live on tejdux.com since 2026-08-07; dates and retention periods still placeholders |
-| Meta — business verification | | | | |
-| Meta — `instagram_basic` | | | | |
-| Meta — `instagram_manage_insights` | | | | |
-| Meta — `instagram_content_publish` | | | | |
-| TikTok — Display API | | | | |
-| TikTok — Content Posting API | | | | |
-| YouTube — Data API key | | | | |
+| Review screenshots | peddysetty | — | n/a | Captured 2026-08-07 in [`snapshots/`](../snapshots/); regenerate after UI changes |
+| Meta — access requested | peddysetty | 2026-08-07 | — | Requested. Expect 2–4 weeks; **resets if a reviewer requests changes**. Confirm below which permissions were included in the submission |
+| Meta — business verification | peddysetty | 2026-08-07 | — | Slowest step; runs in parallel with permission review |
+| Meta — `instagram_basic` | peddysetty | 2026-08-07 | — | Confirm included in the request |
+| Meta — `instagram_manage_insights` | peddysetty | 2026-08-07 | — | Confirm included — this is the one M6 needs for follower counts |
+| Meta — `instagram_content_publish` | peddysetty | 2026-08-07 | — | Phase F. Confirm included — a second review round costs another 2–4 weeks |
+| TikTok — Display API | peddysetty | — | — | **Deferred by decision 2026-08-07.** Submission package prepared below (§2.1). 5–10 business days once submitted; sandbox same-day |
+| TikTok — Content Posting API | peddysetty | — | — | Submit with Display API in one application — see §2.1 |
+| YouTube — Data API key | peddysetty | 2026-08-07 | 2026-08-07 | **Obtained.** Public channel statistics need no OAuth and no review. Unblocks the ungated half of M6 — see §4 |
+
+### Reading this tracker
+
+Three states matter and they are not the same:
+
+- **Meta** — clock running, nothing to do but wait. Rejection is information; silence is delay.
+- **TikTok** — clock *not* running by choice. Every week deferred is a week added to the end of M6.
+  The package in §2.1 exists so that starting it costs minutes.
+- **YouTube** — done, and it is the only one that unblocks code today.
 
 ---
 

@@ -386,7 +386,66 @@ original coupon/marketplace/attribution/dashboard/payout suite.
 
 ---
 
-## 9. Open questions to resolve before Phase 1
+## 8c. Brand ↔ creator collaboration (brief sharing + two workflows)
+
+Decisions locked (2026-08-01):
+- **Two workflows, brand picks per campaign:**
+  - **Workflow A — Collaborative:** brand writes brief + starter landing template → creator EDITS
+    their landing copy within guardrails → brand approves → publish. (Creator edits.)
+  - **Workflow B — Standalone:** brand authors everything → creator gets a **read-only** review link
+    → creator leaves **notes/comments** (no edits) → brand applies edits → publish. (Creator comments.)
+- **Delivery = shareable link + copy/mailto** (no email provider yet; app generates a tokenized link
+  and a pre-filled mailto draft the brand sends from their own inbox). Auto-send is a later add.
+- **Workflow B feedback = notes/comments only, no creator login** (tokenized link).
+- **Brief sharing to the creator** in both workflows so they understand the campaign for their own
+  channel content.
+
+Clarification: in Workflow B the read-only reviewer is the **creator** (the brand is the author).
+
+### Access model
+- **No creator login for v1's shared/review flows** — a **tokenized share link** (`share_tokens`)
+  grants scoped, read-only (B) or edit-limited (A) access to exactly one campaign's brief + that
+  creator's landing draft. Lower-risk than full creator accounts and avoids widening the known
+  authz gaps ([[influencrm-security-gaps]]). A full creator portal/login can come later.
+- Each token is bound to `(user_id, campaign_id, creator_id, scope)` where scope ∈
+  `brief_view | landing_review | landing_edit`; resolving a token returns only that slice.
+
+### Data model additions (new migration)
+- `share_tokens` — `id, user_id, campaign_id, creator_id (nullable for brief-only), token (unique),
+  scope, expires_at (nullable), revoked, created_at`.
+- `content_review_notes` — `id, user_id, campaign_id, creator_id, share_token_id, block_ref
+  (nullable — for per-block later), author ('creator'|'brand'), body, status ('open'|'resolved'),
+  created_at`.
+- `campaigns` (or a light `campaign_content_settings`) gains `content_workflow_mode`
+  (`collaborative | standalone`), default `standalone`.
+
+All `user_id`-scoped; text (not enum) status columns; jsonb via `@JdbcTypeCode(SqlTypes.JSON)`.
+
+### Guardrails for Workflow A (creator edit), v1
+Creator may edit **text of brand-provided blocks only** — cannot add/remove/reorder blocks, and the
+**legal/disclosure block + the shop CTA URL are locked** (brand-only). Edits land as a pending
+version the brand approves (reuse the existing approval gate).
+
+### Phased delivery (each phase: build → regression-test UI+API → fix → restart → retest)
+
+**Phase 1 — Shareable read-only links.** `share_tokens` (DAO). BFF: create-share (brand-auth'd,
+returns link + mailto draft), public token-resolve endpoints for **brief view** and **landing draft
+read-only view** (no login, scoped). UI: brand "Share with creator" (copy link / email draft) on the
+Content page; public read-only brief + landing pages. *Demo:* brand shares a brief + draft; creator
+opens the link and sees them without logging in.
+
+**Phase 2 — Creator review notes (Workflow B).** `content_review_notes`. Public token endpoint for a
+creator to POST notes on a shared draft; brand-side notes inbox + resolve. UI: notes box on the
+read-only review page; notes list on the brand Content page. *Demo:* creator leaves a note → brand
+sees it → resolves → edits → publishes.
+
+**Phase 3 — Per-campaign workflow mode.** `content_workflow_mode` toggle on the campaign; UI + gating
+so the brand picks Collaborative vs Standalone; share/edit affordances switch accordingly.
+
+**Phase 4 — Collaborative creator edit (Workflow A).** `landing_edit`-scoped token lets the creator
+edit block **text** (guardrailed) via the link; edits submit as a pending version; brand approves
+(extends the personalization approval gate). *Demo:* creator edits their copy → brand approves →
+publish.
 
 1. **Shopigy** — is this a real marketplace with a public API, or a placeholder name? Confirms
    whether Phase 6 targets a real spec.

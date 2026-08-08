@@ -8,6 +8,7 @@ AWS infrastructure for InfluencerCRM.
 | [static-site-deployment-log.md](static-site-deployment-log.md) | Every command actually run to build it, in order, including the two failures and their fixes |
 | [static-site-runbook.md](static-site-runbook.md) | Day-to-day operations — publishing updates, adding pages, rotating content, teardown |
 | [iam-policy.md](iam-policy.md) | The IAM policy the deploy identity requires |
+| [hosting-topology-decision.md](hosting-topology-decision.md) | **Read before deploying the app tiers.** The SNI/TLS constraint that decides whether custom domains (M7) are a config change or a migration |
 | [config/](config/) | The exact JSON/JS payloads applied to AWS |
 
 ## Scope
