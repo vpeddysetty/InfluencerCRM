@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { MdsNote } from '../components/Mds'
 import { DEFAULT_ROUTE } from '../shell/routeManifest'
-import { PUBLIC_TIERS } from '../shell/plan'
+import { BILLING_LIVE, visiblePublicTiers } from '../shell/plan'
 
 function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit, onSocialLogin, authError = '' }) {
   const navigate = useNavigate()
@@ -11,6 +11,11 @@ function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit, onSocialLogin, authE
   // 'brand' | 'agency'. Creators are CRM records owned by a brand, not accounts that sign in,
   // so they are deliberately not an option here — see docs/identity-signup-alignment.md.
   const [accountType, setAccountType] = useState('brand')
+
+  // Build-time, not state: the landing page is signed out and cannot ask the BFF which billing
+  // provider is configured. Free-only until VITE_BILLING_LIVE=true.
+  const billingLive = BILLING_LIVE
+  const tiers = visiblePublicTiers(billingLive)
 
   const handleSubmit = async (event) => {
     event.preventDefault()
@@ -86,11 +91,19 @@ function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit, onSocialLogin, authE
 
             Prices are deliberately absent: none has been decided, and a UI file is not where that
             commitment should get made. What each paid tier LIFTS is knowable and stated; what it
-            costs is not. */}
+            costs is not.
+
+            PAID TIERS ARE HIDDEN until VITE_BILLING_LIVE=true. Advertising a plan nobody can buy
+            is worse than advertising nothing: someone who wants to pay finds no way to, and
+            someone who signs up expecting those limits gets the free ones instead. */}
         <div className="landing-tiers landing-reveal delay-5">
-          <h2 className="landing-tiers-title">Start free. Grow when the ceiling gets close.</h2>
-          <div className="landing-tier-grid">
-            {PUBLIC_TIERS.map((tier) => (
+          <h2 className="landing-tiers-title">
+            {billingLive
+              ? 'Start free. Grow when the ceiling gets close.'
+              : 'Free while we are in early access.'}
+          </h2>
+          <div className={`landing-tier-grid${tiers.length === 1 ? ' landing-tier-grid-single' : ''}`}>
+            {tiers.map((tier) => (
               <article
                 key={tier.key}
                 className={`landing-tier-card${tier.key === 'free' ? ' landing-tier-card-featured' : ''}`}
@@ -107,8 +120,9 @@ function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit, onSocialLogin, authE
             ))}
           </div>
           <p className="landing-tier-footnote">
-            Limits cap what you can add, never what you already have. Nothing is deleted or hidden
-            if you reach one.
+            {billingLive
+              ? 'Limits cap what you can add, never what you already have. Nothing is deleted or hidden if you reach one.'
+              : 'Paid plans are not open yet. Limits cap what you can add, never what you already have — nothing is deleted or hidden if you reach one.'}
           </p>
         </div>
       </section>

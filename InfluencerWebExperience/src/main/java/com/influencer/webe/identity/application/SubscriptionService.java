@@ -43,12 +43,16 @@ public class SubscriptionService {
     private final DaoGatewayClient dao;
     private final ResponseShapeService shape;
     private final BillingProviderRegistry providers;
+    private final String uiBaseUrl;
 
     public SubscriptionService(DaoGatewayClient dao, ResponseShapeService shape,
-                               BillingProviderRegistry providers) {
+                               BillingProviderRegistry providers,
+                               @org.springframework.beans.factory.annotation.Value(
+                                       "${web-experience.ui-base-url}") String uiBaseUrl) {
         this.dao = dao;
         this.shape = shape;
         this.providers = providers;
+        this.uiBaseUrl = uiBaseUrl == null ? "" : uiBaseUrl.replaceAll("/+$", "");
     }
 
     // ---- reading ---------------------------------------------------------
@@ -105,8 +109,14 @@ public class SubscriptionService {
         JsonNode created = dao.post("/billing/subscriptions", body);
         String subscriptionId = created.path("id").asText();
 
+        // Built here from the configured UI origin, NOT taken from the caller. A redirect URL a
+        // client can set is an open redirect: the provider would send the user wherever the
+        // request said, and a payment flow is the most credible possible context for that. The
+        // parameters are accepted only so a caller can name a path within our own origin.
         BillingProvider.CheckoutSession session = provider.startCheckout(
-                subscriptionId, accountId.toString(), target.key(), successUrl, cancelUrl);
+                subscriptionId, accountId.toString(), target.key(),
+                safeReturnUrl(successUrl, "/billing?checkout=success"),
+                safeReturnUrl(cancelUrl, "/billing?checkout=cancelled"));
 
         ObjectNode update = created.deepCopy();
         if (session.providerRef() != null) {
@@ -255,6 +265,26 @@ public class SubscriptionService {
                             + "set to '{}'. Entitlements are now out of step with billing: {}",
                     accountId, subscription.path("status").asText(""), effective, e.toString());
         }
+    }
+
+    /**
+     * A return URL guaranteed to be on our own origin.
+     *
+     * <p>Accepts only a relative path from the caller and prefixes the configured UI base URL. An
+     * absolute URL is discarded rather than sanitised — there is no legitimate reason for a
+     * checkout to return anywhere else, and a payment provider redirecting a user to an
+     * attacker-named site immediately after they entered card details is about the most credible
+     * phishing hand-off there is.
+     *
+     * <p>Protocol-relative paths ({@code //evil.example}) are caught too: they look relative and
+     * resolve to a different host.
+     */
+    String safeReturnUrl(String requested, String fallbackPath) {
+        String path = fallbackPath;
+        if (requested != null && requested.startsWith("/") && !requested.startsWith("//")) {
+            path = requested;
+        }
+        return uiBaseUrl + path;
     }
 
     private JsonNode requireLive(UUID accountId) {

@@ -98,6 +98,84 @@ public class OutboundHttpClient {
     }
 
     /**
+     * POST form-encoded parameters and parse the JSON response.
+     *
+     * <p>Form encoding rather than JSON because that is what Stripe's API takes — it is the
+     * common shape for payment APIs, not a quirk. Added for M2.1.
+     *
+     * <p><b>Returns the body on a non-2xx as well as a 2xx</b>, unlike {@link #getJson}. A payment
+     * provider puts the reason a charge was declined in the error body, and a caller that only
+     * learns "it failed" cannot tell a customer whether to try a different card or contact
+     * support. {@link Response#ok()} says which happened.
+     */
+    public Response postForm(String url, Map<String, String> form, Map<String, String> headers) {
+        HttpRequest.Builder builder = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .timeout(requestTimeout)
+                .header("Accept", "application/json")
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .POST(HttpRequest.BodyPublishers.ofString(encodeForm(form)));
+        if (headers != null) {
+            headers.forEach(builder::header);
+        }
+
+        try {
+            HttpResponse<String> response = client.send(builder.build(), HttpResponse.BodyHandlers.ofString());
+            JsonNode body;
+            try {
+                body = objectMapper.readTree(response.body());
+            } catch (Exception e) {
+                body = objectMapper.createObjectNode();
+            }
+            boolean ok = response.statusCode() / 100 == 2;
+            if (!ok) {
+                // The URL only — never the form body, which carries payment parameters, and never
+                // the Authorization header, which carries a live secret key.
+                log.warn("Outbound POST {} returned {}", stripQuery(url), response.statusCode());
+            }
+            return new Response(ok, response.statusCode(), body);
+        } catch (java.io.InterruptedIOException e) {
+            log.warn("Outbound POST {} timed out after {}", stripQuery(url), requestTimeout);
+            return new Response(false, 0, objectMapper.createObjectNode());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return new Response(false, 0, objectMapper.createObjectNode());
+        } catch (Exception e) {
+            log.warn("Outbound POST {} failed: {}", stripQuery(url), e.toString());
+            return new Response(false, 0, objectMapper.createObjectNode());
+        }
+    }
+
+    /**
+     * @param ok     whether the status was 2xx
+     * @param status the HTTP status, or 0 if the call never completed
+     * @param body   the parsed body — present on failure too, since that is where a provider
+     *               explains itself
+     */
+    public record Response(boolean ok, int status, JsonNode body) {
+    }
+
+    /** Percent-encodes a form body. Null values are dropped rather than sent as "null". */
+    private static String encodeForm(Map<String, String> form) {
+        if (form == null || form.isEmpty()) {
+            return "";
+        }
+        StringBuilder out = new StringBuilder();
+        form.forEach((key, value) -> {
+            if (key == null || value == null) {
+                return;
+            }
+            if (out.length() > 0) {
+                out.append('&');
+            }
+            out.append(java.net.URLEncoder.encode(key, java.nio.charset.StandardCharsets.UTF_8))
+                    .append('=')
+                    .append(java.net.URLEncoder.encode(value, java.nio.charset.StandardCharsets.UTF_8));
+        });
+        return out.toString();
+    }
+
+    /**
      * Drops the query string before logging.
      *
      * <p>Platform API keys are commonly passed as a query parameter, and logs are copied,

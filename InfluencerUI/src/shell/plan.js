@@ -296,6 +296,34 @@ export function formatAmount(amountCents, currency = 'USD') {
  * commitment made by a UI file. `free` is stated plainly because it is true and enforced today;
  * the paid tiers say what they lift, not what they cost.
  */
+/**
+ * Whether paid plans may be advertised to signed-out visitors.
+ *
+ * <p><b>Off until Stripe is live.</b> Showing Pro and Agency on a public page is an offer, and an
+ * offer nobody can accept is worse than no offer: a visitor who wants to pay finds no way to, and
+ * a visitor who signs up expecting those limits gets the free ones. While billing runs on
+ * `ManualBillingProvider` nothing can actually take money, so the paid tiers stay hidden.
+ *
+ * <p>Build-time rather than a server read: the landing page is signed out and has no token, so it
+ * cannot ask the BFF which billing provider is configured. Set `VITE_BILLING_LIVE=true` in the
+ * same deploy that sets `WEBE_BILLING_PROVIDER=stripe`.
+ *
+ * <p>This hides the marketing copy only. It is not a security control — enforcement is
+ * `PlanPolicy` and `ACCOUNT_BILLING` on the server, which do not consult it.
+ */
+export const BILLING_LIVE = import.meta?.env?.VITE_BILLING_LIVE === 'true'
+
+/**
+ * Tiers to show a signed-out visitor.
+ *
+ * <p>Just the free tier until billing is live — which is honest rather than empty: free is what
+ * the signup button actually gets you today, and describing it accurately is the whole job of
+ * that section right now.
+ */
+export function visiblePublicTiers(billingLive = BILLING_LIVE) {
+  return billingLive ? PUBLIC_TIERS : PUBLIC_TIERS.filter((tier) => tier.key === 'free')
+}
+
 export const PUBLIC_TIERS = Object.freeze([
   Object.freeze({
     key: 'free',

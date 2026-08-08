@@ -68,6 +68,11 @@ public class SecurityConfig {
             // is created as status=lead — so this grants nothing without a brand decision.
             "/api/public/landing/*/signup",
             "/api/webhooks/**",           // marketplace callbacks — authenticated by provider signature
+            // Subscription events (M2.2). Unauthenticated by necessity — Stripe holds no user
+            // token — so the HMAC signature over the raw body IS the authentication, verified in
+            // BillingWebhookController before anything is parsed or applied. With no signing
+            // secret configured the endpoint refuses everything with 503 rather than lying open.
+            "/api/billing/webhooks/**",
             // Creator portal sign-in. A creator has no account, no brand and no account_role, so
             // they can never present the operator JWT this chain expects — these routes are how
             // they obtain their own portal token instead. Listed individually rather than as

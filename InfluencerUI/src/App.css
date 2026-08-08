@@ -165,6 +165,13 @@
   border-color: rgba(186, 230, 253, 0.55);
 }
 
+/* While paid plans are hidden there is one card, and a lone card stretched across
+   a three-column track reads as a banner rather than a plan. Cap it near the width
+   it would have had beside the others. */
+.landing-tier-grid-single {
+  grid-template-columns: minmax(0, 22rem);
+}
+
 .landing-tier-name {
   margin: 0;
   font-family: var(--display);

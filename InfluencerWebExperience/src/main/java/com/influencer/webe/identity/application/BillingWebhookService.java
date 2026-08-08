@@ -9,6 +9,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -99,18 +100,53 @@ public class BillingWebhookService {
         };
     }
 
+    /**
+     * Activates on completed checkout.
+     *
+     * <p>Two references are in play here, which is the subtlety. When checkout started we stored
+     * the Checkout <em>session</em> id, because the subscription did not exist yet; this event
+     * carries both that (as {@code client_reference_id} / the session {@code id}) and the real
+     * subscription id (as {@code subscription}). So the row is found by what we stored, and then
+     * its reference is REPLACED with the subscription id — otherwise every later event, which
+     * names only the subscription, would find nothing.
+     */
     private Outcome activate(String provider, JsonNode payload) {
-        JsonNode subscription = findByRef(provider, providerRef(payload));
+        // Our own subscription row id, echoed back by Stripe. The most reliable handle, because we
+        // chose it — and the lookups below fall back to whatever the generic shape provides.
+        String ourRef = payload.path("client_reference_id").asText(null);
+        JsonNode subscription = null;
+        if (ourRef != null && !ourRef.isBlank()) {
+            subscription = findById(ourRef);
+        }
+        if (subscription == null) {
+            subscription = findByRef(provider, providerRef(payload));
+        }
         if (subscription == null) {
             return new Outcome(false, "No subscription matches that reference.");
         }
+
         Instant now = Instant.now();
         ObjectNode update = subscription.deepCopy();
         update.put("status", SubscriptionState.ACTIVE);
         update.put("currentPeriodStart", text(payload, "currentPeriodStart", now.toString()));
         update.put("currentPeriodEnd",
                 text(payload, "currentPeriodEnd", now.plusSeconds(30L * 86400).toString()));
+
+        // Re-point at the subscription id, so subsequent updated/deleted events resolve.
+        String subscriptionRef = payload.path("subscription").asText(null);
+        if (subscriptionRef != null && !subscriptionRef.isBlank()) {
+            update.put("providerRef", subscriptionRef);
+        }
         return save(subscription, update, "Subscription activated.");
+    }
+
+    /** Our own row, by id — used when the provider echoes back the reference we gave it. */
+    private JsonNode findById(String subscriptionId) {
+        try {
+            return dao.get("/billing/subscriptions/" + subscriptionId, null);
+        } catch (RuntimeException e) {
+            return null;
+        }
     }
 
     private Outcome updateStatus(String provider, JsonNode payload) {
@@ -270,8 +306,28 @@ public class BillingWebhookService {
         return rows != null && rows.isArray() && rows.size() > 0 ? rows.get(0) : null;
     }
 
+    /**
+     * The reference identifying which subscription an event is about.
+     *
+     * <p>Stripe's shapes differ by event: a {@code checkout.session} carries the new subscription
+     * id in {@code subscription} and echoes our own row id in {@code client_reference_id}, while a
+     * {@code subscription} object carries its id in {@code id}. Checked in order of specificity so
+     * one lookup serves every event type.
+     *
+     * <p>{@code providerRef} is tried first for the generic (non-Stripe) shape, which is what the
+     * tests and any future provider use.
+     */
     private static String providerRef(JsonNode payload) {
-        return payload == null ? null : payload.path("providerRef").asText(null);
+        if (payload == null) {
+            return null;
+        }
+        for (String field : List.of("providerRef", "subscription", "client_reference_id", "id")) {
+            String value = payload.path(field).asText(null);
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return null;
     }
 
     private static String text(JsonNode payload, String field, String fallback) {

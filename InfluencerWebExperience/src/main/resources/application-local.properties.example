@@ -21,6 +21,30 @@ web-experience.oauth.facebook.client-secret=your-facebook-app-secret
 # Override the UI origin here if you don't run the UI on http://localhost:5173
 # web-experience.ui-base-url=http://localhost:5173
 
+# --- Stripe sandbox (M2.1/M2.2) ---
+# Everything below is OPTIONAL. Leave it out and billing runs on ManualBillingProvider, which
+# records subscriptions, takes no money, and says so on screen.
+#
+# TO TEST WITH A STRIPE SANDBOX:
+#   1. Stripe Dashboard -> Developers -> API keys -> copy the TEST secret key (sk_test_...).
+#   2. Products -> create "Pro" and "Agency" recurring monthly prices -> copy each price id
+#      (price_...). Use the PRICE id, not the product id.
+#   3. Install the Stripe CLI and forward webhooks to the BFF:
+#        stripe listen --forward-to http://localhost:8081/api/billing/webhooks/stripe
+#      It prints a signing secret (whsec_...) — that is the webhook-secret below. It differs from
+#      the dashboard endpoint secret, so use the one the CLI prints while forwarding.
+#   4. Fill in the four values, restart with the `local` profile, and subscribe from /billing.
+#      Test card 4242 4242 4242 4242, any future expiry, any CVC.
+#
+# The BFF logs "running in TEST MODE" at startup for an sk_test_ key. Nothing here moves real
+# money, but the flow — hosted checkout, webhooks, pause, cancel — is the real one.
+#
+# web-experience.billing.provider=stripe
+# web-experience.billing.stripe.secret-key=sk_test_your_test_secret_key
+# web-experience.billing.stripe.price-pro=price_your_pro_price_id
+# web-experience.billing.stripe.price-agency=price_your_agency_price_id
+# web-experience.billing.webhook-secret=whsec_from_stripe_listen
+
 # --- JWT signing key (REQUIRED) ---
 # A persistent RSA JWK, including the private key. Without it the BFF refuses to start:
 # an ephemeral key cannot be verified by a second instance or by an extracted service,

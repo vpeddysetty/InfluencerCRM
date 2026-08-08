@@ -29,6 +29,7 @@ import {
   describeSubscription,
   formatAmount,
   formatDate,
+  visiblePublicTiers,
 } from './shell/plan.js'
 
 // ── P3: confidence survives the agent → UI transform ────────────────────────
@@ -1459,4 +1460,41 @@ test('money is formatted from integer cents', () => {
 test('an unparseable date renders as nothing rather than "Invalid Date"', () => {
   assert.equal(formatDate(null), '')
   assert.equal(formatDate('not-a-date'), '')
+})
+
+// ── Stripe sandbox: paid tiers stay hidden until billing is live ───────────
+
+test('only the free tier is advertised while billing is not live', () => {
+  // Advertising a plan nobody can buy is worse than advertising nothing: someone who wants to pay
+  // finds no way to, and someone who signs up expecting those limits gets the free ones.
+  const hidden = visiblePublicTiers(false)
+
+  assert.equal(hidden.length, 1)
+  assert.equal(hidden[0].key, 'free')
+  assert.ok(!hidden.some((tier) => tier.key === 'pro' || tier.key === 'agency'))
+})
+
+test('all tiers return once billing is live', () => {
+  const live = visiblePublicTiers(true)
+
+  assert.equal(live.length, 3)
+  assert.deepEqual(live.map((tier) => tier.key), ['free', 'pro', 'agency'])
+})
+
+test('the free-only landing copy does not promise plans that cannot be bought', () => {
+  // The heading and footnote both change: "Grow when the ceiling gets close" implies a purchasable
+  // next step, and there is not one yet.
+  const page = read('pages/LandingPage.jsx')
+
+  assert.match(page, /billingLive/, 'the tier section must be gated')
+  assert.match(page, /visiblePublicTiers/)
+  assert.match(page, /Paid plans are not open yet/)
+})
+
+test('the free tier still reads correctly as the only tier', () => {
+  // It is described by its ceiling rather than as a lesser version of something unavailable.
+  const [free] = visiblePublicTiers(false)
+
+  assert.match(free.note, /no time limit/i)
+  assert.doesNotMatch(free.tagline, /upgrade|paid|pro\b/i)
 })

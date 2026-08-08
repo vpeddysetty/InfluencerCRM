@@ -1316,7 +1316,19 @@ function App() {
   // not the other.
   const loadSubscriptionRecord = async () => loadSubscription(authToken)
   const loadInvoicesRecord = async () => loadBillingInvoices(authToken)
-  const subscribeRecord = async (plan) => subscribeToPlan(authToken, plan)
+  // A hosted-checkout provider answers with a URL and does NOT activate — the user has not paid
+  // yet. Sending them there is the rest of the flow; without this the subscription would sit in
+  // `trialing` forever and look like a bug. A provider that takes no money returns no URL, and
+  // the page just refreshes.
+  const subscribeRecord = async (plan) => {
+    const result = await subscribeToPlan(authToken, plan)
+    if (result?.checkoutUrl) {
+      // assign, not replace: coming back from Stripe should land on the billing page, and
+      // replace() would remove it from history so "back" left the workspace entirely.
+      window.location.assign(result.checkoutUrl)
+    }
+    return result
+  }
   const pauseSubscriptionRecord = async () => pauseSubscription(authToken)
   const resumeSubscriptionRecord = async () => resumeSubscription(authToken)
   const cancelSubscriptionRecord = async (options) => cancelSubscription(authToken, options)

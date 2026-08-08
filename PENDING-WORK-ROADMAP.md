@@ -306,18 +306,19 @@ only place they can be right.
 the lifecycle state machine, subscribe/pause/resume/cancel, webhook handling with replay
 protection, and the full UI.
 
-**⏳ Not built — needs credentials:** the Stripe adapter itself. There is no Stripe account, key,
-or webhook secret in this repo. `ManualBillingProvider` is the default and **reports
-`chargesMoney=false` everywhere**, logs at WARN on every use, and the UI shows "No payment was
-taken" when it sees that flag. A payment mock that reported success would be a simulated result
-about someone's money — the one place the mocking policy must not be stretched. Adding Stripe is
-one `@Component` implementing `BillingProvider`.
+**✅ Stripe adapter — added 2026-08-07** once a sandbox account existed. `StripeBillingProvider`
+uses hosted Checkout and the hosted billing portal (the roadmap's instruction for 2.1: build no
+billing UI), which is also what keeps card data out of this system entirely — no PAN, CVV or expiry
+ever reaches it. The REST API directly rather than the SDK, matching the YouTube adapter: three
+form-encoded POSTs against one dependency-free client.
 
-**⏳ Webhook signature verification is deliberately unimplemented**, and the endpoint returns
-**503 while `web-experience.billing.webhook-secret` is unset**. That endpoint must be
-unauthenticated — a provider holds no user token — so without verification it would be an open door
-that moves accounts onto paid plans. A stub returning `true` would look finished and be worse than
-nothing.
+`ManualBillingProvider` remains the default and still reports `chargesMoney=false` everywhere.
+
+**✅ Webhook signature verification — implemented.** HMAC-SHA256 over the **raw** body, constant-time
+comparison, and a five-minute freshness window. The endpoint still returns **503 while
+`web-experience.billing.webhook-secret` is unset**, because that endpoint must be unauthenticated —
+Stripe holds no user token — so the signature *is* the authentication. Without it, anyone who knew
+the URL could POST `subscription.updated` and move their account onto the agency plan for nothing.
 
 ### Decisions worth keeping
 
@@ -346,6 +347,63 @@ active until `currentPeriodEnd` and the UI names that date. `immediate` is opt-i
 event id *before* being applied, with a unique index so a concurrent duplicate fails at the
 database rather than racing through a check-then-act gap. Out-of-order events cannot resurrect a
 cancelled subscription — verified: `cancelled → active` is refused.
+
+---
+
+## Stripe sandbox wiring (2026-08-07)
+
+**223 BFF tests (was 204), 22 DAO, 135 UI (was 131).**
+
+### Paid plans are hidden on the landing page until billing is live
+
+`VITE_BILLING_LIVE` is off by default, so a signed-out visitor sees **only the free tier**.
+Advertising a plan nobody can buy is worse than advertising nothing: someone who wants to pay finds
+no way to, and someone who signs up expecting those limits gets the free ones. Set it in the same
+deploy that sets `WEBE_BILLING_PROVIDER=stripe`.
+
+Build-time rather than a server read — the landing page is signed out and has no token, so it
+cannot ask which provider is configured. **It hides marketing copy only**; enforcement is
+`PlanPolicy` and `ACCOUNT_BILLING` on the server, which do not consult it.
+
+### To test with your sandbox
+
+Full instructions are in `application-local.properties.example` (git-ignored sibling holds the real
+values — **never commit keys**). In short:
+
+1. Stripe Dashboard → API keys → copy the **test** secret (`sk_test_…`)
+2. Products → create Pro and Agency recurring monthly prices → copy each **price** id (`price_…`)
+3. `stripe listen --forward-to http://localhost:8081/api/billing/webhooks/stripe` → copy the
+   `whsec_…` it prints (this differs from the dashboard endpoint secret)
+4. Set the four values, restart with the `local` profile, subscribe from `/billing`, card
+   `4242 4242 4242 4242`
+
+The BFF logs **"running in TEST MODE"** at startup for an `sk_test_` key, so a sandbox deployment
+can never be mistaken for one taking real money.
+
+### Decisions worth keeping
+
+**A key alone is not "configured".** `isConfigured()` needs a secret key *and* at least one price
+id. A key without prices would produce checkouts that always fail while the product reported the
+account as subscribed, so in that state the adapter reports `chargesMoney=false` and the registry
+falls back to `manual`.
+
+**Checkout never activates a subscription.** It returns a URL; the user has not paid yet.
+Activation happens on `checkout.session.completed`. Activating at click time would grant a paid
+plan to anyone who opened the tab and closed it.
+
+**The provider reference is re-pointed after checkout.** We store the Checkout *session* id (the
+subscription does not exist yet), and the completion event carries the real subscription id — so
+the row is found by what we stored and its reference replaced. Without that, every later event
+would find nothing.
+
+**Return URLs are built server-side, not taken from the caller.** A client-supplied redirect is an
+open redirect, and a payment provider bouncing a user to an attacker-named site right after they
+entered card details is about the most credible phishing hand-off there is. Only a relative path is
+accepted; `//evil.example` is rejected too.
+
+**Verified against compiled code, not only tests:** genuine signature accepted; tampered body,
+wrong secret, 10-minute-old replay, missing header, and empty secret all rejected; typo in the
+provider name falls back to `manual`.
 
 ### UI depth
 

@@ -63,6 +63,23 @@ function BillingPage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canViewBilling])
 
+  // Returning from hosted checkout. Says something either way — landing back on an unchanged page
+  // after paying reads as a failure, and after cancelling reads as an accident.
+  useEffect(() => {
+    const outcome = new URLSearchParams(window.location.search).get('checkout')
+    if (outcome === 'success') {
+      // Deliberately hedged. The subscription activates on the provider's webhook, which may not
+      // have arrived yet — claiming "you are on Pro" before it lands would be a promise the page
+      // cannot keep, and refreshing would then show the old plan.
+      setFeedback({
+        type: 'success',
+        message: 'Payment received. Your plan updates as soon as the provider confirms it — usually within a few seconds.',
+      })
+    } else if (outcome === 'cancelled') {
+      setFeedback({ type: '', message: 'Checkout cancelled. Nothing was charged.' })
+    }
+  }, [])
+
   const act = async (key, action, successMessage) => {
     setBusy(key)
     setFeedback({ type: '', message: '' })
