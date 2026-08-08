@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { MdsNote } from '../components/Mds'
 import { DEFAULT_ROUTE } from '../shell/routeManifest'
+import { PUBLIC_TIERS } from '../shell/plan'
 
 function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit, onSocialLogin, authError = '' }) {
   const navigate = useNavigate()
@@ -77,6 +78,38 @@ function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit, onSocialLogin, authE
           <span>CSV, XLS, XLSX import preview</span>
           <span>Campaign and creator control center</span>
           <span>Outreach to paid Kanban flow</span>
+        </div>
+
+        {/* The tier table (M2.3). Signed out, so there is no account to ask and the numbers come
+            from shell/plan.js — which carries a note that they must track PlanPolicy in the BFF.
+            Advertising a limit the server does not enforce is the thing to avoid here.
+
+            Prices are deliberately absent: none has been decided, and a UI file is not where that
+            commitment should get made. What each paid tier LIFTS is knowable and stated; what it
+            costs is not. */}
+        <div className="landing-tiers landing-reveal delay-5">
+          <h2 className="landing-tiers-title">Start free. Grow when the ceiling gets close.</h2>
+          <div className="landing-tier-grid">
+            {PUBLIC_TIERS.map((tier) => (
+              <article
+                key={tier.key}
+                className={`landing-tier-card${tier.key === 'free' ? ' landing-tier-card-featured' : ''}`}
+              >
+                <p className="landing-tier-name">{tier.label}</p>
+                <p className="landing-tier-tagline">{tier.tagline}</p>
+                <ul className="landing-tier-list">
+                  {tier.highlights.map((line) => (
+                    <li key={line}>{line}</li>
+                  ))}
+                </ul>
+                <p className="landing-tier-note">{tier.note}</p>
+              </article>
+            ))}
+          </div>
+          <p className="landing-tier-footnote">
+            Limits cap what you can add, never what you already have. Nothing is deleted or hidden
+            if you reach one.
+          </p>
         </div>
       </section>
 

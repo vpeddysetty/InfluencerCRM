@@ -164,6 +164,14 @@ export async function listAccountMembers(token) {
   return request('/api/brands/members', { token })
 }
 
+// The account's plan and what it has used of it (M2.3). Read live rather than taken from the
+// token: the server deliberately keeps the plan out of the JWT so an upgrade takes effect at once
+// instead of waiting for a token to expire, and the UI must not reintroduce that staleness by
+// caching it against the session.
+export async function loadPlanUsage(token) {
+  return request('/api/brands/plan', { token })
+}
+
 // ---- member invitations (roadmap Stage 3) ----
 
 // The token comes back exactly once, here. Only its hash is stored, so it cannot be read

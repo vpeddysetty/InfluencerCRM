@@ -244,6 +244,34 @@ before it is hit rather than only as a 402; `GET /tenancy/accounts/{id}` in the 
 `PATCH /tenancy/accounts/{id}` now accepts `plan`, which is where a billing integration writes an
 upgrade. **Nothing sets a plan to anything but `free` yet** — that is M2.1/M2.2.
 
+### The UI for it (same cycle)
+
+**121 UI tests, up from 107.**
+
+- **`shell/plan.js`** — all the arithmetic, in plain `.js` so the repo's bare `node --test` runner
+  can import it (same reason `provenance.js` exists). Warns at 80% of a limit: a notice at 95% of
+  a 25-creator plan arrives with one slot left, which is narration rather than warning.
+- **`PlanUsage`** in the UI kit, shown on the Members page. Unlimited renders as `4210 · unlimited`
+  and stays **neutral** — a page of green ticks devalues the one tone that should mean something.
+- **The invite form disables at the seat limit** rather than letting the request fail. The server
+  returns 402 either way, but a form that accepts an email, sends it, and *then* reports failure
+  spends the user's attention on something that could never have worked. The copy names the
+  remedy: pending invitations hold seats, so revoking one frees a seat immediately.
+- **Landing page tier table** — free / pro / agency, signed out. **No prices**, because none has
+  been decided and a UI file is not where that commitment should get made; the paid tiers say what
+  they *lift*, not what they cost, and a test fails if a `$` appears. The free tier is described by
+  its ceiling rather than a countdown, because it is capped by size and not by a clock.
+
+**The numbers on the landing page are duplicated from `PlanPolicy`** — the page is signed out, so
+there is no token and `/api/brands/plan` is unreachable. `shell/plan.js` carries a comment saying
+they must track the server, and a test asserts the shape. Advertising a limit the server does not
+enforce is the failure that guards against.
+
+**Caught by rendering the real payload, not by a test:** the at-limit message read *"You have used
+all 1 brands"* — and the free brand limit is exactly 1, so that was the common case, not an edge
+case. It also ended *"cannot add more. Upgrade to Pro to add more."* Both fixed, with a regression
+test that also covers the over-limit wording the two already-exceeding accounts will see.
+
 ### UI depth
 
 | Item | Size | Gate |

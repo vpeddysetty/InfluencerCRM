@@ -64,6 +64,7 @@ import {
   listPayoutProviders,
   listAccountMembers,
   listInvitations,
+  loadPlanUsage,
   inviteMember,
   revokeInvitation,
   updateMemberRole,
@@ -1297,6 +1298,10 @@ function App() {
   }
   const loadInvitations = async () => listInvitations(authToken)
   const inviteMemberRecord = async (payload) => inviteMember(authToken, payload)
+  // Read on each visit rather than held in session state: the server deliberately keeps the plan
+  // out of the JWT so an upgrade takes effect immediately, and caching it here would put the
+  // staleness back in a different place.
+  const loadPlan = async () => loadPlanUsage(authToken)
 
   /**
    * Redeems an invitation and refreshes the brand list.
@@ -1937,6 +1942,7 @@ function App() {
                   canManageMembers={permissions.includes('member:invite')}
                   onLoadMembers={loadMembers}
                   onLoadInvitations={loadInvitations}
+                  onLoadPlan={loadPlan}
                   onInvite={inviteMemberRecord}
                   onRevokeInvitation={revokeInvitationRecord}
                   onUpdateRole={updateMemberRoleRecord}

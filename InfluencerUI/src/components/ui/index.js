@@ -26,3 +26,4 @@ export {
   formatFetchedAt,
   isPlatformVerified,
 } from './MetricsProvenance'
+export { default as PlanUsage } from './PlanUsage'

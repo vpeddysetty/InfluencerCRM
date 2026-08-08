@@ -17,6 +17,16 @@ import { toCsv } from './api/csv.js'
 import { rangeToParams, toIsoDate } from './shell/dateRange.js'
 import { accessTokenExpiryMs, msUntilRefresh, REFRESH_LEAD_MS } from './shell/sessionExpiry.js'
 import { formatFetchedAt, isPlatformVerified } from './shell/provenance.js'
+import {
+  PUBLIC_TIERS,
+  UNLIMITED,
+  describePlan,
+  describeUsage,
+  formatUsage,
+  pressuredResources,
+  usageMessage,
+  usageTone,
+} from './shell/plan.js'
 
 // ── P3: confidence survives the agent → UI transform ────────────────────────
 
@@ -1169,4 +1179,150 @@ test('the record page never shows zeroed metrics for an unmeasured creator', () 
   const page = read('pages/CreatorRecordPage.jsx')
 
   assert.match(page, /creator\.followerCount !== null && creator\.followerCount !== undefined/)
+})
+
+// ── M2.3: plan limits are visible before they are hit ───────────────────────
+
+test('an account at its limit is full, matching the server', () => {
+  // >= not >, the same off-by-one PlanPolicyTest guards on the server. If these disagree the UI
+  // shows "24 of 25, room to spare" on the very request that gets refused with a 402.
+  assert.equal(describeUsage({ resource: 'creator', used: 24, limit: 25 }).atLimit, false)
+  assert.equal(describeUsage({ resource: 'creator', used: 25, limit: 25 }).atLimit, true)
+  assert.equal(describeUsage({ resource: 'creator', used: 26, limit: 25 }).atLimit, true)
+})
+
+test('unlimited is never rendered as a number that looks like a cap', () => {
+  // The server sends -1. Formatting it literally would put "5 of -1" on screen; treating it as a
+  // large number would invent a ceiling the account does not have.
+  const usage = describeUsage({ resource: 'creator', label: 'creators', used: 5, limit: UNLIMITED })
+
+  assert.equal(usage.unlimited, true)
+  assert.equal(usage.atLimit, false)
+  assert.equal(usage.ratio, null, 'ratio must be null, not 0 — an unlimited row is not an empty one')
+  assert.match(formatUsage(usage), /unlimited/)
+})
+
+test('a near-limit resource warns while there is still room to act', () => {
+  // 80%: a notice at 95% of a 25-creator plan arrives with one slot left, which is narration
+  // rather than warning.
+  assert.equal(describeUsage({ resource: 'creator', used: 19, limit: 25 }).nearLimit, false)
+  assert.equal(describeUsage({ resource: 'creator', used: 20, limit: 25 }).nearLimit, true)
+  // At the limit the stronger message takes over — "running low" is the wrong tense.
+  assert.equal(describeUsage({ resource: 'creator', used: 25, limit: 25 }).nearLimit, false)
+})
+
+test('tones escalate, and unlimited stays neutral', () => {
+  // Unlimited is a fact about the plan, not good news about this account. A page of green ticks
+  // devalues the one tone that should mean something.
+  assert.equal(usageTone(describeUsage({ used: 1, limit: 25 })), 'neutral')
+  assert.equal(usageTone(describeUsage({ used: 20, limit: 25 })), 'warning')
+  assert.equal(usageTone(describeUsage({ used: 25, limit: 25 })), 'danger')
+  assert.equal(usageTone(describeUsage({ used: 9999, limit: UNLIMITED })), 'neutral')
+})
+
+test('only rows worth commenting on get a message', () => {
+  // A note on every row is noise, and noise is what makes the row that matters invisible.
+  assert.equal(usageMessage(describeUsage({ used: 2, limit: 25 }), 'free'), null)
+  assert.ok(usageMessage(describeUsage({ used: 21, limit: 25, label: 'creators' }), 'free'))
+})
+
+test('the at-limit message says existing data is safe and names the upgrade', () => {
+  // The fear on hitting a cap is that something gets deleted. The server guarantees it does not,
+  // so the UI must say so in the same breath rather than leaving it to be inferred.
+  const message = usageMessage(describeUsage({ used: 25, limit: 25, label: 'creators' }), 'free')
+
+  assert.match(message, /Existing creators are unaffected/)
+  assert.match(message, /Pro/, 'it must name the tier that fixes it')
+  assert.match(message, /cannot add more/)
+})
+
+test('the at-limit message reads as a sentence at every count', () => {
+  // Caught by rendering the real payload rather than by a test: the free tier's brand limit is 1,
+  // so "all 1 brands" was the common case, not an edge case. And the message ended with "cannot
+  // add more. Upgrade to Pro to add more." — the same clause twice.
+  const oneBrand = usageMessage(describeUsage({ used: 1, limit: 1, label: 'brands' }), 'free')
+  assert.match(oneBrand, /includes 1 brand and/)
+  assert.doesNotMatch(oneBrand, /1 brands/, 'a limit of 1 must not be pluralised')
+  assert.doesNotMatch(oneBrand, /add more\..*add more/, 'the remedy must not be stated twice')
+
+  // Over-limit is reachable with no downgrade at all — introducing a limit above accounts that
+  // already exceed it is exactly what shipping M2.3 did to two live accounts. Telling them they
+  // have "used them all" when they are past the cap would be wrong.
+  const overLimit = usageMessage(describeUsage({ used: 6, limit: 3, label: 'team members' }), 'free')
+  assert.match(overLimit, /you have 6/)
+  assert.doesNotMatch(overLimit, /used them all/)
+})
+
+test('the upgrade suggested points upward and stops at agency', () => {
+  // Suggesting "upgrade to Pro" to a Pro account, or anything at all to an unlimited one, reads
+  // as a broken funnel.
+  assert.equal(describePlan('free').nextTier, 'Pro')
+  assert.equal(describePlan('pro').nextTier, 'Agency')
+  assert.equal(describePlan('agency').nextTier, null)
+})
+
+test('an unknown plan renders readably rather than blank', () => {
+  // The server falls back to the free LIMITS for an unrecognised plan, but it echoes the resolved
+  // key. A blank heading where the plan name goes would look broken.
+  assert.equal(describePlan('').label, 'Free')
+  assert.equal(describePlan(null).label, 'Free')
+  assert.equal(describePlan('enterprise').label, 'Enterprise')
+})
+
+test('pressured resources come back most urgent first', () => {
+  // What a banner should lead with. At-limit outranks near-limit regardless of ratio.
+  const rows = pressuredResources([
+    { resource: 'creator', used: 21, limit: 25 },
+    { resource: 'brand', used: 1, limit: 1 },
+    { resource: 'page', used: 1, limit: 25 },
+  ])
+
+  assert.equal(rows.length, 2, 'the comfortable resource is not mentioned')
+  assert.equal(rows[0].resource, 'brand', 'at-limit leads')
+})
+
+test('the public tier table matches the limits the server enforces', () => {
+  // These numbers are duplicated from PlanPolicy because the landing page is signed out and has
+  // no account to ask. Advertising a limit the server does not enforce is the failure this guards.
+  const free = PUBLIC_TIERS.find((tier) => tier.key === 'free')
+  const pro = PUBLIC_TIERS.find((tier) => tier.key === 'pro')
+  const agency = PUBLIC_TIERS.find((tier) => tier.key === 'agency')
+
+  assert.ok(free.highlights.some((line) => line.includes('25 creators')))
+  assert.ok(free.highlights.some((line) => line.includes('3 team members')))
+  assert.ok(free.highlights.some((line) => line.includes('1 brand')))
+  assert.ok(pro.highlights.some((line) => line.includes('250 creators')))
+  assert.ok(agency.highlights.some((line) => line.includes('Unlimited brands')))
+})
+
+test('the landing page states no price, because none has been decided', () => {
+  // A UI file is not where a pricing commitment should get made. The paid tiers say what they
+  // lift, not what they cost — if this fails, someone invented a number.
+  const page = read('pages/LandingPage.jsx')
+  const tiers = read('shell/plan.js')
+
+  assert.doesNotMatch(page, /\$\d/, 'no price may appear in the landing markup')
+  assert.doesNotMatch(tiers, /\$\d/, 'no price may appear in the tier table')
+  assert.ok(PUBLIC_TIERS.filter((t) => t.key !== 'free')
+    .every((tier) => /not published/i.test(tier.note)))
+})
+
+test('the free tier is described by its ceiling, not by a countdown', () => {
+  // It is capped by size, not by a clock. Implying a trial that expires would be false, and the
+  // kind of false that gets noticed on day 15.
+  const free = PUBLIC_TIERS.find((tier) => tier.key === 'free')
+
+  assert.match(free.note, /no time limit/i)
+  assert.doesNotMatch(free.note, /trial|\bdays?\b/i)
+})
+
+test('the invite form closes at the seat limit instead of failing', () => {
+  // The server returns 402 either way, but a form that accepts an email, sends it, and then
+  // reports failure wastes attention on a request that could never have succeeded.
+  const page = read('pages/MembersPage.jsx')
+
+  assert.match(page, /atMemberLimit/)
+  assert.match(page, /disabled=\{busyId === 'invite' \|\| atMemberLimit\}/)
+  // Pending invitations hold seats, so revoking is the immediate remedy and the copy says so.
+  assert.match(page, /revoking one below frees a seat/)
 })

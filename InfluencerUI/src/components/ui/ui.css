@@ -1018,6 +1018,59 @@
   .workspace-main { padding: var(--space-4); }
 }
 
+/* ── Plan and usage (M2.3) ────────────────────────────────────────────────
+   Sunken, like the audience panel: this is context about the account, not
+   another thing to act on. Every colour is a theme variable rather than a
+   literal, so the panel follows the theme toggle instead of staying light. */
+.plan-usage {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+}
+
+.plan-usage-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.plan-usage-name { color: var(--fg); }
+
+.plan-usage-list {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Auto-fit rather than fixed columns: four resources sit in a row on a wide
+   screen and stack on a narrow one without a second breakpoint. */
+.plan-usage-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+
+.plan-usage-label {
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  text-transform: capitalize;
+}
+
+/* The explanatory line spans both columns so it wraps under the badge rather
+   than squeezing the label into a narrow ribbon. */
+.plan-usage-message {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
 /* ── Tablet: the board and dense tables ───────────────────────────────── */
 @media (max-width: 1024px) {
   .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { MdsKicker, MdsSectionRule, MdsNote } from '../components/Mds'
-import { ConfirmDialog } from '../components/ui'
+import { ConfirmDialog, PlanUsage } from '../components/ui'
+import { describeUsage } from '../shell/plan'
 
 // OWNER is absent on purpose. Ownership carries billing and the right to delete the account,
 // so transferring it should be a deliberate, separately-confirmed act rather than a dropdown
@@ -30,6 +31,7 @@ function MembersPage({
   canManageMembers = false,
   onLoadMembers,
   onLoadInvitations,
+  onLoadPlan,
   onInvite,
   onRevokeInvitation,
   onUpdateRole,
@@ -37,6 +39,8 @@ function MembersPage({
 }) {
   const [members, setMembers] = useState([])
   const [invitations, setInvitations] = useState([])
+  const [plan, setPlan] = useState(null)
+  const [planError, setPlanError] = useState(false)
   const [loading, setLoading] = useState(true)
   const [busyId, setBusyId] = useState('')
   const [feedback, setFeedback] = useState({ type: '', message: '' })
@@ -54,12 +58,18 @@ function MembersPage({
   const refresh = async () => {
     setLoading(true)
     try {
-      const [memberRows, inviteRows] = await Promise.all([
+      // The plan read is allowed to fail on its own. Members are the point of this page, and
+      // losing the whole list because a secondary panel could not load would be the worse
+      // outcome — the server enforces the limits either way.
+      const [memberRows, inviteRows, planPayload] = await Promise.all([
         onLoadMembers(),
         onLoadInvitations().catch(() => []),
+        onLoadPlan ? onLoadPlan().catch(() => null) : Promise.resolve(null),
       ])
       setMembers(Array.isArray(memberRows) ? memberRows : [])
       setInvitations(Array.isArray(inviteRows) ? inviteRows : [])
+      setPlan(planPayload)
+      setPlanError(Boolean(onLoadPlan) && !planPayload)
     } catch (error) {
       setFeedback({ type: 'error', message: error?.message || 'Unable to load members.' })
     } finally {
@@ -152,6 +162,14 @@ function MembersPage({
 
   const pending = invitations.filter((row) => row.status === 'pending')
 
+  // The member row from the plan payload, if it loaded. The server counts pending invitations
+  // against this limit too — an invitation is a seat already committed — so the count shown here
+  // and the one enforced agree without the page having to add them up itself.
+  const memberUsage = plan?.usage
+    ? plan.usage.map(describeUsage).find((row) => row.resource === 'member')
+    : null
+  const atMemberLimit = Boolean(memberUsage?.atLimit)
+
   if (!canManageMembers) {
     return (
       <section className="page-section">
@@ -179,6 +197,10 @@ function MembersPage({
 
       <MdsSectionRule />
 
+      <PlanUsage plan={plan?.plan} usage={plan?.usage} loading={loading} error={planError} />
+
+      <MdsSectionRule />
+
       <form className="inline-form members-invite-form" onSubmit={invite}>
         <label>
           <span className="auth-label">Email</span>
@@ -186,22 +208,34 @@ function MembersPage({
             type="email"
             value={email}
             placeholder="teammate@agency.com"
+            disabled={atMemberLimit}
             onChange={(event) => setEmail(event.target.value)}
           />
         </label>
         <label>
           <span className="auth-label">Role</span>
-          <select value={role} onChange={(event) => setRole(event.target.value)}>
+          <select
+            value={role}
+            disabled={atMemberLimit}
+            onChange={(event) => setRole(event.target.value)}
+          >
             {INVITABLE_ROLES.map((option) => (
               <option key={option.value} value={option.value}>{option.label}</option>
             ))}
           </select>
         </label>
-        <button type="submit" className="primary-btn" disabled={busyId === 'invite'}>
+        {/* Disabled at the limit rather than left to fail: the server returns 402 either way, but
+            a form that accepts an email, sends it, and then reports failure wastes the user's
+            attention on a request that could never have succeeded. */}
+        <button type="submit" className="primary-btn" disabled={busyId === 'invite' || atMemberLimit}>
           {busyId === 'invite' ? 'Inviting…' : 'Send invitation'}
         </button>
       </form>
-      <p className="helper">{INVITABLE_ROLES.find((r) => r.value === role)?.hint}</p>
+      <p className="helper">
+        {atMemberLimit
+          ? 'Your plan has no seats left. Pending invitations count as seats, so revoking one below frees a seat immediately.'
+          : INVITABLE_ROLES.find((r) => r.value === role)?.hint}
+      </p>
 
       {issuedToken ? (
         <MdsNote className="members-token-note">
