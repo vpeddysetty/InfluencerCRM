@@ -111,6 +111,37 @@
   max-width: 54ch;
 }
 
+/* The product shot. Bled to the full text column and cropped at the bottom so it reads
+   as a window onto a larger board rather than a small framed picture — the board scrolls
+   in the real app too. */
+.landing-shot {
+  margin: 24px 0 0;
+  border-radius: 14px;
+  border: 1px solid rgba(186, 230, 253, 0.34);
+  background: rgba(8, 47, 73, 0.32);
+  padding: 10px 10px 0;
+  box-shadow: 0 18px 34px rgba(6, 39, 61, 0.3);
+  overflow: hidden;
+}
+
+.landing-shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 8px 8px 0 0;
+  /* Crops the empty lower half of the columns; the top of the board is the part that
+     carries the information. */
+  max-height: 218px;
+  object-fit: cover;
+  object-position: top center;
+}
+
+.landing-shot figcaption {
+  padding: 8px 2px 10px;
+  color: var(--hero-fg-subtle);
+  font-size: 0.78rem;
+}
+
 .landing-stat-grid {
   margin-top: 22px;
   display: grid;
@@ -2325,6 +2356,14 @@ textarea:focus {
 }
 
 @media (max-width: 1160px) {
+  /* Below roughly this width the hero column is narrow enough that seven scaled-down
+     columns stop resolving — measured at 0.28 of source at 950px, where the stage names
+     degrade into noise and the shot becomes a dark band with a caption rather than
+     evidence. The three cards below make the same point in text. */
+  .landing-shot {
+    display: none;
+  }
+
   /* Deliberately NOT 1fr. Stacking these three made the hero taller at exactly the
      width where vertical space starts to matter; 2-up keeps the hero compact and the
      third card wraps under. */

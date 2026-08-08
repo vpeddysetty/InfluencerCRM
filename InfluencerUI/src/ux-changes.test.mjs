@@ -1593,3 +1593,19 @@ test('the workspace copy avoids internal vocabulary', () => {
   assert.doesNotMatch(heading, /tejdux\.io/)
   assert.match(heading, /Create your workspace/)
 })
+
+test('the hero shows the product, and only where it is legible', () => {
+  // A visible product UI is table stakes in this category; its absence reads as an immature
+  // product. But seven stage columns scaled below roughly 0.3 of source stop resolving, so
+  // the shot is hidden rather than shipped as a dark band with a caption.
+  const page = read('pages/LandingPage.jsx')
+  const css = read('App.css')
+
+  assert.match(page, /marketing\/workflow-board\.png/)
+  assert.match(page, /<figcaption>/, 'the caption carries the meaning for assistive tech')
+  assert.match(page, /alt=""/, 'decorative: the caption already says what it is')
+  assert.match(page, /loading="lazy"/)
+
+  const narrow = css.slice(css.indexOf('@media (max-width: 1160px)'), css.indexOf('@media (max-width: 900px)'))
+  assert.match(narrow, /\.landing-shot\s*\{\s*display:\s*none/)
+})

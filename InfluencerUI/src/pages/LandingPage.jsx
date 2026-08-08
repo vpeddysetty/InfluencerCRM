@@ -69,6 +69,25 @@ function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit, onSocialLogin, authE
           creators — no card, no time limit.
         </p>
 
+        {/* A visible product UI is table stakes for this category — GRIN, Modash and Klaviyo all
+            show theirs above the fold, and its absence reads as an immature product. This is the
+            workflow board with a representative pipeline on it: the same seven stages a new
+            account is seeded with (constants.js DEFAULT_BOARD_STAGES), which is also the span the
+            headline promises. Decorative only, hence the empty alt — the caption below carries
+            the meaning, so a screen reader is not made to sit through a description of a picture
+            of a board it can visit for real after signing in. */}
+        <figure className="landing-shot landing-reveal delay-4">
+          <img
+            src="/marketing/workflow-board.png"
+            alt=""
+            width="1240"
+            height="348"
+            loading="lazy"
+            decoding="async"
+          />
+          <figcaption>The workflow board — every creator relationship, stage by stage.</figcaption>
+        </figure>
+
         {/* The stat cards here used to read 5x / 1 / 0. "1" and "0" are rhetorical devices
             wearing the costume of metrics, and they sat in the largest type on the page while
             the real, enforced numbers (25 creators, 3 members) were bullets further down. These
