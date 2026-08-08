@@ -1609,3 +1609,195 @@ test('the hero shows the product, and only where it is legible', () => {
   const narrow = css.slice(css.indexOf('@media (max-width: 1160px)'), css.indexOf('@media (max-width: 900px)'))
   assert.match(narrow, /\.landing-shot\s*\{\s*display:\s*none/)
 })
+
+// ── A hard reload no longer leaves a workspace with no token ─────────────────
+//
+// isLoggedIn was persisted to localStorage while the access and refresh tokens deliberately were
+// not. On reload the shell rebuilt itself in its signed-in state with nothing to authenticate
+// with, so every request went out bare and the user got a workspace full of error banners rather
+// than a login screen. The claim and the proof came from sources that could not agree.
+
+test('isLoggedIn is not restored from the persisted snapshot', () => {
+  const app = read('App.jsx')
+
+  // The one that mattered: this flag alone gates the entire workspace branch of the router.
+  assert.match(
+    app,
+    /const \[isLoggedIn, setIsLoggedIn\] = useState\(false\)/,
+    'isLoggedIn must start false — a snapshot that cannot carry the token must not carry the claim',
+  )
+  assert.doesNotMatch(
+    app,
+    /useState\(persistedState\?\.isLoggedIn/,
+    'restoring isLoggedIn is exactly the bug',
+  )
+})
+
+test('isLoggedIn is not written to the snapshot either', () => {
+  // Writing a value nothing reads back would leave a stale `true` in storage that still reads as
+  // authoritative to anyone inspecting it.
+  const app = read('App.jsx')
+  const opensAt = app.indexOf('const snapshot = {')
+  // Anchored forward from the opening brace: `window.localStorage.setItem` also appears earlier,
+  // in loadPersistedState, and searching from zero slices backwards to an empty string that
+  // passes every doesNotMatch below for the wrong reason.
+  const snapshot = app.slice(opensAt, app.indexOf('window.localStorage.setItem', opensAt))
+  assert.ok(snapshot.length > 100, 'the snapshot block must actually be found')
+
+  assert.doesNotMatch(snapshot, /^\s*isLoggedIn,$/m)
+  // Display state is still restored — that is what lets a re-login land back in place.
+  assert.match(snapshot, /brandName,/)
+  assert.match(snapshot, /campaigns,/)
+})
+
+test('tokens are still never persisted', () => {
+  // The property the above depends on. If tokens ever start being written, the reasoning for
+  // dropping isLoggedIn changes and this pairing should be revisited deliberately.
+  const app = read('App.jsx')
+
+  assert.match(app, /const \[authToken, setAuthToken\] = useState\(''\)/)
+  assert.match(app, /const \[refreshToken, setRefreshToken\] = useState\(''\)/)
+})
+
+test('establishSession is the only path that starts a session', () => {
+  // It existed, set every field correctly, and had zero call sites, while handleAuthSubmit
+  // carried a near-identical copy. Two of these is how they drifted.
+  const app = read('App.jsx')
+
+  assert.match(app, /const establishSession = \(authResponse, overrides = \{\}\) =>/)
+  assert.match(app, /establishSession\(authResponse, \{ userName: name/, 'the auth form must use it')
+
+  const submit = app.slice(app.indexOf('const handleAuthSubmit'), app.indexOf('// Captures the active brand'))
+  assert.doesNotMatch(submit, /setIsLoggedIn\(true\)/, 'the copy inside handleAuthSubmit must be gone')
+  assert.doesNotMatch(submit, /setRefreshToken\(authResponse/, 'token handling belongs in one place')
+})
+
+test('establishSession sets the token before flipping isLoggedIn', () => {
+  // The workspace-loading effect keys on both. Flipping isLoggedIn first would give it one
+  // render with a stale token and fire a batch of doomed requests.
+  const app = read('App.jsx')
+  const body = app.slice(app.indexOf('const establishSession'))
+  const fn = body.slice(0, body.indexOf('\n  }'))
+
+  assert.ok(
+    fn.indexOf('setAuthToken(') < fn.indexOf('setIsLoggedIn(true)'),
+    'the token must be in place before the workspace is allowed to render',
+  )
+  // Every sign-in path runs through here, so this is what keeps a returning user's events from
+  // arriving anonymous — the exact population week-two retention is measured over.
+  assert.match(fn, /identify\(\{/, 'identify must run on every session start')
+})
+
+// ── Step 1: the SPA asks the DPS whether a session already exists ────────────
+//
+// The DPS sets an httpOnly cookie at sign-in and, at the end of the OAuth flow, redirects to "/"
+// specifically so the SPA's first /dps/session call sees an authenticated user. Nothing was making
+// that call, so a reload and a social sign-in both landed signed-out despite a valid session.
+
+test('the app asks the DPS for an existing session at boot', () => {
+  const app = read('App.jsx')
+
+  assert.match(app, /fetchDpsSession\(DPS_BASE_URL\)/, 'boot must query /dps/session')
+  assert.match(app, /useCookieSession\(DPS_BASE_URL\)/, 'a restored session must switch transport')
+})
+
+test('the restore runs once and cannot re-enter', () => {
+  // A dependency on anything the restore itself sets would re-restore over a live session.
+  const app = read('App.jsx')
+  const at = app.indexOf('const restore = async () =>')
+  assert.ok(at > -1, 'the restore effect must exist')
+
+  const effectTail = app.slice(at, at + 1400)
+  assert.match(effectTail, /\}, \[\]\)/, 'the restore effect must have an empty dependency array')
+})
+
+test('transport switches to cookie mode before the session is marked live', () => {
+  // establishSession flips isLoggedIn, which releases the workspace-loading effect. Switching
+  // after that would fire one round of requests down the bearer path with no token to send.
+  const app = read('App.jsx')
+  const body = app.slice(app.indexOf('const restore = async () =>'))
+  const fn = body.slice(0, body.indexOf('restore()'))
+
+  assert.ok(
+    fn.indexOf('useCookieSession(') < fn.indexOf('establishSession('),
+    'cookie mode must be set before establishSession',
+  )
+})
+
+test('cookie mode proxies through the DPS and sends the CSRF header', () => {
+  const core = read('api/core.js')
+
+  assert.match(core, /\$\{dpsBaseUrl\}\/dps\/api/, 'proxied calls go to /dps/api')
+  assert.match(core, /credentials: 'include'/, 'the session cookie must be sent')
+  assert.match(core, /X-XSRF-TOKEN/, 'double-submit CSRF token must be attached')
+})
+
+test('auth endpoints are never proxied', () => {
+  // /api/auth/refresh rotates a token the browser is not holding, and login/signup are how a
+  // session begins — none can travel through a session that does not exist yet.
+  const core = read('api/core.js')
+
+  assert.match(core, /!path\.startsWith\('\/api\/auth\/'\)/)
+})
+
+test('a bearer session is unaffected by cookie mode existing', () => {
+  // Password sign-in still gets a token directly and must keep using it.
+  const core = read('api/core.js')
+
+  assert.match(core, /const proxied = cookieMode && !token/, 'a token always wins over cookie mode')
+  assert.match(core, /let cookieMode = false/, 'cookie mode must be off by default')
+})
+
+test('permissions fall back to the DPS session when there is no token', () => {
+  // Both sources trace to the same token: the DPS reads perms out of it rather than recomputing,
+  // deliberately, because two permission matrices disagreeing once locked FINANCE users out.
+  const app = read('App.jsx')
+
+  assert.match(app, /authToken \? readPermissionsFromToken\(authToken\) : cookiePermissions/)
+})
+
+test('logout ends the DPS session rather than only the local one', () => {
+  // Clearing local state alone would leave the session alive server-side, and the next boot would
+  // silently restore the person who just signed out.
+  const app = read('App.jsx')
+  const handler = app.slice(app.indexOf('const handleLogout'), app.indexOf('const handleSessionRetry'))
+
+  assert.match(handler, /dps\/auth\/logout/, 'the DPS session must be ended')
+  assert.match(handler, /clearCookieSession\(\)/, 'transport must return to bearer mode')
+})
+
+test('the first paint waits for the session answer, except for invitations', () => {
+  // Otherwise the login page renders and is replaced by the workspace — a sign-in flashing past
+  // on every reload. An invitee has no session and came for that one page, so they do not wait.
+  const app = read('App.jsx')
+
+  assert.match(app, /if \(restoringSession && window\.location\.pathname !== '\/accept-invitation'\)/)
+  assert.match(app, /Restoring your session/)
+})
+
+test('an unreachable DPS resolves to anonymous rather than throwing', () => {
+  // On a first visit "no session" is the normal answer, and a network failure means we do not know
+  // of one — both should land on the login page, not a console error or a broken shell.
+  const core = read('api/core.js')
+  const fn = core.slice(core.indexOf('export async function fetchDpsSession'))
+
+  assert.match(fn.slice(0, fn.indexOf('\n}')), /catch \{\s*return \{ authenticated: false \}/)
+})
+
+test('the DPS logout carries a CSRF token', () => {
+  // Found by running it, not by a test: without the header the DPS answers 403, the session
+  // survives, and the user is told they signed out while the cookie stays valid — so the next
+  // boot silently restores them. Verified live: 403 without, 204 with.
+  const app = read('App.jsx')
+  const handler = app.slice(app.indexOf('const handleLogout'), app.indexOf('const handleSessionRetry'))
+
+  assert.match(handler, /headers: dpsCsrfHeaders\(\)/, 'logout must send X-XSRF-TOKEN')
+})
+
+test('one implementation reads the CSRF cookie', () => {
+  const core = read('api/core.js')
+  const occurrences = core.match(/document\.cookie\.match/g) || []
+
+  assert.equal(occurrences.length, 1, 'a second copy would be the one that drifts')
+  assert.match(core, /export function dpsCsrfHeaders/)
+})

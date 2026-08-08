@@ -18,6 +18,56 @@ export function unwrapList(payload) {
 // payload so that one place decides it and no individual call site can pick another.
 let activeBrandId = ''
 
+/**
+ * Cookie-session mode: send requests through the DPS proxy instead of straight to the BFF.
+ *
+ * <p>Turned on when the app boots into a session it restored from the DPS cookie rather than one it
+ * holds a token for. The proxy at {@code /dps/api/**} forwards to {@code /api/**} and attaches the
+ * bearer token and the tenancy header server-side — the same two things buildHeaders does here —
+ * so a call is identical from the caller's side either way. That equivalence is what lets this be
+ * a transport switch in one function rather than a change at all 90-odd call sites.
+ *
+ * <p>Off by default. A password sign-in still returns a token directly to the SPA, and that path is
+ * untouched; this only carries the sessions where the browser was never given a token to hold.
+ */
+let cookieMode = false
+let dpsBaseUrl = ''
+
+export function useCookieSession(baseUrl) {
+  cookieMode = true
+  dpsBaseUrl = baseUrl || ''
+}
+
+export function clearCookieSession() {
+  cookieMode = false
+  dpsBaseUrl = ''
+}
+
+export function isCookieSession() {
+  return cookieMode
+}
+
+/** Reads a non-httpOnly cookie. Only ever used for the CSRF token, which is readable by design. */
+function readCookie(name) {
+  const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`))
+  return match ? decodeURIComponent(match[1]) : null
+}
+
+/**
+ * Headers for a direct (non-proxied) call to the DPS, carrying the double-submit CSRF token.
+ *
+ * <p>Exported because logout is a state-changing DPS call made outside `request()`. Without the
+ * header the DPS answers 403 and the session survives — so the user is told they signed out while
+ * the cookie stays valid and the next boot restores them. Verified against the live DPS: the same
+ * call returns 403 without this and 204 with it.
+ */
+export function dpsCsrfHeaders(extra = {}) {
+  const headers = { ...extra }
+  const csrf = readCookie('XSRF-TOKEN')
+  if (csrf) headers['X-XSRF-TOKEN'] = csrf
+  return headers
+}
+
 export function setActiveBrandId(brandId) {
   activeBrandId = brandId || ''
 }
@@ -111,23 +161,44 @@ export async function request(
   path,
   { method = 'GET', token, body, headers, isFormData = false, skipRefresh = false } = {},
 ) {
-  const send = (bearer) =>
-    fetch(path, {
-      method,
-      headers: buildHeaders(
-        bearer,
-        isFormData ? headers : { 'Content-Type': 'application/json', ...headers },
-      ),
-      body: body == null ? undefined : isFormData ? body : JSON.stringify(body),
-    })
+  const extraHeaders = isFormData ? headers : { 'Content-Type': 'application/json', ...headers }
+  const payload = body == null ? undefined : isFormData ? body : JSON.stringify(body)
+
+  // Cookie mode routes through the DPS proxy, which supplies the credential this client does not
+  // have. Auth endpoints are excluded: /api/auth/refresh rotates a token the browser is not
+  // holding, and login/signup are how a session begins, so neither can be proxied through a
+  // session that does not exist yet.
+  const proxied = cookieMode && !token && !path.startsWith('/api/auth/')
+
+  const send = (bearer) => {
+    if (proxied) {
+      // Double-submit CSRF: the cookie rides along automatically, so possession of this token —
+      // readable only by same-origin script — is what proves the request was not forged.
+      return fetch(`${dpsBaseUrl}/dps/api${path.startsWith('/api') ? path.slice(4) : path}`, {
+        method,
+        headers: dpsCsrfHeaders(extraHeaders),
+        credentials: 'include',
+        body: payload,
+      })
+    }
+
+    return fetch(path, { method, headers: buildHeaders(bearer, extraHeaders), body: payload })
+  }
 
   let response = await send(token)
 
+  // Only the bearer path retries here. In cookie mode the DPS refreshes its own tokens
+  // server-side (findRefreshed), so a 401 back from the proxy means the session itself is gone —
+  // retrying would just ask the same dead session twice.
   if (response.status === 401 && token && !skipRefresh) {
     const newToken = await refreshAccessToken()
     if (newToken) {
       response = await send(newToken)
     }
+  }
+
+  if (response.status === 401 && proxied && sessionExpiredHandler) {
+    sessionExpiredHandler()
   }
 
   return readResponse(response)
@@ -242,6 +313,36 @@ export async function removeMember(token, userId) {
 
 export async function refreshSession(refreshToken) {
   return request('/api/auth/refresh', { method: 'POST', body: { refreshToken }, skipRefresh: true })
+}
+
+/**
+ * Asks the DPS whether this browser already has a session.
+ *
+ * <p>Called once at boot. The DPS sets an httpOnly cookie at sign-in — including at the end of the
+ * OAuth flow, which redirects here with the cookie already set — so this is the only way the SPA
+ * can discover a session it was never handed a token for.
+ *
+ * <p>Returns `{ authenticated: false }` rather than throwing when there is no session: on a first
+ * visit that is the normal answer, and treating it as an error would put a failure in the console
+ * on every anonymous page load. A network failure resolves the same way, because the honest
+ * fallback when the DPS cannot be reached is "we do not know of a session", which lands the user
+ * on the login page rather than a shell that cannot load anything.
+ */
+export async function fetchDpsSession(baseUrl) {
+  try {
+    const response = await fetch(`${baseUrl}/dps/session`, {
+      method: 'GET',
+      credentials: 'include',
+      headers: { Accept: 'application/json' },
+    })
+    if (!response.ok) {
+      return { authenticated: false }
+    }
+    const text = await response.text()
+    return text ? JSON.parse(text) : { authenticated: false }
+  } catch {
+    return { authenticated: false }
+  }
 }
 
 

@@ -91,6 +91,11 @@ import {
   previewImportBatch,
   logout,
   refreshSession,
+  fetchDpsSession,
+  dpsCsrfHeaders,
+  useCookieSession,
+  clearCookieSession,
+  isCookieSession,
   setAuthHandlers,
   setActiveBrandId,
   listBrands,
@@ -353,13 +358,32 @@ function App() {
   const defaultCreatorId = initialCreators[0]?.id || ''
 
   const [isSignUp, setIsSignUp] = useState(persistedState?.isSignUp ?? true)
-  const [isLoggedIn, setIsLoggedIn] = useState(persistedState?.isLoggedIn ?? false)
+  /**
+   * Never restored from the snapshot, for the same reason the tokens below are not.
+   *
+   * <p>This flag alone gates the entire workspace, and it *was* persisted while the credentials
+   * deliberately were not. A reload therefore rebuilt the shell in its signed-in state with no
+   * token to call anything: every request went out unauthenticated and the user got a workspace
+   * of error banners rather than a login screen. Restoring "you are logged in" from a source that
+   * cannot also restore "here is your proof" is what made the two disagree.
+   *
+   * <p>The snapshot's other fields — brand, role, cached rows — stay restored. They are display
+   * state, harmless without a token, and keeping them is what lets a re-login land back in place.
+   */
+  const [isLoggedIn, setIsLoggedIn] = useState(false)
   const [brandName, setBrandName] = useState(persistedState?.brandName ?? 'tejdux.io')
   const [userName, setUserName] = useState(persistedState?.userName ?? '')
   // Never seeded from persisted state: tokens are no longer written to localStorage, and an
   // older snapshot that still carries one must not be a way to resurrect it.
   const [authToken, setAuthToken] = useState('')
   const [refreshToken, setRefreshToken] = useState('')
+  // Populated only when the session was restored from the DPS cookie, where there is no token to
+  // read them out of. Empty in bearer mode, which is why `permissions` prefers the token.
+  const [cookiePermissions, setCookiePermissions] = useState([])
+  // Blocks the first paint until the DPS has been asked whether a session exists. Without it the
+  // login page renders for a moment before being replaced by the workspace, which reads as a
+  // sign-in flashing past on every reload.
+  const [restoringSession, setRestoringSession] = useState(true)
   const [userId, setUserId] = useState(persistedState?.userId ?? '')
   // Active brand plus the set the user may switch to. Solo accounts have exactly one entry,
   // which is why the switcher can be hidden without needing a separate code path.
@@ -367,9 +391,19 @@ function App() {
   const [accountId, setAccountId] = useState(persistedState?.accountId ?? '')
   const [role, setRole] = useState(persistedState?.role ?? '')
   const [availableBrands, setAvailableBrands] = useState(persistedState?.availableBrands ?? [])
-  // Derived from the token rather than stored, so it can never drift out of step with the
-  // credential the server will actually evaluate.
-  const permissions = readPermissionsFromToken(authToken)
+  /**
+   * Permissions for rendering decisions.
+   *
+   * <p>From the token when the SPA holds one, so it cannot drift from the credential the server
+   * will actually evaluate. In cookie mode there is no token to read, so they come from the
+   * session the DPS returned — which the DPS itself read out of that same token
+   * (`UiSessionService.readPermissions`) rather than recomputing. Both paths therefore trace back
+   * to one authority; the DPS deliberately does not implement its own permission matrix, because
+   * two implementations disagreeing is what once locked FINANCE users out entirely.
+   *
+   * <p>Either way this only decides what to offer. The server re-checks every call.
+   */
+  const permissions = authToken ? readPermissionsFromToken(authToken) : cookiePermissions
   const [authError, setAuthError] = useState('')
   // Shown when a token could not be renewed silently. Held as state rather than handled inside
   // the API layer so the workspace stays mounted underneath — the user keeps their place, and
@@ -484,13 +518,62 @@ function App() {
     })
   }
 
+  /**
+   * Ask the DPS once, at boot, whether this browser already has a session.
+   *
+   * <p>This is the missing half of two flows. A hard reload drops the in-memory token but not the
+   * httpOnly cookie, and the OAuth flow lands here with that cookie already set by
+   * `/dps/auth/oauth/complete` — which redirects to `/` specifically so that "its first
+   * /dps/session call already sees an authenticated user". Nothing was making that call.
+   *
+   * <p>Runs exactly once. A dependency on anything the restore itself sets would re-enter this on
+   * every session change and re-restore over a live session.
+   */
+  useEffect(() => {
+    let isActive = true
+
+    const restore = async () => {
+      try {
+        const session = await fetchDpsSession(DPS_BASE_URL)
+        if (!isActive || !session?.authenticated) {
+          return
+        }
+
+        // Order matters: the transport has to be in cookie mode before establishSession flips
+        // isLoggedIn, or the workspace effect fires one round of requests down the bearer path
+        // with no token to send.
+        useCookieSession(DPS_BASE_URL)
+        setCookiePermissions(Array.isArray(session.permissions) ? session.permissions : [])
+        if (Array.isArray(session.availableBrands)) {
+          setAvailableBrands(session.availableBrands)
+        }
+        establishSession(session, {
+          userName: session.userName || '',
+          brandName: session.brandName || '',
+        })
+      } finally {
+        if (isActive) {
+          setRestoringSession(false)
+        }
+      }
+    }
+
+    restore()
+    return () => {
+      isActive = false
+    }
+  }, [])
+
   useEffect(() => {
     // Credentials are deliberately absent from this snapshot. The session lives server-side in
     // the DPS behind an httpOnly cookie; writing the access or refresh token to localStorage
     // would hand an XSS payload the one thing that design exists to keep out of reach.
+    //
+    // isLoggedIn is absent for the same reason and is no longer read on load: a snapshot that
+    // cannot carry the credential must not carry the claim either. Writing it would leave a
+    // stale `true` in storage that reads as authoritative to anyone inspecting it.
     const snapshot = {
       isSignUp,
-      isLoggedIn,
       brandName,
       userName,
       userId,
@@ -516,7 +599,6 @@ function App() {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot))
   }, [
     isSignUp,
-    isLoggedIn,
     brandName,
     userName,
     userId,
@@ -675,21 +757,10 @@ function App() {
         ? await signup({ email, password, brandName: company, accountType })
         : await login({ email, password })
 
-      setUserName(name)
-      setBrandName(authResponse.brandName || company)
-      setUserId(authResponse.userId || '')
-      setAuthToken(authResponse.accessToken || '')
-      setRefreshToken(authResponse.refreshToken || '')
-      applyBrandFromAuth(authResponse)
-      setIsLoggedIn(true)
+      // One path establishes a session. This used to repeat establishSession's body line for
+      // line, which is how the two drifted apart until only this copy was reachable at all.
+      establishSession(authResponse, { userName: name, brandName: authResponse.brandName || company })
 
-      // Identify before tracking, so the signup event carries its ids rather than arriving
-      // anonymous and needing to be stitched later.
-      identify({
-        userId: authResponse.userId,
-        accountId: authResponse.accountId,
-        brandId: authResponse.brandId,
-      })
       if (isSignUp) {
         // The denominator for M4's activation metric — "% of signups that complete an import
         // within 24h" is meaningless without a reliable count of signups.
@@ -775,19 +846,33 @@ function App() {
     return created
   }
 
-  const establishSession = (authResponse) => {
+  /**
+   * The single place a session comes into existence.
+   *
+   * <p>Every caller goes through here — the sign-in form, sign-up, and any future restore path —
+   * so there is one answer to "what does being logged in consist of". It previously existed
+   * alongside a copy of itself inside handleAuthSubmit and was never called; keeping two of these
+   * is what let them disagree, and the surviving copy is the one that sets every field.
+   *
+   * <p>Note the order: the token is set before isLoggedIn. The workspace-loading effect keys on
+   * both, and flipping isLoggedIn first would give it one render with a stale token.
+   *
+   * @param overrides display values a caller knows better than the response does — the sign-up
+   *                  form has the person's typed name, where the response has only an email
+   */
+  const establishSession = (authResponse, overrides = {}) => {
     const email = authResponse.email || ''
     const inferredName = email.includes('@') ? email.split('@')[0] : email
-    setUserName(inferredName || 'Brand Operator')
-    setBrandName(authResponse.brandName || '')
+    setUserName(overrides.userName || inferredName || 'Brand Operator')
+    setBrandName(overrides.brandName || authResponse.brandName || '')
     setUserId(authResponse.userId || '')
     setAuthToken(authResponse.accessToken || '')
     setRefreshToken(authResponse.refreshToken || '')
     applyBrandFromAuth(authResponse)
     setIsLoggedIn(true)
-    // Covers social sign-in and session restore — the paths that never touch handleAuthSubmit.
-    // Without this a returning user's events would arrive anonymous, and week-two retention
-    // (the exact thing M4 measures) is entirely returning users.
+    // Identify before any event is tracked, so the first one carries its ids rather than arriving
+    // anonymous and needing to be stitched later. Week-two retention (what M4 measures) is
+    // entirely returning users, so this has to cover every sign-in path and not just sign-up.
     identify({
       userId: authResponse.userId,
       accountId: authResponse.accountId,
@@ -1681,14 +1766,31 @@ function App() {
 
   const handleLogout = async () => {
     try {
-      // Logout revokes the refresh token; the access token stays valid until it expires.
-      if (refreshToken) {
+      if (isCookieSession()) {
+        // The credential is the DPS cookie, so clearing local state alone would leave the session
+        // alive server-side — and the next boot would silently restore the person who just asked
+        // to be signed out. This is the call that actually ends it.
+        //
+        // The CSRF header is not optional here: without it the DPS answers 403, the session
+        // survives, and the sign-out is a lie the user has no way to detect. Verified against the
+        // live DPS — 403 without the header, 204 with it.
+        await fetch(`${DPS_BASE_URL}/dps/auth/logout`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: dpsCsrfHeaders(),
+        })
+      } else if (refreshToken) {
+        // Logout revokes the refresh token; the access token stays valid until it expires.
         await logout(refreshToken)
       }
     } catch {
       // Ignore logout API failures and clear local session state anyway.
     }
 
+    // Back to bearer transport, or a subsequent password sign-in would keep routing through a
+    // proxy whose session no longer exists.
+    clearCookieSession()
+    setCookiePermissions([])
     setIsLoggedIn(false)
     setAuthToken('')
     setRefreshToken('')
@@ -1713,6 +1815,30 @@ function App() {
    * or the network may have dropped. On success the workspace resumes exactly where it was.
    */
   const handleSessionRetry = async () => {
+    if (isCookieSession()) {
+      // The DPS refreshes its own tokens server-side, so a 401 through the proxy means the session
+      // itself is gone rather than an access token having expired. Re-asking /dps/session is the
+      // only retry available, and it is worth one attempt: a restarted DPS or a rotated cookie in
+      // another tab both recover here.
+      setSessionRetrying(true)
+      setSessionRetryError('')
+      try {
+        const session = await fetchDpsSession(DPS_BASE_URL)
+        if (session?.authenticated) {
+          setCookiePermissions(Array.isArray(session.permissions) ? session.permissions : [])
+          establishSession(session, {
+            userName: session.userName || '',
+            brandName: session.brandName || '',
+          })
+          setSessionPrompt(false)
+        } else {
+          setSessionRetryError('This session has ended. Please sign in again.')
+        }
+      } finally {
+        setSessionRetrying(false)
+      }
+      return
+    }
     if (!refreshToken) {
       // Nothing left to retry with. Say so plainly rather than spinning on a doomed request.
       setSessionRetryError('This session cannot be restored. Please sign in again.')
@@ -1747,6 +1873,21 @@ function App() {
     setSessionRetryError('')
     await handleLogout()
     setAuthError('Your session expired. Please sign in again.')
+  }
+
+  // Hold the first paint while the DPS is asked about an existing session, or the login page
+  // renders and is then replaced by the workspace — a sign-in screen flashing past on every
+  // reload, which reads as being logged out and back in.
+  //
+  // /accept-invitation is exempt: an invitee arrives with a token in the URL and no session at
+  // all, so making them wait on a lookup that will say "anonymous" delays the one page they came
+  // for. It renders signed-out regardless of the answer.
+  if (restoringSession && window.location.pathname !== '/accept-invitation') {
+    return (
+      <div className="app-boot" role="status" aria-live="polite">
+        <span className="app-boot-label">Restoring your session…</span>
+      </div>
+    )
   }
 
   return (

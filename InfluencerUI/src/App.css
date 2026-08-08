@@ -3125,3 +3125,18 @@ a.ghost-btn:visited {
   color: var(--ink-4);
   text-decoration: none;
 }
+
+/* Shown only while the DPS is asked whether this browser already has a session. Deliberately
+   plain: it is on screen for one round trip, and a spinner that animates in and out in 80ms
+   reads as a flicker rather than as progress. */
+.app-boot {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  background: var(--surface);
+}
+
+.app-boot-label {
+  color: var(--ink-4);
+  font-size: 0.9rem;
+}
