@@ -28,6 +28,21 @@ public interface MarketplaceProvider {
     Set<Capability> capabilities();
 
     /**
+     * Whether {@link #connect} is handed real secrets that must never be stored in the clear.
+     *
+     * <p>Defaults to {@code true} so protection is the behaviour an adapter gets by not thinking
+     * about it. The safe default has to be the silent one: an adapter author who forgets this
+     * method ends up with encryption, and only an explicit {@code return false} — which is visible
+     * in review — gives up that protection. Inverting it would make plaintext the thing you get by
+     * forgetting, which is how the credentials column came to be misnamed in the first place.
+     *
+     * <p>Only a test double with no real secret should override this.
+     */
+    default boolean usesRealCredentials() {
+        return true;
+    }
+
+    /**
      * Validate credentials and resolve the external account. Called before a
      * {@code marketplace_connections} row is persisted.
      */

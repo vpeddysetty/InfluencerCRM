@@ -49,6 +49,17 @@ public class MockMarketplaceProvider implements MarketplaceProvider {
                 Capability.POLL_ORDERS, Capability.AFFILIATE_LINK);
     }
 
+    /**
+     * The mock's "apiKey" is any non-blank string and unlocks nothing, so requiring a configured
+     * encryption key to use it would mean every developer and CI run has to provision key material
+     * to exercise a fake store. That pressure is what produces a shared dummy key committed to the
+     * repository, so the exemption is narrower and more honest than the workaround it prevents.
+     */
+    @Override
+    public boolean usesRealCredentials() {
+        return false;
+    }
+
     @Override
     public ConnectionResult connect(Map<String, String> credentials) {
         String apiKey = credentials == null ? null : credentials.get("apiKey");

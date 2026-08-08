@@ -57,3 +57,17 @@ web-experience.oauth.facebook.client-secret=your-facebook-app-secret
 #
 # For a single-process local run you may instead skip the key entirely with:
 #   web-experience.allow-ephemeral-jwt-key=true
+
+# --- Marketplace credential encryption (M3.1) ---
+# Only needed once you connect a marketplace that uses REAL credentials. The mock provider is
+# exempt, so the default local setup (mock store, coupon push, attribution) needs nothing here.
+#
+# When you do connect a real store, this is required: without it the connect call is refused with a
+# 503 rather than writing store tokens to the database in the clear. The check runs BEFORE the
+# vendor handshake, so a refusal never leaves a live grant stranded at the vendor.
+#
+# Generate:
+#   openssl rand -base64 32
+#
+# web-experience.marketplace.credential-key=your_base64_32_byte_key
+# web-experience.marketplace.credential-key-id=local

@@ -10,6 +10,7 @@ import com.influencer.webe.marketplace.Capability;
 import com.influencer.webe.marketplace.Connection;
 import com.influencer.webe.marketplace.ConnectionResult;
 import com.influencer.webe.marketplace.CouponSpec;
+import com.influencer.webe.marketplace.CredentialProtector;
 import com.influencer.webe.marketplace.ExternalCoupon;
 import com.influencer.webe.marketplace.MarketplaceProvider;
 import com.influencer.webe.marketplace.MarketplaceProviderRegistry;
@@ -29,22 +30,26 @@ import java.util.UUID;
  * their capabilities, runs the connect handshake and persists the connection,
  * and pushes a coupon to a connected store through its adapter.
  *
- * SECURITY NOTE (Phase 6): credentials are currently serialized to JSON and
- * stored in {@code credentials_encrypted} as-is. Real envelope encryption is a
- * Phase 6 prerequisite before any real (Shopify) credentials flow through here.
+ * <p>Credentials are envelope-encrypted by {@link CredentialProtector} before they reach the DAO
+ * (roadmap M3.1) and decrypted only at the moment an adapter call needs them. A provider that
+ * declares {@link MarketplaceProvider#usesRealCredentials()} cannot be connected at all unless a
+ * key is configured — see that class for why the alternative was a silent plaintext fallback.
  */
 @Service
 public class MarketplaceService {
     private final MarketplaceProviderRegistry registry;
     private final DaoGatewayClient dao;
     private final ResponseShapeService shape;
+    private final CredentialProtector credentials;
 
     public MarketplaceService(MarketplaceProviderRegistry registry,
                               DaoGatewayClient dao,
-                              ResponseShapeService shape) {
+                              ResponseShapeService shape,
+                              CredentialProtector credentials) {
         this.registry = registry;
         this.dao = dao;
         this.shape = shape;
+        this.credentials = credentials;
     }
 
     /** Catalog of available providers + their capabilities for the UI. */
@@ -71,6 +76,18 @@ public class MarketplaceService {
         MarketplaceProvider provider = registry.find(providerKey).orElseThrow(() ->
                 new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unknown marketplace provider: " + providerKey));
 
+        // Checked BEFORE the handshake, not after. Connecting first would send the operator's real
+        // store credentials to the vendor, establish a session, and only then discover there is
+        // nowhere safe to put them — leaving a live grant this system cannot record and the
+        // operator has to go revoke by hand. Refusing up front costs nothing.
+        boolean mustProtect = provider.usesRealCredentials();
+        if (mustProtect && !this.credentials.isConfigured()) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                    "Marketplace credential encryption is not configured on this deployment, so "
+                    + provider.displayName() + " cannot be connected. Set "
+                    + "web-experience.marketplace.credential-key and restart.");
+        }
+
         ConnectionResult result = provider.connect(credentials);
         if (!result.isSuccess()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
@@ -83,7 +100,8 @@ public class MarketplaceService {
         payload.put("displayName", result.getDisplayName() != null ? result.getDisplayName() : provider.displayName());
         payload.put("status", "connected");
         payload.put("externalAccountRef", result.getExternalAccountRef());
-        payload.put("credentialsEncrypted", serializeCredentials(credentials)); // TODO Phase 6: envelope-encrypt
+        payload.put("credentialsEncrypted",
+                this.credentials.protect(serializeCredentials(credentials), mustProtect));
 
         JsonNode saved = dao.post("/marketplace-connections", payload);
         return shape.marketplaceConnection(saved);
@@ -167,8 +185,22 @@ public class MarketplaceService {
     }
 
     private Connection toConnection(JsonNode connRow) {
-        Map<String, String> creds = deserializeCredentials(
-                connRow.hasNonNull("credentialsEncrypted") ? connRow.get("credentialsEncrypted").asText() : null);
+        String stored = connRow.hasNonNull("credentialsEncrypted")
+                ? connRow.get("credentialsEncrypted").asText() : null;
+
+        String plaintext;
+        try {
+            plaintext = credentials.reveal(stored, connRow.get("id").asText());
+        } catch (IllegalStateException e) {
+            // A wrong or missing key must not read as "this store has no credentials", which is
+            // what an empty map would look like to the adapter — it would fail somewhere deep in a
+            // vendor call with an authentication error that sends the operator hunting at Shopify.
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                    "Stored credentials for this connection cannot be decrypted. "
+                    + "Check web-experience.marketplace.credential-key.", e);
+        }
+
+        Map<String, String> creds = deserializeCredentials(plaintext);
         Instant cursor = connRow.hasNonNull("syncCursor") ? parseInstant(connRow.get("syncCursor").asText()) : null;
         return new Connection(
                 connRow.get("id").asText(),
