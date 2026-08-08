@@ -52,6 +52,7 @@ const PayoutsPage = contextPage('mf_finance/PayoutsPage', () => import('../pages
 // Account administration belongs to the shell, which already owns the session and the account.
 // A plain lazy import rather than contextPage(): there is no identity remote to fall back to.
 const MembersPage = lazy(() => import('../pages/MembersPage'))
+const BillingPage = lazy(() => import('../pages/BillingPage'))
 
 /**
  * Nav groups, in display order.
@@ -157,6 +158,18 @@ export const ROUTE_MANIFEST = [
     group: 'Setup',
     permission: 'member:invite',
     component: MembersPage,
+    apiSlice: 'core',
+  },
+  {
+    // Gated on account:billing:READ, which OWNER and ADMIN hold — not on account:billing, which
+    // is OWNER-only. An admin can see the plan and the invoices they administer against; the page
+    // itself renders the pause and cancel buttons only when the server says canManage.
+    context: 'identity',
+    path: '/billing',
+    label: 'Billing',
+    group: 'Setup',
+    permission: 'account:billing:read',
+    component: BillingPage,
     apiSlice: 'core',
   },
 ]

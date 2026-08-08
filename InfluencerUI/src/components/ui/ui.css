@@ -1071,6 +1071,98 @@
   margin: 0;
 }
 
+/* ── Subscription and billing (M2.1/M2.2) ─────────────────────────────── */
+.billing-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.billing-status-plan {
+  font-size: var(--text-lg);
+  text-transform: capitalize;
+}
+
+.billing-actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-top: var(--space-3);
+}
+
+/* Louder than a plain note. This is the one saying no money was taken — if it blends in, a
+   simulated subscription starts looking like a real one, which is the failure the whole
+   provider design exists to prevent. */
+.billing-unpaid-note {
+  border-left: 3px solid var(--warning-border);
+}
+
+.billing-unpaid-note strong {
+  display: block;
+  margin-bottom: var(--space-1);
+}
+
+.billing-tier-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.billing-tier-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+}
+
+.billing-tier-name {
+  margin: 0;
+  font-weight: 700;
+  font-size: var(--text-lg);
+}
+
+.billing-tier-list {
+  margin: 0;
+  padding-left: var(--space-4);
+  display: grid;
+  gap: var(--space-1);
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+}
+
+/* The button sits at the bottom so cards with unequal lists still line up. */
+.billing-tier-card .primary-btn {
+  margin-top: auto;
+}
+
+.billing-invoice-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: var(--space-2);
+}
+
+.billing-invoice-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.billing-invoice-amount {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
 /* ── Tablet: the board and dense tables ───────────────────────────────── */
 @media (max-width: 1024px) {
   .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }

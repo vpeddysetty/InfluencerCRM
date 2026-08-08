@@ -26,6 +26,9 @@ import {
   pressuredResources,
   usageMessage,
   usageTone,
+  describeSubscription,
+  formatAmount,
+  formatDate,
 } from './shell/plan.js'
 
 // ── P3: confidence survives the agent → UI transform ────────────────────────
@@ -1325,4 +1328,135 @@ test('the invite form closes at the seat limit instead of failing', () => {
   assert.match(page, /disabled=\{busyId === 'invite' \|\| atMemberLimit\}/)
   // Pending invitations hold seats, so revoking is the immediate remedy and the copy says so.
   assert.match(page, /revoking one below frees a seat/)
+})
+
+// ── M2.1/M2.2: subscription state as the user sees it ──────────────────────
+
+test('an account with no subscription is described as free, not as broken', () => {
+  // A free account is a normal state, not a missing one. Framing it as absence would make the
+  // largest group of users feel like something failed.
+  const state = describeSubscription({ subscribed: false, canManage: true })
+
+  assert.equal(state.subscribed, false)
+  assert.equal(state.plan, 'free')
+  assert.equal(state.tone, 'neutral')
+  assert.match(state.summary, /free plan/i)
+  assert.doesNotMatch(state.summary, /error|problem|missing/i)
+})
+
+test('a scheduled cancellation says what is kept and until when', () => {
+  // The product feature. The competitor's most-cited complaint is cancellation being "impossible
+  // to stop"; a cancel that silently confiscates paid time would be the same failure in reverse.
+  const state = describeSubscription({
+    subscribed: true,
+    canManage: true,
+    subscription: {
+      plan: 'pro', status: 'active', statusLabel: 'Active',
+      cancelAtPeriodEnd: true, currentPeriodEnd: '2026-09-15T00:00:00Z',
+      canCancel: true, chargesMoney: true,
+    },
+  })
+
+  assert.equal(state.cancelAtPeriodEnd, true)
+  assert.equal(state.tone, 'warning', 'a decision the user made, not a failure')
+  assert.match(state.summary, /keep full access/i)
+  assert.match(state.summary, /Sep/, 'the date they keep access until must be named')
+  assert.match(state.summary, /Nothing is deleted/i)
+})
+
+test('a failed payment does not read as an immediate shutdown', () => {
+  // Usually an expired card, and the provider retries for days. Telling someone their workspace
+  // has stopped when it has not is how a recoverable payment problem becomes a cancellation.
+  const state = describeSubscription({
+    subscribed: true,
+    canManage: true,
+    subscription: { plan: 'pro', status: 'past_due', statusLabel: 'Payment failed', chargesMoney: true },
+  })
+
+  assert.equal(state.tone, 'danger')
+  assert.match(state.summary, /still active/i)
+})
+
+test('a paused subscription says the data is untouched', () => {
+  // The fear on pausing is that pausing deletes something. It does not — only the limits change.
+  const state = describeSubscription({
+    subscribed: true,
+    canManage: true,
+    subscription: { plan: 'pro', status: 'paused', statusLabel: 'Paused', canResume: true, chargesMoney: true },
+  })
+
+  assert.equal(state.tone, 'warning')
+  assert.match(state.summary, /data is untouched/i)
+  assert.equal(state.canResume, true)
+})
+
+test('the UI never decides for itself what the lifecycle allows', () => {
+  // canPause/canResume/canCancel come from the server, which owns SubscriptionState. Deriving
+  // them here would be a second copy of the rules, free to disagree with the real one.
+  const state = describeSubscription({
+    subscribed: true,
+    canManage: true,
+    // Server says no to everything despite an "active" status.
+    subscription: { plan: 'pro', status: 'active', canPause: false, canResume: false, canCancel: false },
+  })
+
+  assert.equal(state.canPause, false)
+  assert.equal(state.canCancel, false)
+})
+
+test('an unpaid subscription is never presented as a paid one', () => {
+  // The rule the whole BillingProvider design exists to hold. chargesMoney=false must survive
+  // all the way to the screen.
+  const unpaid = describeSubscription({
+    subscribed: true,
+    canManage: true,
+    subscription: { plan: 'pro', status: 'active', chargesMoney: false, providerName: 'Manual / invoiced' },
+  })
+
+  assert.equal(unpaid.chargesMoney, false)
+
+  const page = read('pages/BillingPage.jsx')
+  assert.match(page, /No payment was taken/i)
+  assert.match(page, /!state\.chargesMoney/)
+})
+
+test('an admin sees billing but gets no buttons', () => {
+  // ACCOUNT_BILLING is OWNER-only and ACCOUNT_BILLING_READ is OWNER+ADMIN. The page renders
+  // actions from the server's canManage rather than re-deriving that rule.
+  const state = describeSubscription({
+    subscribed: true,
+    canManage: false,
+    subscription: { plan: 'pro', status: 'active', canPause: true, canCancel: true },
+  })
+
+  assert.equal(state.canManage, false)
+
+  const page = read('pages/BillingPage.jsx')
+  assert.match(page, /state\.canManage \? \(/, 'actions must be gated on the server flag')
+  assert.match(page, /Only the account owner can change/i)
+})
+
+test('the billing route is gated on the read permission, not the write one', () => {
+  // Gating the page on account:billing would hide it from an admin entirely, when what they
+  // actually need is to see it without being able to end it.
+  const route = ROUTE_MANIFEST.find((entry) => entry.path === '/billing')
+
+  assert.ok(route, 'the billing route must exist')
+  assert.equal(route.permission, 'account:billing:read')
+  assert.notEqual(route.permission, 'account:billing')
+})
+
+test('money is formatted from integer cents', () => {
+  // Never a float: 79.99 is not representable in binary floating point, and money that does not
+  // sum exactly is a reconciliation bug that surfaces months later.
+  assert.match(formatAmount(7900, 'USD'), /79\.00/)
+  assert.match(formatAmount(19999, 'USD'), /199\.99/)
+  assert.match(formatAmount(0, 'USD'), /0\.00/)
+  // An unknown currency must not blank the amount out.
+  assert.match(formatAmount(7900, 'XYZ'), /79\.00/)
+})
+
+test('an unparseable date renders as nothing rather than "Invalid Date"', () => {
+  assert.equal(formatDate(null), '')
+  assert.equal(formatDate('not-a-date'), '')
 })

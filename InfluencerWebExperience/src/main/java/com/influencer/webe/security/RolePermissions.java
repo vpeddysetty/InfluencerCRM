@@ -46,13 +46,23 @@ public final class RolePermissions {
     private static final Set<Permission> FINANCE_PERMISSIONS = union(READ_ONLY, EnumSet.of(
             COMMISSION_APPROVE, PAYOUT_CREATE, PAYOUT_APPROVE));
 
-    /** Account administration on top of full brand control. */
+    /**
+     * Account administration on top of full brand control.
+     *
+     * <p>Includes {@link Permission#ACCOUNT_BILLING_READ} but NOT {@link Permission#ACCOUNT_BILLING}:
+     * an admin can see what the account is on and what it has paid, which they need in order to
+     * administer it, but cannot pause or cancel. Ending the subscription stops the company's
+     * service, and an invited admin should not be able to do that to the person who owns the
+     * account. Same separation-of-duties instinct as MANAGER approving commissions but not
+     * settling them.
+     */
     private static final Set<Permission> ADMIN_PERMISSIONS = union(MANAGER_PERMISSIONS, EnumSet.of(
             PAYOUT_CREATE, PAYOUT_APPROVE,
             BRAND_CREATE, BRAND_UPDATE, BRAND_DELETE,
-            MEMBER_INVITE, MEMBER_UPDATE, MEMBER_REMOVE));
+            MEMBER_INVITE, MEMBER_UPDATE, MEMBER_REMOVE,
+            ACCOUNT_BILLING_READ));
 
-    /** Everything, including billing. */
+    /** Everything, including changing the subscription. */
     private static final Set<Permission> OWNER_PERMISSIONS = union(ADMIN_PERMISSIONS, EnumSet.of(
             ACCOUNT_BILLING));
 

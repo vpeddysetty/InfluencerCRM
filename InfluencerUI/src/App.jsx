@@ -17,6 +17,7 @@ import MarketplacePage from './pages/MarketplacePage'
 import DashboardPage from './pages/DashboardPage'
 import PayoutsPage from './pages/PayoutsPage'
 import MembersPage from './pages/MembersPage'
+import BillingPage from './pages/BillingPage'
 import ContentPage from './pages/ContentPage'
 import WorkspaceLayout from './components/WorkspaceLayout'
 import { SessionProvider } from './shell/SessionContext'
@@ -65,6 +66,12 @@ import {
   listAccountMembers,
   listInvitations,
   loadPlanUsage,
+  loadSubscription,
+  loadBillingInvoices,
+  subscribeToPlan,
+  pauseSubscription,
+  resumeSubscription,
+  cancelSubscription,
   inviteMember,
   revokeInvitation,
   updateMemberRole,
@@ -1303,6 +1310,17 @@ function App() {
   // staleness back in a different place.
   const loadPlan = async () => loadPlanUsage(authToken)
 
+  // ---- subscription & billing (roadmap M2.1/M2.2) ----------------------
+  // Every one of these is re-read after an action rather than patched locally: pausing changes
+  // both the subscription AND the account's effective plan, so a local edit would show one and
+  // not the other.
+  const loadSubscriptionRecord = async () => loadSubscription(authToken)
+  const loadInvoicesRecord = async () => loadBillingInvoices(authToken)
+  const subscribeRecord = async (plan) => subscribeToPlan(authToken, plan)
+  const pauseSubscriptionRecord = async () => pauseSubscription(authToken)
+  const resumeSubscriptionRecord = async () => resumeSubscription(authToken)
+  const cancelSubscriptionRecord = async (options) => cancelSubscription(authToken, options)
+
   /**
    * Redeems an invitation and refreshes the brand list.
    *
@@ -1947,6 +1965,24 @@ function App() {
                   onRevokeInvitation={revokeInvitationRecord}
                   onUpdateRole={updateMemberRoleRecord}
                   onRemoveMember={removeMemberRecord}
+                />
+              }
+            />
+            <Route
+              path="billing"
+              element={
+                <BillingPage
+                  // Reading needs account:billing:read (OWNER and ADMIN). Whether this caller may
+                  // ACT comes from the server on the subscription payload, not from here — one
+                  // authorization rule, checked in one place.
+                  canViewBilling={permissions.includes('account:billing:read')}
+                  onLoadSubscription={loadSubscriptionRecord}
+                  onLoadInvoices={loadInvoicesRecord}
+                  onLoadPlan={loadPlan}
+                  onSubscribe={subscribeRecord}
+                  onPause={pauseSubscriptionRecord}
+                  onResume={resumeSubscriptionRecord}
+                  onCancel={cancelSubscriptionRecord}
                 />
               }
             />

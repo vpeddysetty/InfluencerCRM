@@ -56,6 +56,16 @@ public enum Permission {
     MEMBER_UPDATE("member:update"),
     MEMBER_REMOVE("member:remove"),
 
+    /**
+     * See the subscription, its plan, and its invoices.
+     *
+     * <p>Split from {@link #ACCOUNT_BILLING} so an ADMIN can answer "what are we on and what did
+     * we pay" without being able to end the subscription. Reading a plan is administration;
+     * cancelling one stops the company's service, and those are not the same act.
+     */
+    ACCOUNT_BILLING_READ("account:billing:read"),
+
+    /** Change the subscription — upgrade, pause, resume, cancel. OWNER only. */
     ACCOUNT_BILLING("account:billing");
 
     private final String key;

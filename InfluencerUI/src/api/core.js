@@ -172,6 +172,37 @@ export async function loadPlanUsage(token) {
   return request('/api/brands/plan', { token })
 }
 
+// ---- subscriptions and billing (M2.1/M2.2) ----
+// Viewing needs account:billing:read (OWNER and ADMIN); changing needs account:billing (OWNER
+// only). The server decides — `canManage` on the response says whether this caller may act, so
+// the UI never has to re-derive the rule and risk disagreeing with it.
+
+export async function loadSubscription(token) {
+  return request('/api/billing/subscription', { token })
+}
+
+export async function loadBillingInvoices(token) {
+  return request('/api/billing/invoices', { token })
+}
+
+export async function subscribeToPlan(token, plan) {
+  return request('/api/billing/subscribe', { method: 'POST', token, body: { plan } })
+}
+
+export async function pauseSubscription(token) {
+  return request('/api/billing/pause', { method: 'POST', token, body: {} })
+}
+
+export async function resumeSubscription(token) {
+  return request('/api/billing/resume', { method: 'POST', token, body: {} })
+}
+
+// Ends at the paid period by default. `immediate` is opt-in because someone who cancels on day 2
+// of a month has paid for the other 28 and should keep them.
+export async function cancelSubscription(token, { immediate = false } = {}) {
+  return request('/api/billing/cancel', { method: 'POST', token, body: { immediate } })
+}
+
 // ---- member invitations (roadmap Stage 3) ----
 
 // The token comes back exactly once, here. Only its hash is stored, so it cannot be read

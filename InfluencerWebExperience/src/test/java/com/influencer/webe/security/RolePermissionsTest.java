@@ -79,12 +79,44 @@ class RolePermissionsTest {
     class AccountAdministration {
 
         @Test
-        @DisplayName("only OWNER can reach billing")
+        @DisplayName("only OWNER can change billing")
         void onlyOwnerBills() {
+            // Unchanged by M2.1/M2.2. Pausing or cancelling stops the company's service, and an
+            // invited admin must not be able to do that to the person who owns the account.
             for (AccountRole role : AccountRole.values()) {
                 assertThat(RolePermissions.hasPermission(role, ACCOUNT_BILLING))
                         .as("%s billing access", role)
                         .isEqualTo(role == AccountRole.OWNER);
+            }
+        }
+
+        @Test
+        @DisplayName("OWNER and ADMIN can see billing, but only OWNER can change it")
+        void adminSeesBillingWithoutControllingIt() {
+            // The split added for the subscription module. An admin administers the account and
+            // needs to know what it is on and what it has paid; that is not the same as being able
+            // to end it. Same separation-of-duties instinct as MANAGER approving commissions
+            // without settling them.
+            for (AccountRole role : AccountRole.values()) {
+                boolean canSee = role == AccountRole.OWNER || role == AccountRole.ADMIN;
+                assertThat(RolePermissions.hasPermission(role, ACCOUNT_BILLING_READ))
+                        .as("%s billing read", role).isEqualTo(canSee);
+            }
+
+            assertThat(RolePermissions.hasPermission(AccountRole.ADMIN, ACCOUNT_BILLING_READ)).isTrue();
+            assertThat(RolePermissions.hasPermission(AccountRole.ADMIN, ACCOUNT_BILLING)).isFalse();
+        }
+
+        @Test
+        @DisplayName("anyone who can change billing can also see it")
+        void writeImpliesRead() {
+            // A role able to cancel but not to view what it is cancelling would be a UI that has
+            // to guess, and the two permissions could drift apart unnoticed.
+            for (AccountRole role : AccountRole.values()) {
+                if (RolePermissions.hasPermission(role, ACCOUNT_BILLING)) {
+                    assertThat(RolePermissions.hasPermission(role, ACCOUNT_BILLING_READ))
+                            .as("%s can change billing but not read it", role).isTrue();
+                }
             }
         }
 

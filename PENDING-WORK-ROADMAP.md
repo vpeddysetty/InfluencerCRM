@@ -117,7 +117,7 @@ Unchanged from UI-OPPORTUNITIES-ROADMAP §U1. It is the defining CRM gap — the
 | **M5.1** Real hosting target | 2d | ✅ Code done — ⏳ **deployment step outstanding** (see below) |
 | **M5.6** Expiry-warning scheduler | 1d | ✅ Done. `HostingExpiryScheduler` warns at 30/7/1 days |
 | **M8.3** Payout idempotency | — | ✅ Done. The payout id is now the idempotency key |
-| **M2.1 / M2.2** Stripe checkout + webhooks | 6d | Not started |
+| **M2.1 / M2.2** Subscriptions + billing | 6d | ✅ Path built behind a port — ⏳ **needs Stripe credentials** (see below) |
 | **M3.x** Shopify | 12d | Not started. **3.1 (envelope-encrypt credentials) must land before 3.2**, not after |
 
 ---
@@ -271,6 +271,81 @@ enforce is the failure that guards against.
 all 1 brands"* — and the free brand limit is exactly 1, so that was the common case, not an edge
 case. It also ended *"cannot add more. Upgrade to Pro to add more."* Both fixed, with a regression
 test that also covers the over-limit wording the two already-exceeding accounts will see.
+
+---
+
+## Shipped 2026-08-07 (fourth cycle) — subscriptions and billing
+
+**204 BFF tests (was 178), 22 DAO, 131 UI (was 121).**
+
+### The pricing recommendation
+
+Grounded in [MARKET-ANALYSIS.md](MARKET-ANALYSIS.md), not invented:
+
+| | Free | **Pro — $79/mo** | **Agency — $199/mo** |
+|---|---|---|---|
+| Brands | 1 | 1 | Unlimited |
+| Creators | 25 | 250 | Unlimited |
+| Members | 3 | 10 | Unlimited |
+
+The contested SMB band is $49–798/mo. **Grin gates its actual CRM behind $500/mo and caps creators
+at 100 there**, so $79 for 250 creators is a wedge rather than a race to the bottom. Agency at $199
+undercuts "three separate contracts" at any competitor, none of which do multi-brand tenancy at all.
+
+**The strategic point:** Grin's most-cited complaint is 12-month lock-in "impossible to stop". A
+working cancel button is therefore the product feature, not a checkbox — which is why cancel is
+prominent, confirms, and states exactly what is kept.
+
+**These prices are NOT in the code.** No price appears anywhere in the repo, and a test fails if a
+`$` shows up in the tier table. Prices belong in the payment provider's catalogue, which is the
+only place they can be right.
+
+### What is built, and what is not
+
+**Built and tested:** schema (subscriptions, invoices, webhook events), entities, DAO endpoints,
+the lifecycle state machine, subscribe/pause/resume/cancel, webhook handling with replay
+protection, and the full UI.
+
+**⏳ Not built — needs credentials:** the Stripe adapter itself. There is no Stripe account, key,
+or webhook secret in this repo. `ManualBillingProvider` is the default and **reports
+`chargesMoney=false` everywhere**, logs at WARN on every use, and the UI shows "No payment was
+taken" when it sees that flag. A payment mock that reported success would be a simulated result
+about someone's money — the one place the mocking policy must not be stretched. Adding Stripe is
+one `@Component` implementing `BillingProvider`.
+
+**⏳ Webhook signature verification is deliberately unimplemented**, and the endpoint returns
+**503 while `web-experience.billing.webhook-secret` is unset**. That endpoint must be
+unauthenticated — a provider holds no user token — so without verification it would be an open door
+that moves accounts onto paid plans. A stub returning `true` would look finished and be worse than
+nothing.
+
+### Decisions worth keeping
+
+**Who can cancel — the request was adjusted.** You asked for "brand owner or agency owner/admin",
+but `ACCOUNT_BILLING` was already **OWNER-only** with a test asserting ADMIN does not hold it.
+Rather than weaken that, the permission was **split**: new `ACCOUNT_BILLING_READ` (OWNER + ADMIN)
+sees the plan and invoices; `ACCOUNT_BILLING` (OWNER only) pauses and cancels. An invited admin
+cannot stop the company's service. Same separation-of-duties instinct as MANAGER approving
+commissions without settling them.
+
+**Two plan columns, on purpose.** `subscriptions.plan` is what is *billed*; `accounts.plan` is what
+is *enforced*. They diverge during a pause — the subscription keeps `pro` (what resumes) while the
+account drops to `free` (what `PlanPolicy` applies). Collapsing them would make pause either lose
+the plan or keep granting paid limits for free. **Verified against the live database**, not only in
+tests.
+
+**`past_due` keeps paid limits.** A failed charge is usually an expired card and the provider
+retries for days; breaking someone's workspace the moment a renewal fails punishes them for a
+problem they are about to fix. But `past_due` **cannot be paused** — that would look like a way to
+stop the retries, and the charge is still owed.
+
+**Cancel does not confiscate paid time.** Default is cancel-at-period-end: the subscription stays
+active until `currentPeriodEnd` and the UI names that date. `immediate` is opt-in.
+
+**Replay safety is the roadmap's stated 2.2 requirement.** Every event is recorded by provider
+event id *before* being applied, with a unique index so a concurrent duplicate fails at the
+database rather than racing through a check-then-act gap. Out-of-order events cannot resurrect a
+cancelled subscription — verified: `cancelled → active` is refused.
 
 ### UI depth
 

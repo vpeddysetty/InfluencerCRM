@@ -163,6 +163,127 @@ export function pressuredResources(usage = []) {
 }
 
 /**
+ * What a subscription's state means for the person looking at it (M2.1/M2.2).
+ *
+ * <p>Derived here rather than in the component so it can be tested, and so the words shown for a
+ * given state cannot drift between the two places that show them.
+ *
+ * <p><b>`canManage` comes from the server</b>, not from a role check done here. Viewing needs
+ * `account:billing:read` (owner and admin) while changing needs `account:billing` (owner only) —
+ * re-deriving that in the UI would create a second copy of an authorization rule that could
+ * disagree with the real one.
+ */
+export function describeSubscription(payload) {
+  const subscription = payload?.subscription || null
+  const canManage = Boolean(payload?.canManage)
+
+  if (!payload?.subscribed || !subscription) {
+    return {
+      subscribed: false,
+      canManage,
+      status: null,
+      statusLabel: 'Free',
+      plan: 'free',
+      tone: 'neutral',
+      // A free account is not a broken one. The message says what it is, not what is missing.
+      summary: 'You are on the free plan. Upgrade when you need more room.',
+      canPause: false,
+      canResume: false,
+      canCancel: false,
+      endsAt: null,
+      chargesMoney: false,
+    }
+  }
+
+  const status = String(subscription.status || '').toLowerCase()
+  const endingSoon = Boolean(subscription.cancelAtPeriodEnd)
+
+  return {
+    subscribed: true,
+    canManage,
+    status,
+    statusLabel: subscription.statusLabel || status,
+    plan: subscription.plan || 'free',
+    effectivePlan: subscription.effectivePlan || subscription.plan,
+    tone: subscriptionTone(status, endingSoon),
+    summary: subscriptionSummary(subscription, status, endingSoon),
+    // Server-computed: the UI must not decide for itself what the lifecycle allows.
+    canPause: Boolean(subscription.canPause),
+    canResume: Boolean(subscription.canResume),
+    canCancel: Boolean(subscription.canCancel),
+    cancelAtPeriodEnd: endingSoon,
+    endsAt: subscription.currentPeriodEnd || null,
+    // False whenever no real payment provider handled this. Nothing may present an unpaid
+    // subscription as a paid one — the same rule the server-side provider enforces.
+    chargesMoney: Boolean(subscription.chargesMoney),
+    providerName: subscription.providerName || null,
+  }
+}
+
+function subscriptionTone(status, endingSoon) {
+  if (status === 'past_due') {
+    return 'danger'
+  }
+  // Warning rather than danger: a scheduled cancellation is a decision the user made, not a
+  // failure. It still needs to be visible, because it is easy to forget and reversible until it
+  // takes effect.
+  if (status === 'paused' || endingSoon) {
+    return 'warning'
+  }
+  if (status === 'cancelled') {
+    return 'neutral'
+  }
+  return 'success'
+}
+
+function subscriptionSummary(subscription, status, endingSoon) {
+  const ends = formatDate(subscription.currentPeriodEnd)
+
+  if (status === 'past_due') {
+    // Says the account still works. The fear on a failed payment is that everything stops now.
+    return `A payment did not go through. Your plan is still active while it is retried — update the payment method to avoid interruption.`
+  }
+  if (status === 'paused') {
+    return 'Billing is paused. Your data is untouched and free-plan limits apply until you resume.'
+  }
+  if (status === 'cancelled') {
+    return 'This subscription has ended. Nothing was deleted — subscribe again whenever you like.'
+  }
+  if (endingSoon) {
+    // The point of cancel-at-period-end: the user sees exactly what they keep and until when.
+    return ends
+      ? `Cancelled. You keep full access until ${ends}, then move to the free plan. Nothing is deleted.`
+      : 'Cancelled. You keep full access until the end of the paid period, then move to the free plan.'
+  }
+  if (status === 'trialing') {
+    return 'Your trial is running. Nothing has been charged yet.'
+  }
+  return ends ? `Active. Renews ${ends}.` : 'Active.'
+}
+
+/** Short, unambiguous date. Locale-formatted so it is not read as the wrong month. */
+export function formatDate(value) {
+  if (!value) {
+    return ''
+  }
+  const date = new Date(value)
+  return Number.isNaN(date.getTime())
+    ? ''
+    : date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+}
+
+/** Minor units to a readable amount. Integer cents in, never a float — see the invoice entity. */
+export function formatAmount(amountCents, currency = 'USD') {
+  const cents = Number(amountCents ?? 0)
+  try {
+    return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(cents / 100)
+  } catch {
+    // An unknown currency code must not blank the amount out.
+    return `${(cents / 100).toFixed(2)} ${currency}`
+  }
+}
+
+/**
  * The public tier table, for signed-out marketing copy.
  *
  * <p><b>These numbers must match `PlanPolicy` in the BFF.</b> They are duplicated here because the
