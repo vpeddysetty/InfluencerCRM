@@ -67,3 +67,11 @@ cp.txt
 
 # Local asset bytes written by FilesystemAssetStorage. Uploaded content, not source.
 asset-store/
+
+# Runtime logs from running the local stack. Regenerated on every run, so tracking them
+# meant every commit carried unrelated log churn with no review value.
+*.log
+
+# Screenshots from manual UI verification runs. Local artifacts, and 5MB of binaries in
+# git history cannot be pruned later without rewriting it.
+snapshots/
