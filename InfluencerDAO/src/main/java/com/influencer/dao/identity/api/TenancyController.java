@@ -211,7 +211,22 @@ public class TenancyController {
     }
 
     /**
-     * Sets an account's type.
+     * An account by id, including its plan.
+     *
+     * <p>Added for M2.3: entitlement checks resolve an account id from the request's verified JWT
+     * claim and need the CURRENT plan for it. Reading the plan live on each check — rather than
+     * carrying it in the token — is what makes an upgrade take effect immediately. A plan baked
+     * into a JWT would leave a customer who has just paid still blocked until their token expired.
+     */
+    @GetMapping("/accounts/{id}")
+    public AccountResponse account(@PathVariable UUID id) {
+        Account account = accountRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Account not found"));
+        return new AccountResponse(account.getId(), account.getName(), account.getAccountType(), account.getPlan());
+    }
+
+    /**
+     * Sets an account's type, name or plan.
      *
      * <p>Exists because provisioning still happens in the {@code provision_tenancy_for_user}
      * trigger, which can only create a {@code brand} account. An agency signup therefore creates
@@ -221,6 +236,12 @@ public class TenancyController {
      *
      * <p>The type is validated against the same two values as the database check constraint, so a
      * bad value is a 400 here rather than a constraint violation surfacing as a 500.
+     *
+     * <p><b>{@code plan} is settable here (M2.3)</b> so a billing integration has somewhere to
+     * write an upgrade. It is deliberately NOT validated against the known plan names: this
+     * endpoint should not need redeploying to introduce a plan, and {@code PlanPolicy} in the BFF
+     * already fails closed on anything it does not recognise, so an unknown value grants the free
+     * tier rather than everything.
      */
     @PatchMapping("/accounts/{id}")
     public AccountResponse updateAccount(@PathVariable UUID id, @RequestBody AccountPatch patch) {
@@ -237,6 +258,9 @@ public class TenancyController {
         }
         if (patch.name() != null && !patch.name().isBlank()) {
             existing.setName(patch.name().trim());
+        }
+        if (patch.plan() != null && !patch.plan().isBlank()) {
+            existing.setPlan(patch.plan().trim().toLowerCase());
         }
 
         existing.setUpdatedAt(Instant.now());
@@ -476,7 +500,8 @@ public class TenancyController {
     public record ProvisionResponse(UUID accountId, UUID brandId, String accountType, String role) {
     }
 
-    public record AccountPatch(String accountType, String name) {
+    /** {@code plan} added for M2.3 — where a billing integration writes an upgrade. */
+    public record AccountPatch(String accountType, String name, String plan) {
     }
 
     public record AccountResponse(UUID id, String name, String accountType, String plan) {

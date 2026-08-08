@@ -113,7 +113,7 @@ Unchanged from UI-OPPORTUNITIES-ROADMAP §U1. It is the defining CRM gap — the
 
 | Item | Size | Verified state 2026-08-07 |
 |---|---|---|
-| **M2.3** `accounts.plan` enforcement | 3d | Zero repo-wide hits for `entitlement`, `quota`, or `PlanPolicy`. Still completely inert |
+| **M2.3** `accounts.plan` enforcement | 3d | ✅ Done. `PlanPolicy` + `EntitlementService` enforce at four creation points |
 | **M5.1** Real hosting target | 2d | ✅ Code done — ⏳ **deployment step outstanding** (see below) |
 | **M5.6** Expiry-warning scheduler | 1d | ✅ Done. `HostingExpiryScheduler` warns at 30/7/1 days |
 | **M8.3** Payout idempotency | — | ✅ Done. The payout id is now the idempotency key |
@@ -186,6 +186,63 @@ unannounced at the end of its extension.
 
 **Still required to actually deliver mail:** `web-experience.email.provider` is `log`. With the
 default the sweep runs, marks pages warned, and sends to nobody.
+
+---
+
+## Shipped 2026-08-07 (third cycle) — M2.3 plan enforcement
+
+**Totals after:** 178 BFF tests (was 158), 22 DAO, all passing.
+
+`accounts.plan` has existed since the Phase 2 tenancy migration, defaults to `'free'`, is stored,
+and is returned by the API — and **nothing had ever read it**. Every account had unlimited
+everything. The column did not merely do nothing; it reported a plan that meant nothing.
+
+**Tiers** (`PlanPolicy`, an enum — changing what a plan includes is a pricing decision and should
+appear in a diff):
+
+| | brands | creators | members | landing pages |
+|---|---|---|---|---|
+| `free` | 1 | 25 | 3 | 3 |
+| `pro` | 1 | 250 | 10 | 25 |
+| `agency` | ∞ | ∞ | ∞ | ∞ |
+
+Creator caps are in the range competitors meter at (MARKET-ANALYSIS.md §2). Multi-brand is what
+actually separates `agency` — the tiers differ in capability, not only in size.
+
+### Three decisions worth keeping
+
+**The plan is read live, never put in the JWT.** The token already carries `acc`, `role` and
+`perms`, so adding `plan` was the obvious move — and wrong. A plan in a token is frozen at issue
+time, so a customer who upgrades stays blocked until it expires. That is the single worst moment in
+the product to serve a stale answer. Creation is not a hot path; one extra read is cheap.
+
+**Unknown plans fail closed to `free`, never to unlimited.** The column is free text with no check
+constraint, so a typo or an unmigrated value is reachable — and must not become a silent free
+upgrade. A DAO outage falls back to `free` too: an outage must not be a way past the limits.
+
+**402, not 403.** The caller is authorized; their plan simply does not include this. 403 tells a UI
+to hide the action, 402 tells it to offer the upgrade. The message names the limit, the plan, the
+next tier, and says existing data is untouched.
+
+### Measured against the live database before choosing numbers
+
+Per-account maxima on 2026-08-07: **2 brands, 5 creators, 6 members, 2 landing pages.** Creator and
+page limits were set clear of that, so no existing account was frozen on release day. Two
+deliberately do bite — brands (1 account) and members (1 account). Both freeze at current size;
+nothing is deleted. Recorded as a decision in `PlanPolicyTest`, not left to be rediscovered.
+
+**Enforcement points:** creators, brands, invitations, landing pages. Two subtleties:
+- **Invitations count against the member limit.** Counting members alone would let an at-capacity
+  account send invitations that all fail on acceptance — the invitee hits the wall having done
+  nothing wrong, and the admin never sees an error.
+- **The landing-page endpoint is an upsert**, so the check fires only when it would actually
+  create. Checking unconditionally would turn a cap on how many pages you may *have* into a cap on
+  whether you may *edit* the ones you already own.
+
+**Also added:** `GET /api/brands/plan` returns the plan and current usage, so a limit is visible
+before it is hit rather than only as a 402; `GET /tenancy/accounts/{id}` in the DAO; and
+`PATCH /tenancy/accounts/{id}` now accepts `plan`, which is where a billing integration writes an
+upgrade. **Nothing sets a plan to anything but `free` yet** — that is M2.1/M2.2.
 
 ### UI depth
 

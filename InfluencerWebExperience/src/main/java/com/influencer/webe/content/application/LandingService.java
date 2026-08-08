@@ -539,6 +539,21 @@ public class LandingService {
         return saveTemplate(brandId, restore);
     }
 
+    /**
+     * Whether {@code saveTemplate} would update rather than create (M2.3).
+     *
+     * <p>Exists so the plan-limit check can distinguish the two. {@code saveTemplate} is an upsert
+     * on {@code (brandId, campaignId)}, so a limit applied to every call would stop an
+     * at-capacity account editing pages it already owns.
+     *
+     * <p>Errs toward "exists" on a null campaign: {@code saveTemplate} rejects that as a 400
+     * anyway, and answering "does not exist" would spend a plan check on a request that is about
+     * to fail validation.
+     */
+    public boolean existsForCampaign(UUID brandId, UUID campaignId) {
+        return campaignId == null || findTemplate(brandId, campaignId) != null;
+    }
+
     private JsonNode findTemplate(UUID brandId, UUID campaignId) {
         Map<String, String> q = new LinkedHashMap<>();
         q.put("brandId", brandId.toString());

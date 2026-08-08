@@ -5,13 +5,17 @@ import com.influencer.webe.identity.infrastructure.DaoTenancyClient;
 import com.influencer.webe.security.Permission;
 import com.influencer.webe.security.TenantContext;
 import com.influencer.webe.shared.application.RequestUserResolver;
+import com.influencer.webe.identity.application.EntitlementService;
 import com.influencer.webe.identity.application.MemberInvitationService;
+import com.influencer.webe.identity.application.PlanPolicy;
 import com.influencer.webe.identity.application.SessionService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.Instant;
+import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 
@@ -29,15 +33,18 @@ public class BrandsController {
     private final RequestUserResolver requestUserResolver;
     private final SessionService sessionService;
     private final MemberInvitationService invitationService;
+    private final EntitlementService entitlements;
 
     public BrandsController(DaoTenancyClient tenancyClient,
                             RequestUserResolver requestUserResolver,
                             SessionService sessionService,
-                            MemberInvitationService invitationService) {
+                            MemberInvitationService invitationService,
+                            EntitlementService entitlements) {
         this.tenancyClient = tenancyClient;
         this.requestUserResolver = requestUserResolver;
         this.sessionService = sessionService;
         this.invitationService = invitationService;
+        this.entitlements = entitlements;
     }
 
     /** Every brand the caller may reach, with the role they hold on each. */
@@ -86,7 +93,38 @@ public class BrandsController {
     public JsonNode create(@RequestHeader(value = "Authorization", required = false) String authorization,
                            @Valid @RequestBody CreateBrandRequest request) {
         TenantContext context = requestUserResolver.requirePermission(authorization, Permission.BRAND_CREATE);
+        // M2.3. Multi-brand is the agency tier's defining feature, so this is the limit that
+        // actually distinguishes the plans rather than merely sizing them.
+        entitlements.requireCapacity(context.accountId(), PlanPolicy.Resource.BRAND);
         return tenancyClient.createBrand(context.accountId(), request.name());
+    }
+
+    /**
+     * The caller's plan, and what they have used of it (M2.3).
+     *
+     * <p>Exists so a limit is visible <em>before</em> it is hit. Enforcement alone would mean a
+     * user discovers their plan only by being refused mid-task, which reads as a bug rather than
+     * a boundary. It also gives the UI what it needs to show "23 of 25 creators" rather than
+     * waiting to surface a 402.
+     *
+     * <p>Requires only a valid session, not a permission: everyone on an account can be told what
+     * that account's plan includes, and hiding it from non-admins would mean a member who cannot
+     * create a creator gets no explanation of why.
+     */
+    @GetMapping("/plan")
+    public PlanUsageResponse plan(@RequestHeader(value = "Authorization", required = false) String authorization) {
+        TenantContext context = requestUserResolver.requireTenantContext(authorization);
+        PlanPolicy plan = entitlements.planFor(context.accountId());
+
+        List<ResourceUsage> usage = Arrays.stream(PlanPolicy.Resource.values())
+                .map(resource -> new ResourceUsage(
+                        resource.name().toLowerCase(),
+                        resource.plural(),
+                        entitlements.currentUsage(context.accountId(), resource),
+                        plan.limitFor(resource)))
+                .toList();
+
+        return new PlanUsageResponse(plan.key(), usage);
     }
 
     /** Members of the caller's account. */
@@ -112,9 +150,87 @@ public class BrandsController {
     public InviteResponse invite(@RequestHeader(value = "Authorization", required = false) String authorization,
                                  @Valid @RequestBody InviteRequest request) {
         TenantContext context = requestUserResolver.requirePermission(authorization, Permission.MEMBER_INVITE);
+        // M2.3. Counts current members PLUS pending invitations. Counting members alone would let
+        // an account at its limit send any number of invitations that all fail on acceptance —
+        // the person who accepts hits the wall, having done nothing wrong, and the admin who
+        // invited them never sees an error.
+        entitlements.requireCapacity(context.accountId(), PlanPolicy.Resource.MEMBER,
+                entitlements.currentUsage(context.accountId(), PlanPolicy.Resource.MEMBER)
+                        + pendingInvitationCount(context));
         var created = invitationService.invite(
-                context.accountId(), context.userId(), request.email(), request.role(), request.brandId());
-        return new InviteResponse(created.invitation(), created.token());
+                context.accountId(), context.userId(), request.email(), request.role(), request.brandId(),
+                // Both are for the email body only. The inviter's email stands in for a display
+                // name, which the token does not carry — "nobody invited you" is worse than an
+                // address, and recipients ignore invitations from an unidentified sender.
+                brandNameFor(context, request.brandId()), context.email());
+        return new InviteResponse(created.invitation(), created.token(), created.emailDelivered());
+    }
+
+    /**
+     * Invitations that are still outstanding and would each become a member (M2.3).
+     *
+     * <p>Only {@code pending} ones count. A revoked or already-accepted invitation is not a future
+     * member — an accepted one is a member already, and counting it would charge the seat twice.
+     * Expired ones are excluded too: they cannot be redeemed, so holding a seat for them would
+     * make an account permanently smaller every time an invitation went unanswered.
+     *
+     * <p>Fails open on error, deliberately. If this count cannot be read, the member count alone
+     * still applies; blocking a legitimate invitation because a secondary lookup failed is the
+     * worse outcome, and the primary limit is still enforced.
+     */
+    private long pendingInvitationCount(TenantContext context) {
+        try {
+            JsonNode invitations = invitationService.list(context.accountId());
+            if (invitations == null || !invitations.isArray()) {
+                return 0;
+            }
+            Instant now = Instant.now();
+            long pending = 0;
+            for (JsonNode invitation : invitations) {
+                if (!"pending".equalsIgnoreCase(invitation.path("status").asText(""))) {
+                    continue;
+                }
+                String expiresAt = invitation.path("expiresAt").asText(null);
+                if (expiresAt != null) {
+                    try {
+                        if (Instant.parse(expiresAt).isBefore(now)) {
+                            continue;
+                        }
+                    } catch (Exception ignored) {
+                        // An unreadable expiry is treated as still pending — the conservative
+                        // reading, since the alternative under-counts and over-grants seats.
+                    }
+                }
+                pending++;
+            }
+            return pending;
+        } catch (RuntimeException e) {
+            return 0;
+        }
+    }
+
+    /**
+     * Best-effort brand name for the invitation email.
+     *
+     * <p>Falls back to null (which the composer renders as "a workspace") rather than failing:
+     * an invitation must not be blocked because a display string could not be resolved. An
+     * account-wide invite carries no brandId at all, in which case the caller's active brand is
+     * the closest thing to the workspace they mean.
+     */
+    private String brandNameFor(TenantContext context, UUID requestedBrandId) {
+        UUID target = requestedBrandId != null ? requestedBrandId : context.brandId();
+        if (target == null) {
+            return null;
+        }
+        try {
+            return tenancyClient.findAccessibleBrands(context.userId()).stream()
+                    .filter(brand -> target.equals(brand.brandId()))
+                    .map(DaoTenancyClient.BrandAccess::brandName)
+                    .findFirst()
+                    .orElse(null);
+        } catch (RuntimeException e) {
+            return null;
+        }
     }
 
     @GetMapping("/members/invitations")
@@ -168,6 +284,23 @@ public class BrandsController {
         tenancyClient.removeMember(context.accountId(), userId);
     }
 
+    /**
+     * The plan and its consumption (M2.3).
+     *
+     * @param plan  the plan key as enforced — the resolved policy, not the raw column, so an
+     *              unrecognised stored value reports the {@code free} limits actually applied
+     *              rather than a name nothing honours
+     */
+    public record PlanUsageResponse(String plan, List<ResourceUsage> usage) {
+    }
+
+    /**
+     * @param limit {@code -1} means unlimited. Sent as-is rather than as a large number so a UI
+     *              can render "unlimited" instead of an arbitrary ceiling that looks like a cap
+     */
+    public record ResourceUsage(String resource, String label, long used, int limit) {
+    }
+
     public record BrandSummary(
             UUID brandId,
             String brandName,
@@ -183,8 +316,15 @@ public class BrandsController {
     public record InviteRequest(@NotBlank String email, @NotBlank String role, UUID brandId) {
     }
 
-    /** {@code token} appears here and nowhere else — only its hash is persisted. */
-    public record InviteResponse(JsonNode invitation, String token) {
+    /**
+     * {@code token} appears here and nowhere else — only its hash is persisted.
+     *
+     * <p>{@code emailDelivered} tells the UI whether an email actually went out. It exists because
+     * the honest answer differs by environment: with the log-only provider nothing is delivered,
+     * and a screen that says "invitation sent" in that case is lying to the person who then waits
+     * for a reply that never comes. When false, the UI shows the token as the fallback it is.
+     */
+    public record InviteResponse(JsonNode invitation, String token, boolean emailDelivered) {
     }
 
     public record AcceptInviteRequest(@NotBlank String token) {

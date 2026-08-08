@@ -2,6 +2,8 @@ package com.influencer.webe.creator.api;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.influencer.webe.identity.application.EntitlementService;
+import com.influencer.webe.identity.application.PlanPolicy;
 import com.influencer.webe.shared.infrastructure.DaoGatewayClient;
 import com.influencer.webe.security.Permission;
 import com.influencer.webe.shared.application.RequestUserResolver;
@@ -20,13 +22,16 @@ public class CreatorsController {
     private final DaoGatewayClient daoGatewayClient;
     private final RequestUserResolver requestUserResolver;
     private final ResponseShapeService responseShapeService;
+    private final EntitlementService entitlements;
 
     public CreatorsController(DaoGatewayClient daoGatewayClient,
                               RequestUserResolver requestUserResolver,
-                              ResponseShapeService responseShapeService) {
+                              ResponseShapeService responseShapeService,
+                              EntitlementService entitlements) {
         this.daoGatewayClient = daoGatewayClient;
         this.requestUserResolver = requestUserResolver;
         this.responseShapeService = responseShapeService;
+        this.entitlements = entitlements;
     }
 
     @GetMapping
@@ -51,6 +56,10 @@ public class CreatorsController {
     public JsonNode create(@RequestHeader(value = "Authorization", required = false) String authorization,
                            @RequestBody ObjectNode payload) {
         var context = requestUserResolver.requirePermission(authorization, Permission.CREATOR_WRITE);
+        // M2.3. After the permission check, not before: "you may not do this" and "your plan does
+        // not include this" are different answers, and a caller without the permission should get
+        // the authorization one rather than being told to upgrade.
+        entitlements.requireCapacity(context.accountId(), PlanPolicy.Resource.CREATOR);
         payload.put("brandId", context.brandId().toString());
         // Who created the row is taken from the verified token, never from the request body:
         // an audit trail a caller can set is not an audit trail.

@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.influencer.webe.shared.infrastructure.DaoGatewayClient;
 import com.influencer.webe.content.application.LandingService;
+import com.influencer.webe.identity.application.EntitlementService;
+import com.influencer.webe.identity.application.PlanPolicy;
 import com.influencer.webe.shared.application.RequestUserResolver;
 import com.influencer.webe.shared.application.ResponseShapeService;
 import org.springframework.http.MediaType;
@@ -26,15 +28,18 @@ public class LandingController {
     private final DaoGatewayClient dao;
     private final RequestUserResolver requestUserResolver;
     private final ResponseShapeService shape;
+    private final EntitlementService entitlements;
 
     public LandingController(LandingService landingService,
                             DaoGatewayClient dao,
                             RequestUserResolver requestUserResolver,
-                            ResponseShapeService shape) {
+                            ResponseShapeService shape,
+                            EntitlementService entitlements) {
         this.landingService = landingService;
         this.dao = dao;
         this.requestUserResolver = requestUserResolver;
         this.shape = shape;
+        this.entitlements = entitlements;
     }
 
     // ---- brand-authenticated template management -----------------------
@@ -55,7 +60,16 @@ public class LandingController {
     @PostMapping("/api/landing-templates/save")
     public JsonNode save(@RequestHeader(value = "Authorization", required = false) String authorization,
                          @RequestBody ObjectNode payload) {
+        var context = requestUserResolver.requireTenantContext(authorization);
         UUID brandId = requestUserResolver.resolveBrandId(authorization, getUuid(payload, "brandId"));
+
+        // M2.3. This endpoint is an UPSERT, so the limit must apply only when it would actually
+        // create a page. Checking unconditionally would block every edit to an existing page the
+        // moment an account reached its limit — turning a cap on how many pages you may have into
+        // a cap on whether you may edit the ones you already have.
+        if (!landingService.existsForCampaign(brandId, getUuid(payload, "campaignId"))) {
+            entitlements.requireCapacity(context.accountId(), PlanPolicy.Resource.LANDING_PAGE);
+        }
         return landingService.saveTemplate(brandId, payload);
     }
 
