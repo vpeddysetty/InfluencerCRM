@@ -149,13 +149,42 @@ public class BillingWebhookService {
         }
     }
 
+    /**
+     * The status an event implies, which is not always the {@code status} field.
+     *
+     * <p><b>Stripe does not have a paused status.</b> A paused subscription keeps
+     * {@code status=active} and expresses the pause through {@code pause_collection.behavior}.
+     * Reading {@code status} alone therefore reverts a pause the moment Stripe echoes the change
+     * back — which is exactly what happened in live sandbox testing: pausing wrote
+     * {@code paused_at}, then Stripe's {@code customer.subscription.updated} arrived in the same
+     * second carrying {@code active} and put the account straight back on paid limits.
+     *
+     * <p>{@code pause_collection} present means paused; explicitly null means collection resumed.
+     * Absent entirely (a non-Stripe provider, or an event that does not mention it) falls through
+     * to {@code status}.
+     */
+    // Package-private so the mapping — the part that was actually wrong — is testable without a
+    // DAO, a web request or a live Stripe account.
+    static String statusFrom(JsonNode payload) {
+        String status = payload.path("status").asText("");
+        if (!payload.has("pause_collection")) {
+            return status;
+        }
+        if (payload.path("pause_collection").isNull()) {
+            // Collection resumed. Only override an otherwise-active status: a cancelled
+            // subscription also carries a null pause_collection, and must stay cancelled.
+            return status;
+        }
+        return SubscriptionState.PAUSED;
+    }
+
     private Outcome updateStatus(String provider, JsonNode payload) {
         JsonNode subscription = findByRef(provider, providerRef(payload));
         if (subscription == null) {
             return new Outcome(false, "No subscription matches that reference.");
         }
         String from = subscription.path("status").asText("");
-        String to = payload.path("status").asText("");
+        String to = statusFrom(payload);
         if (!SubscriptionState.canTransition(from, to)) {
             // Refused rather than forced. An out-of-order delivery — which at-least-once makes
             // possible — must not drag a cancelled subscription back to active.
