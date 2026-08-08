@@ -27,9 +27,19 @@ import java.util.Locale;
  *       states can be exercised independently</li>
  *   <li>everything else verifies and issues</li>
  * </ul>
+ *
+ * <p><b>No longer the default.</b> This bean previously carried {@code matchIfMissing = true}, so
+ * an environment that simply had not set {@code web-experience.domains.provider} got a registrar
+ * that verified every domain the caller did not deliberately name {@code unverified} — including
+ * domains they did not own. The rule above ("everything else verifies") is correct for a test
+ * double and catastrophic as a default: certificate issuance, host routing, and serving a page
+ * under a customer's name all treat {@code dnsStatus = active} as proof of control.
+ *
+ * <p>Selecting it is now explicit. {@link DnsDomainRegistrar} performs a real lookup and is the
+ * default; this one has to be asked for by name. See {@code application.properties}.
  */
 @Component
-@ConditionalOnProperty(name = "web-experience.domains.provider", havingValue = "mock", matchIfMissing = true)
+@ConditionalOnProperty(name = "web-experience.domains.provider", havingValue = "mock")
 public class MockDomainRegistrar implements DomainRegistrarPort {
 
     private final String hostingTarget;
