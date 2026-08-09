@@ -1,0 +1,73 @@
+# Local dev secrets for the Web Experience BFF.
+#
+# HOW TO USE:
+#   1. Copy this file to `application-local.properties` (same directory).
+#      That filename is git-ignored, so your real secrets are never committed.
+#   2. Fill in the real client id/secret from Google Cloud Console and Meta for Developers.
+#   3. Run the BFF with the `local` profile active, e.g.:
+#        mvn spring-boot:run -Dspring-boot.run.profiles=local
+#      or set:  SPRING_PROFILES_ACTIVE=local
+#
+# Alternatively, skip this file and export env vars instead:
+#   GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET,
+#   FACEBOOK_OAUTH_CLIENT_ID, FACEBOOK_OAUTH_CLIENT_SECRET
+
+web-experience.oauth.google.client-id=your-google-client-id.apps.googleusercontent.com
+web-experience.oauth.google.client-secret=your-google-client-secret
+
+web-experience.oauth.facebook.client-id=your-facebook-app-id
+web-experience.oauth.facebook.client-secret=your-facebook-app-secret
+
+# Override the UI origin here if you don't run the UI on http://localhost:5173
+# web-experience.ui-base-url=http://localhost:5173
+
+# --- Stripe sandbox (M2.1/M2.2) ---
+# Everything below is OPTIONAL. Leave it out and billing runs on ManualBillingProvider, which
+# records subscriptions, takes no money, and says so on screen.
+#
+# TO TEST WITH A STRIPE SANDBOX:
+#   1. Stripe Dashboard -> Developers -> API keys -> copy the TEST secret key (sk_test_...).
+#   2. Products -> create "Pro" and "Agency" recurring monthly prices -> copy each price id
+#      (price_...). Use the PRICE id, not the product id.
+#   3. Install the Stripe CLI and forward webhooks to the BFF:
+#        stripe listen --forward-to http://localhost:8081/api/billing/webhooks/stripe
+#      It prints a signing secret (whsec_...) — that is the webhook-secret below. It differs from
+#      the dashboard endpoint secret, so use the one the CLI prints while forwarding.
+#   4. Fill in the four values, restart with the `local` profile, and subscribe from /billing.
+#      Test card 4242 4242 4242 4242, any future expiry, any CVC.
+#
+# The BFF logs "running in TEST MODE" at startup for an sk_test_ key. Nothing here moves real
+# money, but the flow — hosted checkout, webhooks, pause, cancel — is the real one.
+#
+# web-experience.billing.provider=stripe
+# web-experience.billing.stripe.secret-key=sk_test_your_test_secret_key
+# web-experience.billing.stripe.price-pro=price_your_pro_price_id
+# web-experience.billing.stripe.price-agency=price_your_agency_price_id
+# web-experience.billing.webhook-secret=whsec_from_stripe_listen
+
+# --- JWT signing key (REQUIRED) ---
+# A persistent RSA JWK, including the private key. Without it the BFF refuses to start:
+# an ephemeral key cannot be verified by a second instance or by an extracted service,
+# which surfaces as intermittent 401s that look like a session bug rather than config.
+#
+# Generate one:
+#   see docs/keystore-rotation.md, "Generating a JWT signing key"
+#
+# web-experience.jwt-signing-key={"p":"...","kty":"RSA","q":"...","d":"...","n":"..."}
+#
+# For a single-process local run you may instead skip the key entirely with:
+#   web-experience.allow-ephemeral-jwt-key=true
+
+# --- Marketplace credential encryption (M3.1) ---
+# Only needed once you connect a marketplace that uses REAL credentials. The mock provider is
+# exempt, so the default local setup (mock store, coupon push, attribution) needs nothing here.
+#
+# When you do connect a real store, this is required: without it the connect call is refused with a
+# 503 rather than writing store tokens to the database in the clear. The check runs BEFORE the
+# vendor handshake, so a refusal never leaves a live grant stranded at the vendor.
+#
+# Generate:
+#   openssl rand -base64 32
+#
+# web-experience.marketplace.credential-key=your_base64_32_byte_key
+# web-experience.marketplace.credential-key-id=local

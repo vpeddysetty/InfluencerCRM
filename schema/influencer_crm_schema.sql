@@ -13,13 +13,8 @@ create extension if not exists vector;        -- for pgvector embeddings
 create type user_role       as enum ('owner', 'marketer');
 create type platform_type   as enum ('instagram', 'tiktok', 'youtube', 'other');
 create type campaign_status as enum ('draft', 'active', 'completed', 'archived');
-create type pipeline_stage  as enum ('outreach', 'agreed', 'shipped', 'posted', 'paid');
 create type interaction_type as enum ('note', 'email', 'dm');
 create type content_review_status as enum ('not_requested', 'requested', 'in_review', 'approved', 'rejected');
-create type workflow_actor as enum ('brand_owner', 'creator', 'system');
-create type workflow_task_status as enum ('todo', 'in_progress', 'blocked', 'submitted', 'approved', 'rejected', 'done');
-create type approval_decision as enum ('approved', 'changes_requested', 'rejected');
-create type payout_status as enum ('draft', 'pending', 'scheduled', 'paid', 'failed', 'cancelled');
 create type attribution_platform as enum ('instagram', 'tiktok', 'youtube', 'shopify', 'amazon', 'woocommerce', 'direct', 'other');
 create type attribution_status as enum ('pending', 'attributed', 'refunded', 'cancelled');
 
@@ -173,22 +168,6 @@ create table campaign_creators (
     unique (campaign_id, creator_id)
 );
 
--- =============================================================
--- campaign_type_workflow_stages  (workflow definition by campaign type)
--- =============================================================
-create table campaign_type_workflow_stages (
-    id            uuid primary key default gen_random_uuid(),
-    user_id       uuid not null references users(id) on delete cascade,
-    campaign_type text not null,
-    stage_key     pipeline_stage not null,
-    stage_label   text not null,
-    position      integer not null default 0,
-    is_active     boolean not null default true,
-    created_at    timestamptz not null default now(),
-    updated_at    timestamptz not null default now(),
-    unique (user_id, campaign_type, stage_key)
-);
-
 -- Seed recommendation for campaign types:
 -- product seeding, sponsored content, gifting, affiliate campaigns, brand ambassador programs.
 
@@ -225,102 +204,65 @@ create table mapping_examples (
 );
 
 -- =============================================================
--- creator_workflow_tasks  (operational work items between brand-owner and creator)
+-- workflow_boards  (kanban-like boards for brand-owner <-> creator relationship
+-- management over a campaign lifecycle; NOT tied to any campaign). Up to 10 per
+-- user, one active at a time (is_active = the radio selection). Enforced in DAO.
 -- =============================================================
-create table creator_workflow_tasks (
-    id                  uuid primary key default gen_random_uuid(),
-    user_id             uuid not null references users(id) on delete cascade,
-    campaign_creator_id uuid not null references campaign_creators(id) on delete cascade,
-    task_type           text not null default 'task',
-    stage_key           pipeline_stage,
-    title               text not null,
-    description         text,
-    assignee_actor      workflow_actor not null default 'brand_owner',
-    assignee_creator_id uuid references creators(id) on delete set null,
-    agreed_fee          numeric(12,2),
-    tags                jsonb not null default '[]'::jsonb,
-    status              workflow_task_status not null default 'todo',
-    priority            text not null default 'medium',
-    due_at              timestamptz,
-    started_at          timestamptz,
-    completed_at        timestamptz,
-    metadata            jsonb not null default '{}'::jsonb,
-    created_by_actor    workflow_actor not null default 'brand_owner',
-    created_at          timestamptz not null default now(),
-    updated_at          timestamptz not null default now(),
-    constraint creator_workflow_tasks_assignee_ck
-        check (
-            (assignee_actor = 'creator' and assignee_creator_id is not null)
-            or assignee_actor in ('brand_owner', 'system')
-        )
+create table workflow_boards (
+    id          uuid primary key default gen_random_uuid(),
+    user_id     uuid not null references users(id) on delete cascade,
+    name        text not null,
+    start_date  date,
+    end_date    date,
+    is_active   boolean not null default false,
+    position    integer not null default 0,
+    created_at  timestamptz not null default now(),
+    updated_at  timestamptz not null default now()
 );
 
--- =============================================================
--- creator_workflow_approvals  (submission / review rounds for creator deliverables)
--- =============================================================
-create table creator_workflow_approvals (
-    id                  uuid primary key default gen_random_uuid(),
-    user_id             uuid not null references users(id) on delete cascade,
-    campaign_creator_id uuid not null references campaign_creators(id) on delete cascade,
-    review_round        integer not null default 1,
-    submission_url      text,
-    submission_notes    text,
-    submitted_by_actor  workflow_actor not null default 'creator',
-    submitted_at        timestamptz not null default now(),
-    decision            approval_decision,
-    decision_notes      text,
-    decided_by_actor    workflow_actor,
-    decided_at          timestamptz,
-    metadata            jsonb not null default '{}'::jsonb,
-    created_at          timestamptz not null default now(),
-    constraint creator_workflow_approvals_decision_ck
-        check (
-            (decision is null and decided_at is null and decided_by_actor is null)
-            or (decision is not null and decided_at is not null and decided_by_actor is not null)
-        )
+create index if not exists idx_workflow_boards_user
+    on workflow_boards(user_id, position);
+
+-- The ordered, customizable stages a board owns.
+create table workflow_board_stages (
+    id          uuid primary key default gen_random_uuid(),
+    user_id     uuid not null references users(id) on delete cascade,
+    board_id    uuid not null references workflow_boards(id) on delete cascade,
+    stage_name  text not null,
+    position    integer not null default 0,
+    created_at  timestamptz not null default now(),
+    updated_at  timestamptz not null default now()
 );
 
--- =============================================================
--- creator_workflow_payments  (creator payout operations)
--- =============================================================
-create table creator_workflow_payments (
-    id                  uuid primary key default gen_random_uuid(),
-    user_id             uuid not null references users(id) on delete cascade,
-    campaign_creator_id uuid not null references campaign_creators(id) on delete cascade,
-    currency            text not null default 'USD',
-    amount              numeric(12,2) not null,
-    status              payout_status not null default 'draft',
-    invoice_reference   text,
-    payment_provider    text,
-    provider_txn_id     text,
-    notes               text,
-    scheduled_at        timestamptz,
-    paid_at             timestamptz,
-    failed_at           timestamptz,
-    metadata            jsonb not null default '{}'::jsonb,
-    created_at          timestamptz not null default now(),
-    updated_at          timestamptz not null default now()
+create index if not exists idx_workflow_board_stages_board
+    on workflow_board_stages(board_id, position);
+
+-- A workflow card associates a campaign to a creator, carries its own name and
+-- relationship attributes, and is the task placed on a board. Starts unassigned
+-- (no board); dragging it onto a board/stage sets board_id + stage_id. Deleting
+-- a board cascades its cards; deleting a stage nulls the card's stage_id.
+create table workflow_cards (
+    id            uuid primary key default gen_random_uuid(),
+    user_id       uuid not null references users(id) on delete cascade,
+    campaign_id   uuid not null references campaigns(id) on delete cascade,
+    creator_id    uuid not null references creators(id) on delete cascade,
+    board_id      uuid references workflow_boards(id) on delete cascade,
+    stage_id      uuid references workflow_board_stages(id) on delete set null,
+    name          text not null,
+    status        text not null default 'todo',
+    agreed_fee    numeric(12,2),
+    fee_currency  text not null default 'USD',
+    notes         text,
+    tags          jsonb not null default '[]'::jsonb,
+    position      integer not null default 0,
+    created_at    timestamptz not null default now(),
+    updated_at    timestamptz not null default now()
 );
 
--- =============================================================
--- creator_workflow_events  (immutable timeline for auditing handoffs)
--- =============================================================
-create table creator_workflow_events (
-    id                  uuid primary key default gen_random_uuid(),
-    user_id             uuid not null references users(id) on delete cascade,
-    campaign_creator_id uuid not null references campaign_creators(id) on delete cascade,
-    actor               workflow_actor not null default 'system',
-    actor_creator_id    uuid references creators(id) on delete set null,
-    event_type          text not null,
-    event_body          text,
-    event_data          jsonb not null default '{}'::jsonb,
-    created_at          timestamptz not null default now(),
-    constraint creator_workflow_events_actor_ck
-        check (
-            (actor = 'creator' and actor_creator_id is not null)
-            or actor in ('brand_owner', 'system')
-        )
-);
+create index if not exists idx_workflow_cards_user      on workflow_cards(user_id);
+create index if not exists idx_workflow_cards_board     on workflow_cards(board_id, stage_id, position);
+create index if not exists idx_workflow_cards_campaign  on workflow_cards(campaign_id);
+create index if not exists idx_workflow_cards_creator   on workflow_cards(creator_id);
 
 -- =============================================================
 -- influencer_campaign_codes  (creator campaign/referral/discount codes)
@@ -398,19 +340,6 @@ create index idx_mapping_examples_quality on mapping_examples(quality_score desc
 create index idx_mapping_examples_embedding_cos
     on mapping_examples using ivfflat (signature_embedding vector_cosine_ops)
     with (lists = 100);
-create index idx_cwt_user                 on creator_workflow_tasks(user_id);
-create index idx_cwt_campaign_creator     on creator_workflow_tasks(campaign_creator_id);
-create index idx_cwt_task_type_stage      on creator_workflow_tasks(task_type, stage_key, due_at);
-create index idx_cwt_status_due           on creator_workflow_tasks(status, due_at);
-create index idx_cwa_user                 on creator_workflow_approvals(user_id);
-create index idx_cwa_campaign_creator     on creator_workflow_approvals(campaign_creator_id);
-create index idx_cwa_submitted_at         on creator_workflow_approvals(submitted_at);
-create index idx_cwp_user                 on creator_workflow_payments(user_id);
-create index idx_cwp_campaign_creator     on creator_workflow_payments(campaign_creator_id);
-create index idx_cwp_status_scheduled     on creator_workflow_payments(status, scheduled_at);
-create index idx_cwe_user                 on creator_workflow_events(user_id);
-create index idx_cwe_campaign_creator     on creator_workflow_events(campaign_creator_id);
-create index idx_cwe_created_at           on creator_workflow_events(created_at);
 create index idx_icc_user                 on influencer_campaign_codes(user_id);
 create index idx_icc_campaign_creator     on influencer_campaign_codes(campaign_id, creator_id);
 create index idx_icc_code                 on influencer_campaign_codes(code);
@@ -436,7 +365,5 @@ create trigger trg_creators_updated    before update on creators          for ea
 create trigger trg_campaigns_updated   before update on campaigns         for each row execute function set_updated_at();
 create trigger trg_cc_updated          before update on campaign_creators for each row execute function set_updated_at();
 create trigger trg_mapping_examples_updated before update on mapping_examples for each row execute function set_updated_at();
-create trigger trg_cwt_updated         before update on creator_workflow_tasks    for each row execute function set_updated_at();
-create trigger trg_cwp_updated         before update on creator_workflow_payments for each row execute function set_updated_at();
 create trigger trg_icc_updated         before update on influencer_campaign_codes for each row execute function set_updated_at();
 create trigger trg_isa_updated         before update on influencer_sale_attributions for each row execute function set_updated_at();

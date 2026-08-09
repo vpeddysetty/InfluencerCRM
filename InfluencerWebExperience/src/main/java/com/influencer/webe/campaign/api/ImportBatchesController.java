@@ -1,0 +1,180 @@
+package com.influencer.webe.campaign.api;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.influencer.webe.campaign.infrastructure.AgentMappingClient;
+import com.influencer.webe.shared.infrastructure.DaoGatewayClient;
+import com.influencer.webe.security.Permission;
+import com.influencer.webe.shared.application.RequestUserResolver;
+import com.influencer.webe.shared.application.ResponseShapeService;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.server.ResponseStatusException;
+
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+
+@RestController
+@RequestMapping("/api/import-batches")
+public class ImportBatchesController {
+    private final DaoGatewayClient daoGatewayClient;
+    private final AgentMappingClient agentMappingClient;
+    private final RequestUserResolver requestUserResolver;
+    private final ResponseShapeService responseShapeService;
+
+    public ImportBatchesController(DaoGatewayClient daoGatewayClient,
+                                   AgentMappingClient agentMappingClient,
+                                   RequestUserResolver requestUserResolver,
+                                   ResponseShapeService responseShapeService) {
+        this.daoGatewayClient = daoGatewayClient;
+        this.agentMappingClient = agentMappingClient;
+        this.requestUserResolver = requestUserResolver;
+        this.responseShapeService = responseShapeService;
+    }
+
+    @GetMapping
+    public JsonNode list(@RequestHeader(value = "Authorization", required = false) String authorization,
+                         @RequestParam(required = false) UUID brandId,
+                         @RequestParam(required = false) Integer page,
+                         @RequestParam(required = false) Integer size) {
+        UUID resolvedBrandId = requestUserResolver.requirePermissionForBrand(authorization, Permission.CAMPAIGN_READ);
+        Map<String, String> query = new LinkedHashMap<>();
+        query.put("brandId", resolvedBrandId.toString());
+        return responseShapeService.importBatchesList(daoGatewayClient.get("/import-batches", query), page, size);
+    }
+
+    @GetMapping("/{id}")
+    public JsonNode findById(@RequestHeader(value = "Authorization", required = false) String authorization,
+                             @RequestParam(required = false) UUID brandId,
+                             @PathVariable UUID id) {
+        return responseShapeService.importBatch(requireOwnedImportBatch(authorization, brandId, id));
+    }
+
+    @GetMapping("/{id}/columns")
+    public JsonNode columns(@RequestHeader(value = "Authorization", required = false) String authorization,
+                            @RequestParam(required = false) UUID brandId,
+                            @PathVariable UUID id) {
+        // An import batch's column headers describe the uploaded file, so this needs the same
+        // ownership check as the batch itself rather than being treated as harmless metadata.
+        requireOwnedImportBatch(authorization, brandId, id);
+        return daoGatewayClient.get("/import-batches/" + id + "/columns", null);
+    }
+
+    @PostMapping("/{id}/agent-column-mapping")
+    public JsonNode generateAgentColumnMapping(@PathVariable UUID id) {
+        JsonNode storedColumnsResult = daoGatewayClient.get("/import-batches/" + id + "/columns", null);
+        ArrayNode columnsNode = storedColumnsResult != null && storedColumnsResult.has("columns") && storedColumnsResult.get("columns").isArray()
+                ? (ArrayNode) storedColumnsResult.get("columns")
+                : responseShapeService.objectMapper().createArrayNode();
+
+        ObjectNode response = responseShapeService.objectMapper().createObjectNode();
+        response.put("importBatchId", id.toString());
+        if (storedColumnsResult != null && storedColumnsResult.hasNonNull("sourceFilename")) {
+            response.set("sourceFilename", storedColumnsResult.get("sourceFilename"));
+        }
+        response.set("columns", columnsNode);
+        response.set("mapping", agentMappingClient.mapColumns(responseShapeService.asStringList(columnsNode)));
+        return response;
+    }
+
+    @PostMapping("/discover")
+    public JsonNode discover(@RequestHeader(value = "Authorization", required = false) String authorization,
+                             @RequestParam(required = false) UUID brandId,
+                             @RequestPart("file") MultipartFile file) throws IOException {
+        UUID resolvedBrandId = requestUserResolver.resolveBrandId(authorization, brandId);
+        Map<String, String> fields = new LinkedHashMap<>();
+        fields.put("brandId", resolvedBrandId.toString());
+        return responseShapeService.importDiscoverResult(daoGatewayClient.postMultipart(
+                "/import-batches/discover",
+                fields,
+                "file",
+                file.getOriginalFilename() == null ? "upload.bin" : file.getOriginalFilename(),
+                file.getBytes(),
+            file.getContentType()));
+    }
+
+    @PostMapping("/discover-multi")
+    public JsonNode discoverMulti(@RequestHeader(value = "Authorization", required = false) String authorization,
+                                  @RequestParam(required = false) UUID brandId,
+                                  @RequestPart("files") MultipartFile[] files) throws IOException {
+        UUID resolvedBrandId = requestUserResolver.resolveBrandId(authorization, brandId);
+        Map<String, String> fields = new LinkedHashMap<>();
+        fields.put("brandId", resolvedBrandId.toString());
+
+        List<DaoGatewayClient.MultipartFilePart> fileParts = new ArrayList<>();
+        if (files != null) {
+            for (MultipartFile file : files) {
+                if (file == null || file.isEmpty()) {
+                    continue;
+                }
+                fileParts.add(new DaoGatewayClient.MultipartFilePart(
+                        "files",
+                        file.getOriginalFilename() == null ? "upload.bin" : file.getOriginalFilename(),
+                        file.getBytes(),
+                        file.getContentType()));
+            }
+        }
+
+        return responseShapeService.importDiscoverResult(daoGatewayClient.postMultipartFiles(
+                "/import-batches/discover-multi",
+                fields,
+                fileParts));
+    }
+
+    @PostMapping("/{id}/preview")
+    public JsonNode preview(@PathVariable UUID id, @RequestBody JsonNode payload) {
+        return responseShapeService.importPreviewResult(daoGatewayClient.post("/import-batches/" + id + "/preview", payload));
+    }
+
+    @PatchMapping("/{id}/column-mapping")
+    public JsonNode updateMapping(@PathVariable UUID id, @RequestBody JsonNode payload) {
+        return responseShapeService.importBatch(daoGatewayClient.patch("/import-batches/" + id + "/column-mapping", payload));
+    }
+
+    @PostMapping("/{id}/hydrate")
+    public JsonNode hydrate(@PathVariable UUID id, @RequestBody JsonNode payload) {
+        return responseShapeService.importHydrateResult(daoGatewayClient.post("/import-batches/" + id + "/hydrate", payload));
+    }
+
+    @DeleteMapping("/{id}")
+    public void delete(@RequestHeader(value = "Authorization", required = false) String authorization,
+                       @RequestParam(required = false) UUID brandId,
+                       @PathVariable UUID id) {
+        deleteOwnedImportBatch(authorization, brandId, id);
+    }
+
+    @PostMapping("/{id}/delete")
+    public void deleteViaPost(@RequestHeader(value = "Authorization", required = false) String authorization,
+                              @RequestParam(required = false) UUID brandId,
+                              @PathVariable UUID id) {
+        deleteOwnedImportBatch(authorization, brandId, id);
+    }
+
+    private void deleteOwnedImportBatch(String authorization, UUID brandId, UUID id) {
+        requireOwnedImportBatch(authorization, brandId, id);
+        daoGatewayClient.delete("/import-batches/" + id);
+    }
+
+    /**
+     * Fetches an import batch and asserts it belongs to the caller's brand.
+     *
+     * <p>Extracted from the delete path so the read routes enforce the same rule: a lookup by id
+     * carries no brand filter, so without this any caller knowing a UUID could read another
+     * tenant's batch and its column headers.
+     */
+    private JsonNode requireOwnedImportBatch(String authorization, UUID brandId, UUID id) {
+        UUID resolvedBrandId = requestUserResolver.resolveBrandId(authorization, brandId);
+        JsonNode existing = daoGatewayClient.get("/import-batches/" + id, null);
+        String ownerId = existing != null && existing.hasNonNull("brandId") ? existing.get("brandId").asText() : null;
+        if (ownerId == null || !resolvedBrandId.toString().equals(ownerId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Import batch does not belong to authenticated user");
+        }
+        return existing;
+    }
+}

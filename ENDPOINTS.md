@@ -10,7 +10,9 @@ Base module: InfluencerWebExperience
 - GET /health
 
 ### Auth
-- POST /api/auth/signup
+- POST /api/auth/signup — body `{ email, password, brandName, accountType? }`.
+  `accountType` is `brand` (default) or `agency`; any other value, or an unrecognised
+  field, is a 400 rather than being silently ignored.
 - POST /api/auth/login
 - POST /api/auth/logout
 - POST /api/auth/google/signup
@@ -19,6 +21,30 @@ Base module: InfluencerWebExperience
 - GET /api/auth/oauth/google/callback
 - GET /api/auth/oauth/facebook/start
 - GET /api/auth/oauth/facebook/callback
+
+### Account members & invitations
+- GET /api/brands/members
+- POST /api/brands/members/invite — `{ email, role, brandId? }`; returns the one-time token.
+  `OWNER` cannot be granted this way. Only its hash is stored.
+- GET /api/brands/members/invitations
+- POST /api/brands/members/invitations/accept — `{ token }`, as the signed-in user
+- POST /api/brands/members/invitations/{id}/revoke
+- PUT /api/brands/members/{userId} — change role (not your own)
+- DELETE /api/brands/members/{userId}
+
+### Creator portal
+Creator routes authenticate with `X-Creator-Token`, never the operator JWT — a creator has no
+account, brand or role. Brand-side routes use the normal bearer token.
+- POST /api/creator-portal/auth/signup
+- POST /api/creator-portal/auth/login
+- POST /api/creator-portal/auth/logout
+- GET /api/creator-portal/me
+- GET /api/creator-portal/collaborations — every brand record confirmed as this creator
+- POST /api/creator-portal/claims — assert a brand's creator record is you (unverified)
+- GET /api/creator-portal/claims
+- GET /api/creator-portal/pending-claims — brand side; claims awaiting a decision
+- POST /api/creator-portal/claims/{linkId}/{approve|reject} — brand side
+- POST /api/creator-portal/invite — brand side; links a creator as confirmed
 
 ### Campaigns
 - GET /api/campaigns
@@ -54,29 +80,20 @@ Base module: InfluencerWebExperience
 - DELETE /api/import-batches/{id}
 - POST /api/import-batches/{id}/delete
 
-### Creator Workflow
-- GET /api/campaign-type-workflow-stages
-- PUT /api/campaign-type-workflow-stages/replace
-- GET /api/creator-workflow-tasks
-- GET /api/creator-workflow-tasks/{id}
-- POST /api/creator-workflow-tasks
-- PUT /api/creator-workflow-tasks/{id}
-- DELETE /api/creator-workflow-tasks/{id}
-- GET /api/creator-workflow-approvals
-- GET /api/creator-workflow-approvals/{id}
-- POST /api/creator-workflow-approvals
-- PUT /api/creator-workflow-approvals/{id}
-- DELETE /api/creator-workflow-approvals/{id}
-- GET /api/creator-workflow-payments
-- GET /api/creator-workflow-payments/{id}
-- POST /api/creator-workflow-payments
-- PUT /api/creator-workflow-payments/{id}
-- DELETE /api/creator-workflow-payments/{id}
-- GET /api/creator-workflow-events
-- GET /api/creator-workflow-events/{id}
-- POST /api/creator-workflow-events
-- PUT /api/creator-workflow-events/{id}
-- DELETE /api/creator-workflow-events/{id}
+### Workflow Boards
+- GET /api/workflow-boards
+- GET /api/workflow-boards/{id}
+- POST /api/workflow-boards
+- PUT /api/workflow-boards/{id}
+- DELETE /api/workflow-boards/{id}
+- GET /api/workflow-board-stages
+- PUT /api/workflow-board-stages/replace
+- GET /api/workflow-cards
+- GET /api/workflow-cards/{id}
+- POST /api/workflow-cards
+- PUT /api/workflow-cards/{id}
+- PUT /api/workflow-cards/{id}/placement
+- DELETE /api/workflow-cards/{id}
 
 ### Influencer Tracking
 - GET /api/influencer-campaign-codes
@@ -101,6 +118,33 @@ Base module: InfluencerDAO
 - POST /users
 - PUT /users/{id}
 - DELETE /users/{id}
+
+### Tenancy
+- GET /tenancy/users/{userId}/brands
+- GET /tenancy/users/{userId}/account — the account provisioned for a user, via `legacy_user_id`
+- GET /tenancy/brands/{id}
+- GET /tenancy/accounts/{accountId}/brands
+- GET /tenancy/accounts/{accountId}/members
+- POST /tenancy/provision — account + brand + membership in one transaction; idempotent
+- POST /tenancy/brands
+- PUT /tenancy/brands/{id}
+- PATCH /tenancy/accounts/{id} — sets `accountType` (`brand` | `agency`) and/or `name`
+- PUT /tenancy/accounts/{accountId}/members/{userId} — change role
+- DELETE /tenancy/accounts/{accountId}/members/{userId}
+- POST /tenancy/accounts/{accountId}/invitations
+- GET /tenancy/accounts/{accountId}/invitations
+- GET /tenancy/invitations/by-token/{tokenHash}
+- POST /tenancy/invitations/{id}/accept
+- POST /tenancy/invitations/{id}/revoke
+
+### Creator identities
+- POST /creator-identities
+- GET /creator-identities/by-email
+- GET /creator-identities/{id}
+- POST /creator-identities/{identityId}/links
+- GET /creator-identities/{identityId}/links
+- GET /creator-identities/links/pending
+- POST /creator-identities/links/{linkId}/decision
 
 ### Campaigns
 - GET /campaigns
@@ -151,32 +195,23 @@ Base module: InfluencerDAO
 - PUT /interactions/{id}
 - DELETE /interactions/{id}
 
-### Creator Workflow
-- GET /campaign-type-workflow-stages
-- POST /campaign-type-workflow-stages
-- PUT /campaign-type-workflow-stages/{id}
-- PUT /campaign-type-workflow-stages/replace
-- DELETE /campaign-type-workflow-stages/{id}
-- GET /creator-workflow-tasks
-- GET /creator-workflow-tasks/{id}
-- POST /creator-workflow-tasks
-- PUT /creator-workflow-tasks/{id}
-- DELETE /creator-workflow-tasks/{id}
-- GET /creator-workflow-approvals
-- GET /creator-workflow-approvals/{id}
-- POST /creator-workflow-approvals
-- PUT /creator-workflow-approvals/{id}
-- DELETE /creator-workflow-approvals/{id}
-- GET /creator-workflow-payments
-- GET /creator-workflow-payments/{id}
-- POST /creator-workflow-payments
-- PUT /creator-workflow-payments/{id}
-- DELETE /creator-workflow-payments/{id}
-- GET /creator-workflow-events
-- GET /creator-workflow-events/{id}
-- POST /creator-workflow-events
-- PUT /creator-workflow-events/{id}
-- DELETE /creator-workflow-events/{id}
+### Workflow Boards
+- GET /workflow-boards
+- GET /workflow-boards/{id}
+- POST /workflow-boards
+- PUT /workflow-boards/{id}
+- DELETE /workflow-boards/{id}
+- GET /workflow-board-stages
+- POST /workflow-board-stages
+- PUT /workflow-board-stages/{id}
+- PUT /workflow-board-stages/replace
+- DELETE /workflow-board-stages/{id}
+- GET /workflow-cards
+- GET /workflow-cards/{id}
+- POST /workflow-cards
+- PUT /workflow-cards/{id}
+- PUT /workflow-cards/{id}/placement
+- DELETE /workflow-cards/{id}
 
 ### Influencer Attribution
 - GET /influencer-campaign-codes

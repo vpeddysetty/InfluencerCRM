@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Centralized, asynchronous, machine-readable logging.
+
+  THE SHARED FILE. Every service writes JSON lines into the same directory (LOG_DIR, default
+  ./logs), one file per service. A scraper tails the directory and gets the whole platform, with
+  `rid` correlating one browser action across all of them.
+
+  WHY ASYNC. A synchronous file appender makes every log statement a disk write on the request
+  thread. Under load that turns logging into the bottleneck, and — worse — an I/O stall on the log
+  volume becomes an application stall. AsyncAppender hands off to a bounded queue so the request
+  thread returns immediately.
+
+  THE TWO SETTINGS THAT MATTER ON AsyncAppender, both non-default on purpose:
+
+    discardingThreshold=0
+      By default AsyncAppender starts DROPPING events when the queue is 80% full, and it drops
+      TRACE/DEBUG/INFO first — keeping WARN/ERROR. That sounds sensible and is exactly wrong for
+      support: the INFO lines leading up to a failure are the context that explains it, and they
+      vanish precisely during the incident that filled the queue. 0 means discard nothing.
+
+    neverBlock=false
+      With discarding off, a full queue must either block the caller or drop. Blocking briefly is
+      the right answer for an audit-adjacent log: losing the record of a security decision is worse
+      than a few milliseconds of latency. If that trade is ever wrong for a given deployment, this
+      is the one line to change.
+
+  ROLLING. Size-and-time based, 100MB per file, 14 days, 3GB total cap. The cap is the important
+  one — an uncapped log directory fills the disk, and a full disk takes the application down. That
+  turns a logging concern into an outage.
+-->
+<configuration scan="false">
+
+    <springProperty scope="context" name="SERVICE_NAME" source="spring.application.name" defaultValue="dao"/>
+    <!-- One directory for every service: a scraper tails the directory, not N paths, and `rid`
+         joins the lines across them. Override with LOG_DIR in a container deploy. -->
+    <property name="LOG_DIR" value="${LOG_DIR:-../logs}"/>
+
+    <!-- Human-readable, for someone watching a terminal. Not the scraper's input. -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} %-5level [%X{rid:-—}] %logger{28} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <appender name="JSON_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_DIR}/influencrm-${SERVICE_NAME}.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_DIR}/influencrm-${SERVICE_NAME}.%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
+            <maxFileSize>100MB</maxFileSize>
+            <maxHistory>14</maxHistory>
+            <totalSizeCap>3GB</totalSizeCap>
+            <cleanHistoryOnStart>false</cleanHistoryOnStart>
+        </rollingPolicy>
+        <encoder class="com.influencer.platform.observability.JsonLogEncoder">
+            <service>${SERVICE_NAME}</service>
+        </encoder>
+    </appender>
+
+    <appender name="ASYNC_JSON" class="ch.qos.logback.classic.AsyncAppender">
+        <appender-ref ref="JSON_FILE"/>
+        <queueSize>8192</queueSize>
+        <discardingThreshold>0</discardingThreshold>
+        <neverBlock>false</neverBlock>
+        <!-- Flush the queue on shutdown, or the last seconds before a crash — the interesting
+             ones — are lost with the JVM. -->
+        <includeCallerData>false</includeCallerData>
+    </appender>
+
+    <!--
+      DEBUG for our own packages, INFO for everything else. Framework DEBUG is overwhelmingly
+      noise that buries the application's own lines and multiplies the file size, which shortens
+      the window the 3GB cap can retain.
+    -->
+    <logger name="com.influencer" level="DEBUG"/>
+
+    <!-- Deliberately quieted: these log a line per request/statement at DEBUG. -->
+    <logger name="org.springframework.web" level="INFO"/>
+    <logger name="org.hibernate" level="INFO"/>
+    <logger name="org.apache" level="INFO"/>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="ASYNC_JSON"/>
+    </root>
+</configuration>

@@ -2,14 +2,27 @@
 -- This file is executed by the official postgres image when mounted in /docker-entrypoint-initdb.d.
 
 \i /docker-entrypoint-initdb.d/migrations/2026_07_17_custom_attributes_and_review_sync.sql
-\i /docker-entrypoint-initdb.d/migrations/2026_07_19_creator_brand_owner_workflow.sql
 \i /docker-entrypoint-initdb.d/migrations/2026_07_19_influencer_code_attribution_tracking.sql
 \i /docker-entrypoint-initdb.d/migrations/2026_07_21_import_batch_source_file.sql
 \i /docker-entrypoint-initdb.d/migrations/2026_07_21_import_batch_hydration_status.sql
-\i /docker-entrypoint-initdb.d/migrations/2026_07_21_workflow_swimlanes.sql
-\i /docker-entrypoint-initdb.d/migrations/2026_07_21_remove_workflow_swimlanes.sql
-\i /docker-entrypoint-initdb.d/migrations/2026_07_21_campaign_type_and_workflow_setup.sql
-\i /docker-entrypoint-initdb.d/migrations/2026_07_21_campaign_type_presets_seed.sql
-\i /docker-entrypoint-initdb.d/migrations/2026_07_21_workflow_setup_tie_existing_campaigns_work_items.sql
-\i /docker-entrypoint-initdb.d/migrations/2026_07_21_workflow_tasks_drive_stage.sql
 \i /docker-entrypoint-initdb.d/migrations/2026_07_21_mapping_examples_alignment.sql
+\i /docker-entrypoint-initdb.d/migrations/2026_07_26_workflow_boards.sql
+\i /docker-entrypoint-initdb.d/migrations/2026_07_26_workflow_cards.sql
+\i /docker-entrypoint-initdb.d/migrations/2026_07_27_coupons_marketplace_commissions.sql
+\i /docker-entrypoint-initdb.d/migrations/2026_08_01_content_creation.sql
+\i /docker-entrypoint-initdb.d/migrations/2026_08_02_creator_collaboration.sql
+\i /docker-entrypoint-initdb.d/migrations/2026_08_02_accounts_brands_memberships.sql
+\i /docker-entrypoint-initdb.d/migrations/2026_08_02_phase2_brand_tenancy_cutover.sql
+\i /docker-entrypoint-initdb.d/migrations/2026_08_02_phase2_legacy_user_fk.sql
+\i /docker-entrypoint-initdb.d/migrations/2026_08_02_phase4_outbox.sql
+\i /docker-entrypoint-initdb.d/migrations/2026_08_02_phase5_schema_per_context.sql
+\i /docker-entrypoint-initdb.d/migrations/2026_08_02_phase5_context_db_roles.sql
+\i /docker-entrypoint-initdb.d/migrations/2026_08_02_phase5_workflow_extraction.sql
+\i /docker-entrypoint-initdb.d/migrations/2026_08_02_phase5_refresh_tokens.sql
+\i /docker-entrypoint-initdb.d/migrations/2026_08_02_phase5_sever_all_cross_context_fks.sql
+\i /docker-entrypoint-initdb.d/migrations/2026_08_02_phase6_federated_identities.sql
+\i /docker-entrypoint-initdb.d/migrations/2026_08_02_stage2_app_owned_provisioning.sql
+\i /docker-entrypoint-initdb.d/migrations/2026_08_02_stage3_member_invitations.sql
+\i /docker-entrypoint-initdb.d/migrations/2026_08_02_stage4_creator_identity.sql
+\i /docker-entrypoint-initdb.d/migrations/2026_08_02_landing_builder_reset.sql
+\i /docker-entrypoint-initdb.d/migrations/2026_08_07_m6_creator_platform_tokens.sql

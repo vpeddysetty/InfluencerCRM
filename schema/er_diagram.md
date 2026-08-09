@@ -8,13 +8,8 @@ erDiagram
     USERS ||--o{ CAMPAIGNS : owns
     USERS ||--o{ IMPORT_BATCHES : uploads
     USERS ||--o{ CAMPAIGN_CREATORS : manages
-    USERS ||--o{ CAMPAIGN_TYPE_WORKFLOW_STAGES : defines
     USERS ||--o{ INTERACTIONS : records
     USERS ||--o{ MAPPING_EXAMPLES : curates
-    USERS ||--o{ CREATOR_WORKFLOW_TASKS : assigns
-    USERS ||--o{ CREATOR_WORKFLOW_APPROVALS : reviews
-    USERS ||--o{ CREATOR_WORKFLOW_PAYMENTS : pays
-    USERS ||--o{ CREATOR_WORKFLOW_EVENTS : audits
     USERS ||--o{ INFLUENCER_CAMPAIGN_CODES : issues
     USERS ||--o{ INFLUENCER_SALE_ATTRIBUTIONS : tracks
 
@@ -27,10 +22,6 @@ erDiagram
     CREATORS ||--o{ INTERACTIONS : has
     CREATORS ||--o{ INFLUENCER_CAMPAIGN_CODES : receives
     CREATORS ||--o{ INFLUENCER_SALE_ATTRIBUTIONS : attributed_to
-    CAMPAIGN_CREATORS ||--o{ CREATOR_WORKFLOW_TASKS : executes
-    CAMPAIGN_CREATORS ||--o{ CREATOR_WORKFLOW_APPROVALS : reviews
-    CAMPAIGN_CREATORS ||--o{ CREATOR_WORKFLOW_PAYMENTS : settles
-    CAMPAIGN_CREATORS ||--o{ CREATOR_WORKFLOW_EVENTS : logs
     CAMPAIGN_CREATORS ||--o{ INFLUENCER_CAMPAIGN_CODES : links
     CAMPAIGN_CREATORS ||--o{ INFLUENCER_SALE_ATTRIBUTIONS : links
     INFLUENCER_CAMPAIGN_CODES ||--o{ INFLUENCER_SALE_ATTRIBUTIONS : attributes
@@ -109,18 +100,6 @@ erDiagram
         timestamptz updated_at
     }
 
-    CAMPAIGN_TYPE_WORKFLOW_STAGES {
-        uuid id PK
-        uuid user_id FK
-        text campaign_type
-        pipeline_stage stage_key
-        text stage_label
-        integer position
-        boolean is_active
-        timestamptz created_at
-        timestamptz updated_at
-    }
-
     MAPPING_EXAMPLES {
         uuid id PK
         uuid user_id FK
@@ -144,64 +123,6 @@ erDiagram
         uuid creator_id FK
         interaction_type type
         text body
-        timestamptz created_at
-    }
-
-    CREATOR_WORKFLOW_TASKS {
-        uuid id PK
-        uuid user_id FK
-        uuid campaign_creator_id FK
-        text task_type
-        pipeline_stage stage_key
-        text title
-        text description
-        workflow_actor assignee_actor
-        uuid assignee_creator_id FK
-        numeric agreed_fee
-        jsonb tags
-        workflow_task_status status
-        timestamptz due_at
-        timestamptz completed_at
-        jsonb metadata
-        timestamptz created_at
-        timestamptz updated_at
-    }
-
-    CREATOR_WORKFLOW_APPROVALS {
-        uuid id PK
-        uuid user_id FK
-        uuid campaign_creator_id FK
-        integer review_round
-        text submission_url
-        workflow_actor submitted_by_actor
-        approval_decision decision
-        workflow_actor decided_by_actor
-        timestamptz submitted_at
-        timestamptz decided_at
-        jsonb metadata
-    }
-
-    CREATOR_WORKFLOW_PAYMENTS {
-        uuid id PK
-        uuid user_id FK
-        uuid campaign_creator_id FK
-        numeric amount
-        text currency
-        payout_status status
-        timestamptz scheduled_at
-        timestamptz paid_at
-        jsonb metadata
-        timestamptz created_at
-        timestamptz updated_at
-    }
-
-    CREATOR_WORKFLOW_EVENTS {
-        uuid id PK
-        uuid user_id FK
-        uuid campaign_creator_id FK
-        workflow_actor actor
-        text event_type
-        jsonb event_data
         timestamptz created_at
     }
 
@@ -249,8 +170,6 @@ erDiagram
 - Users are the top-level tenant owner for all records.
 - Creators are owned by a user and may be imported from an import batch.
 - Campaigns and creators are linked through the join table `campaign_creators` as the parent relationship row.
-- Workflow stage state for board items is stored in `creator_workflow_tasks.stage_key` and validated against `campaign_type_workflow_stages`.
-- Workflow setup is configured by campaign type in `campaign_type_workflow_stages`.
 - Interactions store relationship memory such as notes, emails, or DMs attached to creators.
 - Core entities include `custom_attributes` JSONB for unmapped import fields scoped by entity.
 - Mapping examples are persisted for retrieval-augmented mapping reuse via pgvector similarity search.

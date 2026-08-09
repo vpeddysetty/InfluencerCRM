@@ -1,0 +1,27 @@
+{
+  "Comment": "ACM DNS validation for www.tejdux.com and tejdux.com",
+  "Changes": [
+    {
+      "Action": "UPSERT",
+      "ResourceRecordSet": {
+        "Name": "_294ae7c683aa97b08684402f8845c96d.www.tejdux.com.",
+        "Type": "CNAME",
+        "TTL": 300,
+        "ResourceRecords": [
+          { "Value": "_e65b571cc4c7a4bdef0816ee679184d6.jkddzztszm.acm-validations.aws." }
+        ]
+      }
+    },
+    {
+      "Action": "UPSERT",
+      "ResourceRecordSet": {
+        "Name": "_0b0387576a65e42000659d73860b3147.tejdux.com.",
+        "Type": "CNAME",
+        "TTL": 300,
+        "ResourceRecords": [
+          { "Value": "_95973e67237d7b41ccfefbb606d9de2d.jkddzztszm.acm-validations.aws." }
+        ]
+      }
+    }
+  ]
+}

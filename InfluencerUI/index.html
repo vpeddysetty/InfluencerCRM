@@ -3,8 +3,35 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!-- PNG fallback for browsers that ignore SVG favicons; iOS needs a real PNG here. -->
+    <link rel="alternate icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0f766e" />
     <title>tejdux</title>
+    <!--
+      Applies the saved theme before first paint.
+
+      Deliberately inline and synchronous in <head>: the module bundle loads after the document
+      renders, so a React effect setting this attribute would arrive a frame or two late and a
+      dark-mode user would see a white flash on every page load. This is the one case where a
+      blocking inline script is the correct tool.
+
+      Absence of the attribute means "follow the OS", which the CSS already handles — so a first
+      visit, an unreadable localStorage, and an explicit "System" choice all take the same path.
+    -->
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem('tejdux.theme')
+          if (stored === 'light' || stored === 'dark') {
+            document.documentElement.setAttribute('data-theme', stored)
+          }
+        } catch (e) {
+          // Blocked storage: fall through to the OS preference.
+        }
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

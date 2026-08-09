@@ -1,0 +1,92 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.2.5</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>com.influencer</groupId>
+    <artifactId>InfluencerPresentationService</artifactId>
+    <version>1.0.0</version>
+    <name>InfluencerPresentationService</name>
+    <description>
+        Digital Presentation Service (DPS).
+
+        The single authentication and authorization entry point for every micro-frontend origin.
+        Owns the browser session as an httpOnly cookie, so no access token ever reaches JavaScript,
+        and brokers authentication against the Identity context.
+
+        Also the home for the login-time cache: the session-scoped data a user needs immediately
+        after signing in is assembled here once, rather than by each remote separately.
+    </description>
+
+    <properties>
+        <java.version>17</java.version>
+    </properties>
+
+    <dependencies>
+        <!-- Workload identity and the log schema. Shared because these must be byte-identical
+             across services: three copies of a token format is three chances to drift, and the
+             failure mode is a silent authentication mismatch. -->
+        <dependency>
+            <groupId>com.influencer</groupId>
+            <artifactId>InfluencerPlatformCommons</artifactId>
+            <version>1.0.0</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <!-- Caffeine backs the default session cache. Deliberately behind an interface so the
+             Redis swap is a bean replacement rather than a rewrite (see SessionCache). -->
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+        </dependency>
+        <!-- Redis backs the session store when more than one DPS instance runs. Optional at
+             runtime: the service falls back to Caffeine when Redis is not configured, so a
+             single-instance local run needs no broker. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>

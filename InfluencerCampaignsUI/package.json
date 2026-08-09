@@ -1,0 +1,21 @@
+{
+  "name": "influencercampaignsui",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 5175 --strictPort",
+    "build": "vite build",
+    "preview": "vite preview --port 5175 --strictPort"
+  },
+  "dependencies": {
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-router-dom": "^7.9.6"
+  },
+  "devDependencies": {
+    "@module-federation/vite": "^1.7.2",
+    "@vitejs/plugin-react": "^5.1.1",
+    "vite": "^8.1.1"
+  }
+}

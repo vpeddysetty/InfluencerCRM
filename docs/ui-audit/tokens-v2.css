@@ -1,0 +1,183 @@
+/* ══════════════════════════════════════════════════════════════════════════
+   Design tokens v2 — proposed additions to InfluencerUI/src/index.css
+
+   This file is ADDITIVE. Every existing token name keeps its meaning, so
+   nothing that references --space-4 or --fg-muted changes behaviour. What is
+   new: a typography scale, button state tokens, a density knob, and fixes for
+   the three contrast pairs that fail WCAG AA today.
+
+   Merge target: paste into the :root block of index.css, and the dark-theme
+   overrides into the existing @media (prefers-color-scheme: dark) block.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* ── Typography scale ───────────────────────────────────────────────────
+     App.css currently declares 29 distinct font-sizes — 0.82, 0.83, 0.84,
+     0.87, 0.88, 0.89 all appear, and no reader can tell them apart. This is a
+     7-step major-third-ish ramp. Every font-size in the app should resolve to
+     one of these, the same way every gap already resolves to --space-*.
+
+     The rem values assume the browser default 16px root. Sizes are named by
+     role, not by pixel value, so a density change moves them together. */
+  --text-2xs: 0.6875rem;  /* 11px — table header caps, rail group labels     */
+  --text-xs:  0.75rem;    /* 12px — badges, field labels, metadata           */
+  --text-sm:  0.8125rem;  /* 13px — table cells, secondary body, hints       */
+  --text-md:  0.875rem;   /* 14px — body default in dense workspace views    */
+  --text-lg:  1rem;       /* 16px — emphasised body, card titles             */
+  --text-xl:  1.25rem;    /* 20px — section headings, KPI values             */
+  --text-2xl: 1.5rem;     /* 24px — page titles (min of the clamp)           */
+
+  /* Display sizes stay fluid — these are marketing/landing surfaces where the
+     viewport genuinely should drive size. Workspace UI must not use them. */
+  --text-display-sm: clamp(1.5rem, 2.4vw, 2.1rem);
+  --text-display-md: clamp(1.9rem, 3.5vw, 2.5rem);
+  --text-display-lg: clamp(2.3rem, 4.8vw, 4.25rem);
+
+  /* ── Line heights ───────────────────────────────────────────────────────
+     Tight for display (Fraunces), comfortable for reading, snug for dense
+     tabular rows where 1.55 wastes vertical space at 200 rows. */
+  --leading-display: 1.08;
+  --leading-snug: 1.35;
+  --leading-body: 1.55;
+
+  /* ── Weight ─────────────────────────────────────────────────────────────
+     The app uses 600/650/700/800 semi-interchangeably. Three roles only. */
+  --weight-normal: 400;
+  --weight-medium: 600;
+  --weight-bold: 700;
+
+  /* ── Letter spacing ─────────────────────────────────────────────────────
+     Only two justified uses: negative tracking on large display type, and
+     positive tracking on uppercase micro-labels. */
+  --tracking-display: -0.015em;
+  --tracking-caps: 0.06em;
+
+  /* ── Density ────────────────────────────────────────────────────────────
+     A CRM is a dense tool. The row/control heights below are driven by one
+     variable so a future "comfortable / compact" toggle is a one-line change
+     rather than a sweep through every component.
+
+     --control-h is the single source of truth for anything a user clicks in a
+     row: buttons, inputs, selects. Today buttons are 11px+14px padding and
+     inputs are 10px+12px, which is why a button next to an input in a filter
+     bar sits 2px taller and the row looks broken. */
+  --density: 1;
+  --control-h: calc(36px * var(--density));
+  --control-h-sm: calc(28px * var(--density));
+  --control-px: var(--space-3);
+  --row-py: calc(var(--space-3) * var(--density));
+
+  /* ── Contrast fix #1: table headers ─────────────────────────────────────
+     --fg-subtle (#64748b) on --surface-sunken (#f1f5f9) measures 4.34:1 —
+     below the 4.5:1 AA threshold for normal text. It is used for exactly that
+     pair in .data-table thead th and .kpi-label. This darker step clears AA on
+     sunken (5.28:1) and on white (5.79:1). Use it for any text that sits on a
+     sunken/tinted ground; keep --fg-subtle for text on --surface. */
+  --fg-subtle-on-sunken: #5b6878;
+
+  /* ── Contrast fix #2: focus ring ────────────────────────────────────────
+     --focus (#0ea5e9) against white is 2.77:1. WCAG 2.2 SC 1.4.11 requires
+     3:1 for a focus indicator against adjacent colour, so the current ring is
+     genuinely hard to see on a light surface — the one thing a keyboard user
+     cannot afford. This darker cyan measures 3.35:1 on white and still reads
+     as the same accent hue. */
+  --focus: #0284c7;
+  --focus-ring: 0 0 0 3px rgba(2, 132, 199, 0.32);
+
+  /* ── Button state tokens ────────────────────────────────────────────────
+     .primary-btn today has no :hover, :active, or :disabled rule at all, yet
+     `disabled={busy}` appears on submit buttons across the pages — so a form
+     mid-submit looks identical to one waiting for input. These drive the
+     variants in components-v2.css. */
+  --btn-primary-bg: var(--accent-gradient);
+  --btn-primary-fg: var(--fg-inverse);
+  --btn-primary-bg-hover: linear-gradient(135deg, #0b5f59 0%, #1a3691 100%);
+  --btn-primary-shadow: 0 1px 2px rgba(15, 23, 42, 0.12);
+
+  --btn-ghost-bg: var(--surface);
+  --btn-ghost-fg: var(--fg);
+  --btn-ghost-bg-hover: var(--surface-sunken);
+  --btn-ghost-border: var(--border);
+  --btn-ghost-border-hover: var(--border-strong);
+
+  --btn-danger-bg: linear-gradient(135deg, #dc2626 0%, #991b1b 100%);
+  --btn-danger-bg-hover: linear-gradient(135deg, #b91c1c 0%, #7f1d1d 100%);
+
+  --btn-disabled-opacity: 0.55;
+
+  /* ── Motion ─────────────────────────────────────────────────────────────
+     Durations are scattered as 120ms/160ms/200ms/220ms/420ms literals. Three
+     speeds, named by what they are for. */
+  --motion-fast: 120ms;   /* hover/colour transitions                        */
+  --motion-base: 200ms;   /* toasts, popovers                                */
+  --motion-slow: 320ms;   /* drawers, panel entrances                        */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* ── Elevation ──────────────────────────────────────────────────────────
+     Named by altitude rather than by consumer, so a new component picks a
+     level instead of inventing a shadow. --surface-shadow is kept as an alias
+     for the existing call sites. */
+  --shadow-flat: none;
+  --shadow-raised: 0 1px 2px rgba(17, 40, 78, 0.06), 0 1px 3px rgba(17, 40, 78, 0.08);
+  --shadow-overlay: 0 12px 28px rgba(15, 23, 42, 0.16);
+  --shadow-modal: 0 24px 48px rgba(15, 23, 42, 0.22);
+
+  /* ── Layout ─────────────────────────────────────────────────────────────
+     The workspace main column has no max-width today, so on a 27" monitor a
+     data table stretches to 2000px and the eye loses the row it was on.
+     --measure-page caps content; --measure-prose caps reading text. */
+  --measure-page: 1440px;
+  --measure-prose: 68ch;
+  --rail-w: 240px;
+}
+
+/* ── Dark theme deltas ────────────────────────────────────────────────────
+   Add these to the existing :root:not([data-theme='light']) block. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --fg-subtle-on-sunken: #8d97a8;
+
+    --focus: #38bdf8;
+    --focus-ring: 0 0 0 3px rgba(56, 189, 248, 0.32);
+
+    /* Contrast fix #3: the dark primary button.
+       fg-inverse (#0b1017) on the blue end of the dark accent gradient
+       (#2563eb) is 3.69:1 — fine for large text, FAIL for the 13-14px label a
+       button actually uses. Lightening the gradient's blue end to #3b82f6
+       raises it to 5.13:1 while keeping the teal→blue sweep. */
+    --btn-primary-bg: linear-gradient(135deg, #0d9488 0%, #3b82f6 100%);
+    --btn-primary-bg-hover: linear-gradient(135deg, #0f766e 0%, #2563eb 100%);
+    --btn-primary-fg: #05090f;
+
+    --btn-ghost-bg: var(--surface-raised);
+    --btn-ghost-bg-hover: #232b38;
+
+    --shadow-raised: 0 1px 2px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.3);
+    --shadow-overlay: 0 12px 28px rgba(0, 0, 0, 0.5);
+    --shadow-modal: 0 24px 48px rgba(0, 0, 0, 0.6);
+  }
+}
+
+/* Explicit theme choice must win in both directions — the app already does
+   this for the media query, and these tokens follow the same rule. */
+:root[data-theme='dark'] {
+  --fg-subtle-on-sunken: #8d97a8;
+  --focus: #38bdf8;
+  --focus-ring: 0 0 0 3px rgba(56, 189, 248, 0.32);
+  --btn-primary-bg: linear-gradient(135deg, #0d9488 0%, #3b82f6 100%);
+  --btn-primary-bg-hover: linear-gradient(135deg, #0f766e 0%, #2563eb 100%);
+  --btn-primary-fg: #05090f;
+}
+
+/* Density: opt-in compact mode for power users on dense boards/tables. */
+:root[data-density='compact'] {
+  --density: 0.85;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-fast: 1ms;
+    --motion-base: 1ms;
+    --motion-slow: 1ms;
+  }
+}

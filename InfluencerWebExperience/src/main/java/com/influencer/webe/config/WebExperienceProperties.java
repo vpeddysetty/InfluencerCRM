@@ -6,7 +6,41 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class WebExperienceProperties {
     private String daoBaseUrl;
     private String agentBaseUrl;
+    private String uiBaseUrl;
+
+    /**
+     * Origin of the Digital Presentation Service, where the OAuth callback hands off.
+     *
+     * <p>The completed sign-in is delivered here rather than to the UI: the DPS turns it into an
+     * httpOnly cookie session, so no token reaches JavaScript. Bouncing it to a browser page
+     * instead — as the earlier fragment-based flow did — puts the tokens somewhere script can read.
+     */
+    private String dpsBaseUrl = "http://localhost:8090";
+
+    /** This service's own externally-reachable origin, used to build provider redirect URIs. */
+    private String publicBaseUrl = "http://localhost:8081";
     private long sessionTtlMinutes = 720;
+    private long accessTokenTtlMinutes = 30;
+    private long refreshTokenTtlMinutes = 43200;
+    private String jwtSigningKey;
+    // Escape hatch for a single-process local run. Anywhere with more than one instance — which now
+    // includes any deployment, since Workflow is its own service — must configure a real key.
+    private boolean allowEphemeralJwtKey = false;
+    /**
+     * Public JWKs of rotated-out keys, comma-separated. Still trusted for verification so a
+     * rotation does not invalidate tokens already in flight.
+     */
+    private String jwtPreviousKeys;
+    private String daoServiceToken;
+    private boolean daoTlsVerificationEnabled = true;
+    private String daoTrustStore;
+    private String daoTrustStorePassword;
+
+    // --- Workflow service extraction (first extracted context) ---
+    // The flag is what makes the cutover reversible in seconds rather than a redeploy.
+    private boolean workflowServiceEnabled = false;
+    private String workflowServiceBaseUrl = "http://localhost:8444";
+    private String workflowServiceToken;
     private final Provider oauth = new Provider();
 
     public String getDaoBaseUrl() {
@@ -15,6 +49,30 @@ public class WebExperienceProperties {
 
     public void setDaoBaseUrl(String daoBaseUrl) {
         this.daoBaseUrl = daoBaseUrl;
+    }
+
+    public String getUiBaseUrl() {
+        return uiBaseUrl;
+    }
+
+    public String getPublicBaseUrl() {
+        return publicBaseUrl;
+    }
+
+    public void setPublicBaseUrl(String publicBaseUrl) {
+        this.publicBaseUrl = publicBaseUrl;
+    }
+
+    public String getDpsBaseUrl() {
+        return dpsBaseUrl;
+    }
+
+    public void setDpsBaseUrl(String dpsBaseUrl) {
+        this.dpsBaseUrl = dpsBaseUrl;
+    }
+
+    public void setUiBaseUrl(String uiBaseUrl) {
+        this.uiBaseUrl = uiBaseUrl;
     }
 
     public String getAgentBaseUrl() {
@@ -31,6 +89,106 @@ public class WebExperienceProperties {
 
     public void setSessionTtlMinutes(long sessionTtlMinutes) {
         this.sessionTtlMinutes = sessionTtlMinutes;
+    }
+
+    public long getAccessTokenTtlMinutes() {
+        return accessTokenTtlMinutes;
+    }
+
+    public void setAccessTokenTtlMinutes(long accessTokenTtlMinutes) {
+        this.accessTokenTtlMinutes = accessTokenTtlMinutes;
+    }
+
+    public long getRefreshTokenTtlMinutes() {
+        return refreshTokenTtlMinutes;
+    }
+
+    public void setRefreshTokenTtlMinutes(long refreshTokenTtlMinutes) {
+        this.refreshTokenTtlMinutes = refreshTokenTtlMinutes;
+    }
+
+    /** RSA JWK (JSON, including the private key) used to sign access tokens. */
+    public String getJwtSigningKey() {
+        return jwtSigningKey;
+    }
+
+    public void setJwtSigningKey(String jwtSigningKey) {
+        this.jwtSigningKey = jwtSigningKey;
+    }
+
+    public String getJwtPreviousKeys() {
+        return jwtPreviousKeys;
+    }
+
+    public void setJwtPreviousKeys(String jwtPreviousKeys) {
+        this.jwtPreviousKeys = jwtPreviousKeys;
+    }
+
+    public boolean isAllowEphemeralJwtKey() {
+        return allowEphemeralJwtKey;
+    }
+
+    public void setAllowEphemeralJwtKey(boolean allowEphemeralJwtKey) {
+        this.allowEphemeralJwtKey = allowEphemeralJwtKey;
+    }
+
+    /** Shared secret presented to the DAO so it can reject non-service traffic. */
+    public String getDaoServiceToken() {
+        return daoServiceToken;
+    }
+
+    public void setDaoServiceToken(String daoServiceToken) {
+        this.daoServiceToken = daoServiceToken;
+    }
+
+    public boolean isDaoTlsVerificationEnabled() {
+        return daoTlsVerificationEnabled;
+    }
+
+    public void setDaoTlsVerificationEnabled(boolean daoTlsVerificationEnabled) {
+        this.daoTlsVerificationEnabled = daoTlsVerificationEnabled;
+    }
+
+    /** Path to a truststore containing the DAO's certificate (supports the local self-signed cert). */
+    public String getDaoTrustStore() {
+        return daoTrustStore;
+    }
+
+    public void setDaoTrustStore(String daoTrustStore) {
+        this.daoTrustStore = daoTrustStore;
+    }
+
+    public String getDaoTrustStorePassword() {
+        return daoTrustStorePassword;
+    }
+
+    public void setDaoTrustStorePassword(String daoTrustStorePassword) {
+        this.daoTrustStorePassword = daoTrustStorePassword;
+    }
+
+    /** Routes Workflow endpoints to the extracted service instead of the monolith DAO. */
+    public boolean isWorkflowServiceEnabled() {
+        return workflowServiceEnabled;
+    }
+
+    public void setWorkflowServiceEnabled(boolean workflowServiceEnabled) {
+        this.workflowServiceEnabled = workflowServiceEnabled;
+    }
+
+    public String getWorkflowServiceBaseUrl() {
+        return workflowServiceBaseUrl;
+    }
+
+    public void setWorkflowServiceBaseUrl(String workflowServiceBaseUrl) {
+        this.workflowServiceBaseUrl = workflowServiceBaseUrl;
+    }
+
+    public String getWorkflowServiceToken() {
+        return workflowServiceToken;
+    }
+
+    public void setWorkflowServiceToken(String workflowServiceToken) {
+        this.workflowServiceToken = workflowServiceToken;
     }
 
     public Provider getOauth() {
