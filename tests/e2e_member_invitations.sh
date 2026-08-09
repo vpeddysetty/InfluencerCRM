@@ -52,6 +52,19 @@ echo "################ I1: an agency owner invites a marketer ################"
 OWNER_TOKEN=$(signup "$OWNER_EMAIL" "Invite Test Agency" "agency")
 rec I1 ok "$([[ -n "$OWNER_TOKEN" ]] && echo ok || echo missing)" "Agency owner signed up"
 
+# Signup provisions every account on `free`, which since M2.3 is deliberately single-user — one
+# seat, and roles unassignable. Every test below is about having a TEAM, so the account is put on
+# the agency plan first. Done in SQL rather than through the API because there is no billing
+# provider in a local run, and the alternative is asserting the plan wall over and over instead of
+# the invitation behaviour this file exists to cover.
+#
+# The plan is read live on every check (EntitlementService reads the DAO, never the JWT), so this
+# takes effect immediately and the token minted above stays valid.
+OWNER_ACCT_EARLY=$($PG -c "SELECT a.id FROM identity.accounts a JOIN identity.memberships m ON m.account_id=a.id JOIN identity.users u ON u.id=m.user_id WHERE u.email='$OWNER_EMAIL' AND a.account_type='agency';" | tr -d '\r')
+$PG -c "UPDATE identity.accounts SET plan='agency' WHERE id='$OWNER_ACCT_EARLY';" > /dev/null
+rec I1b agency "$($PG -c "SELECT plan FROM identity.accounts WHERE id='$OWNER_ACCT_EARLY';" | tr -d '\r')" \
+    "Account is on a plan that permits a team (free is single-user by design)"
+
 B=$(api POST /api/brands/members/invite "$OWNER_TOKEN" "{\"email\":\"$MEMBER_EMAIL\",\"role\":\"MARKETER\"}")
 rec I2 201 "$(st)" "OWNER can invite" "$B"
 TOKEN=$(jqv "$B" "['token']")
