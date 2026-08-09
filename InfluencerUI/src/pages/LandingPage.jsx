@@ -65,8 +65,8 @@ function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit, onSocialLogin, authE
           Every creator, from first DM to final payout, on one board.
         </h1>
         <p className="lead landing-lead landing-reveal delay-3">
-          Import your list, launch campaigns, and pay creators without a spreadsheet. Free for 25
-          creators — no card, no time limit.
+          Import your list, launch campaigns, and pay creators without a spreadsheet. Free for one
+          person and 25 creators — no card, no time limit.
         </p>
 
         {/* A visible product UI is table stakes for this category — GRIN, Modash and Klaviyo all
