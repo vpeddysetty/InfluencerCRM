@@ -615,3 +615,89 @@ at which point steps 2 and 3 become mechanical deletions rather than judgement c
 
 Doing 2 and 3 *before* that would mean carefully preserving a bearer path that is about to be
 deleted.
+
+---
+
+## Shipped 2026-08-08 (seventh cycle) — identity across the chain, logging, pricing, recorded journeys
+
+**261 BFF tests (was 246), 27 DAO (was 22), 12 DPS (new), 162 UI (was 149), 9 e2e journeys (new).**
+
+### The chain had one honest hop and three assumed ones
+
+The session cookie was already right. Nothing after it was:
+
+| Hop | Before | Now |
+|---|---|---|
+| Browser → DPS | httpOnly cookie ✅ | Plus `X-App-Id` entitlement |
+| DPS → BFF | user's bearer only | Plus a DPS workload token |
+| BFF → DAO | **one static shared string** | Workload token, dual-accept |
+
+**Apps had no identity.** Every remote presenting a valid cookie got the whole session — all 33
+permissions and every path. The content app, a captions screen, held `payout:approve`. `AppRegistry`
+scopes both. Permissions are an intersection in *both* directions, so this never becomes a second
+permission model competing with the role matrix — two of those disagreeing is what once locked
+FINANCE users out entirely.
+
+Scoping the permission list alone would be theatre; it only decides what the UI draws. The
+enforcement is on the proxy, before the token is attached.
+
+**The DAO trusted one static string** that never expired, identified nobody (the principal was the
+hard-coded literal `"web-experience"`), authorized everything, and could only be rotated everywhere
+at once. `WorkloadToken` gives it expiry, an issuer, an audience, a scope, and a **signed tenant** —
+that last one is what will let the DAO stop trusting `brandId`, an *optional* query parameter whose
+omission currently returns every tenant's rows.
+
+**Dual-accept, deliberately.** This filter is on every request; a hard cutover means both services
+deploy in the same instant with no single-service rollback. Legacy acceptances log at WARN naming
+the caller, so deleting the old branch becomes evidence-based rather than a guess.
+
+The subtle part, and it is tested: an *invalid* workload token is refused outright rather than
+falling through to the legacy check. Otherwise an attacker who also knew the shared secret would
+have their forgery accepted, and the audit line would name whoever the forgery claimed to be.
+
+### Logging: async JSON lines, one directory
+
+Hand-written encoder — `logstash-logback-encoder` is not in this offline build, and adding a
+dependency to four services to format a string is a poor trade. One line per event **always**: a
+stack trace is folded into one escaped field, because an embedded newline reads as several
+malformed records and gets dropped — losing precisely the line that explains the outage.
+
+`discardingThreshold=0` is non-default on purpose. The default drops INFO first when the queue
+fills, which discards the context leading up to a failure exactly during the incident that filled
+the queue.
+
+### Free is now single-user, and roles are the paid feature
+
+Free was 3 seats — a small team, not a free tier, and it gave away the thing worth charging for.
+Now 1. The line is easy to explain (free is for you, paid is for your team) and it charges when a
+team has actually adopted the tool rather than metering the evaluation.
+
+Creators and brands are untouched: the wedge is spreadsheet replacement, and a roster too small to
+hold a real creator list makes the product unevaluable.
+
+`allowsRoleBasedAccess()` is a separate question from the seat count, not an inference from it.
+It gates **assignment, never enforcement** — an account that downgrades keeps the roles its members
+hold and the server keeps honouring them. Ignoring stored roles on a downgrade would silently
+*widen* access, which is the worst possible way to express "this is paid".
+
+### Recorded journeys, and what watching them found
+
+Nine journeys, four personas, against the real stack. `tests/e2e`, stitched to
+`influencrm-e2e-journeys.mp4` at the repo root (gitignored — a build output).
+
+**Playing the video back caught a defect no unit test would have.** The landing hero still read
+*"Free for 25 creators — no card, no time limit"* after the tier became single-user: the page's most
+prominent sentence omitted the one term that had just changed. The tier table had been updated; the
+hero had not. It is a sentence, not a value, and it was only visible because someone looked.
+
+### Still outstanding
+
+| Item | Waiting on |
+|---|---|
+| Delete the DAO's legacy token branch | The WARN lines going quiet in a real deployment |
+| Close the optional-`brandId` IDOR | Nothing — the signed `tid` now exists to do it |
+| Make `X-App-Id` mandatory | Every remote sending it; one line in `callingApp` |
+| **M5.1** hosting deploy | AWS console |
+| **M3.2–3.5** Shopify | A Partner app and a public callback URL |
+| **M6** IG/TikTok bodies | Meta and TikTok approval |
+| Email delivery | `web-experience.email.provider` is still `log` |
