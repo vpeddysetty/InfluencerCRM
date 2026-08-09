@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { MdsKicker, MdsSectionRule, MdsNote } from '../components/Mds'
 import { ConfirmDialog, PlanUsage } from '../components/ui'
 import { describeUsage } from '../shell/plan'
+import BulkInvitePanel from './BulkInvitePanel'
 
 // OWNER is absent on purpose. Ownership carries billing and the right to delete the account,
 // so transferring it should be a deliberate, separately-confirmed act rather than a dropdown
@@ -33,6 +34,8 @@ function MembersPage({
   onLoadInvitations,
   onLoadPlan,
   onInvite,
+  onBulkInvite,
+  onResendInvitation,
   onRevokeInvitation,
   onUpdateRole,
   onRemoveMember,
@@ -110,6 +113,34 @@ function MembersPage({
       await refresh()
     } catch (error) {
       setFeedback({ type: 'error', message: error?.message || 'Unable to create the invitation.' })
+    } finally {
+      setBusyId('')
+    }
+  }
+
+  /**
+   * Issues a fresh link for an invitation that was never delivered.
+   *
+   * Reuses the same token note the single invite uses, so there is exactly one place in this page
+   * that puts a credential on screen and exactly one set of warnings around it.
+   */
+  const resend = async (invitation) => {
+    setBusyId(`resend-${invitation.id}`)
+    setIssuedToken('')
+    try {
+      const resent = await onResendInvitation(invitation.id)
+      const delivered = Boolean(resent?.emailDelivered)
+      setEmailDelivered(delivered)
+      setIssuedToken(delivered ? '' : resent?.token || '')
+      setFeedback({
+        type: 'success',
+        message: delivered
+          ? `A new invitation was emailed to ${invitation.email}.`
+          : `A new link was created for ${invitation.email}. The previous one no longer works.`,
+      })
+      await refresh()
+    } catch (error) {
+      setFeedback({ type: 'error', message: error?.message || 'Unable to resend the invitation.' })
     } finally {
       setBusyId('')
     }
@@ -251,8 +282,26 @@ function MembersPage({
         <MdsNote className="members-token-note">
           <strong>Invitation emailed.</strong>
           The invitee has a link that works once and expires in 7 days. Nothing further to do —
-          if it does not arrive, revoke the invitation below and send a new one.
+          if it does not arrive, resend it below.
         </MdsNote>
+      ) : null}
+
+      {onBulkInvite ? (
+        <>
+          <MdsSectionRule />
+          {/* Seats remaining rather than a boolean at-limit: a batch has to be sized against a
+              number, and the server refuses an over-capacity batch whole rather than filling it
+              partway. Null on an unlimited plan, which the panel renders as "unlimited" instead of
+              a cap. */}
+          <BulkInvitePanel
+            roles={INVITABLE_ROLES.map((option) => option.value)}
+            defaultRole="MARKETER"
+            remainingSeats={memberUsage ? memberUsage.remaining : null}
+            busy={Boolean(busyId)}
+            onBulkInvite={onBulkInvite}
+            onDone={refresh}
+          />
+        </>
       ) : null}
 
       <MdsSectionRule />
@@ -314,6 +363,19 @@ function MembersPage({
               <span className="members-meta">
                 expires {new Date(invitation.expiresAt).toLocaleDateString()}
               </span>
+              {onResendInvitation ? (
+                // The only way back to a token. Only the hash is stored, so an invitation created
+                // in bulk — where no tokens are returned at all — would otherwise be unrecoverable
+                // and the sole remedy would be to revoke it and start over.
+                <button
+                  type="button"
+                  className="ghost-btn"
+                  disabled={busyId === `resend-${invitation.id}`}
+                  onClick={() => resend(invitation)}
+                >
+                  {busyId === `resend-${invitation.id}` ? 'Resending…' : 'Resend'}
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="ghost-btn"

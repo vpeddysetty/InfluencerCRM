@@ -381,6 +381,60 @@ public class TenancyController {
     }
 
     /**
+     * Looks an invitation up by id.
+     *
+     * <p>Exists so a caller can check which account an invitation belongs to <em>before</em> acting
+     * on it. Every other endpoint here takes the id alone and trusts it, which is only safe while
+     * something upstream has established that the caller may touch that row — and until this
+     * existed, nothing had.
+     */
+    @GetMapping("/invitations/{id}")
+    public InvitationResponse invitation(@PathVariable UUID id) {
+        return invitationRepository.findById(id)
+                .map(TenancyController::toInvitationResponse)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Invitation not found"));
+    }
+
+    /**
+     * Replaces an invitation's token and pushes its expiry out, for a resend.
+     *
+     * <p><b>The old hash is overwritten rather than a second row inserted.</b> Two live tokens for
+     * one invitation would mean revoking the visible one still lets the other in — the same reason
+     * {@code uq_member_invitations_pending} exists. Resending therefore invalidates the previous
+     * link, which is both correct and what the person clicking "resend" expects.
+     *
+     * <p><b>Rotating in place rather than revoke-and-recreate</b>, which the create endpoint above
+     * would already do for free. That path changes the invitation's id, so the row an admin clicked
+     * disappears and a different one takes its place; it discards {@code created_at} and
+     * {@code invited_by}; and it leaves a revoked row behind on every resend, so an invitation sent
+     * three times reads in the audit trail as three revocations — which is exactly the signal a
+     * revocation is supposed to carry.
+     *
+     * <p>Pending only. An accepted invitation is a membership, and quietly reviving a revoked one
+     * through a resend button would undo a deliberate act without confirming it.
+     */
+    @PostMapping("/invitations/{id}/rotate-token")
+    @Transactional
+    public InvitationResponse rotateInvitationToken(@PathVariable UUID id,
+                                                    @RequestBody RotateTokenRequest request) {
+        if (request.tokenHash() == null || request.tokenHash().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "tokenHash is required");
+        }
+        MemberInvitation invitation = invitationRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Invitation not found"));
+        if (!"pending".equals(invitation.getStatus())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Invitation is " + invitation.getStatus());
+        }
+
+        invitation.setTokenHash(request.tokenHash());
+        invitation.setExpiresAt(request.expiresAt() == null
+                ? Instant.now().plus(Duration.ofDays(7)) : request.expiresAt());
+        invitation.setUpdatedAt(Instant.now());
+        return toInvitationResponse(invitationRepository.save(invitation));
+    }
+
+    /**
      * Marks an invitation accepted and creates the membership in one transaction.
      *
      * <p>Both writes together: an invitation marked accepted without a membership would leave the
@@ -519,6 +573,13 @@ public class TenancyController {
     }
 
     public record AcceptRequest(UUID userId) {
+    }
+
+    /**
+     * @param expiresAt the new expiry; null takes the same seven days a fresh invitation gets, so a
+     *                  resent invitation is not born already closer to death than the original
+     */
+    public record RotateTokenRequest(String tokenHash, Instant expiresAt) {
     }
 
     /** Deliberately has no token field — the token exists only in the invite response. */

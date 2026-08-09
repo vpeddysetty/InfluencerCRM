@@ -5,16 +5,18 @@ import com.influencer.webe.identity.infrastructure.DaoTenancyClient;
 import com.influencer.webe.security.Permission;
 import com.influencer.webe.security.TenantContext;
 import com.influencer.webe.shared.application.RequestUserResolver;
+import com.influencer.webe.identity.application.BulkMemberInvitationService;
 import com.influencer.webe.identity.application.EntitlementService;
 import com.influencer.webe.identity.application.MemberInvitationService;
 import com.influencer.webe.identity.application.PlanPolicy;
 import com.influencer.webe.identity.application.SessionService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.Size;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
-import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
@@ -33,17 +35,20 @@ public class BrandsController {
     private final RequestUserResolver requestUserResolver;
     private final SessionService sessionService;
     private final MemberInvitationService invitationService;
+    private final BulkMemberInvitationService bulkInvitations;
     private final EntitlementService entitlements;
 
     public BrandsController(DaoTenancyClient tenancyClient,
                             RequestUserResolver requestUserResolver,
                             SessionService sessionService,
                             MemberInvitationService invitationService,
+                            BulkMemberInvitationService bulkInvitations,
                             EntitlementService entitlements) {
         this.tenancyClient = tenancyClient;
         this.requestUserResolver = requestUserResolver;
         this.sessionService = sessionService;
         this.invitationService = invitationService;
+        this.bulkInvitations = bulkInvitations;
         this.entitlements = entitlements;
     }
 
@@ -167,46 +172,45 @@ public class BrandsController {
     }
 
     /**
+     * Invites many people at once, from a pasted list or an uploaded file.
+     *
+     * <p>Not a loop over the single-invite endpoint. Duplicates within one file would revoke each
+     * other, the capacity check would pass once per row against the same stale count, and the
+     * pending-invitation read would fail open by the size of the batch rather than by one. Why each
+     * of those matters is on {@link BulkMemberInvitationService}.
+     *
+     * <p><b>200, not 201.</b> A batch where eleven were invited and four were already members
+     * created something, skipped something, and failed at nothing — "created" describes none of
+     * that. The per-row outcomes are in the body.
+     *
+     * <p><b>No tokens come back.</b> Recovering an invitation nobody was emailed is the resend
+     * endpoint, one at a time.
+     */
+    @PostMapping("/members/invite/bulk")
+    public BulkMemberInvitationService.BulkInviteResult inviteBulk(
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @Valid @RequestBody BulkInviteRequest request) {
+        TenantContext context = requestUserResolver.requirePermission(authorization, Permission.MEMBER_INVITE);
+        return bulkInvitations.inviteAll(context, request.invitations());
+    }
+
+    /**
      * Invitations that are still outstanding and would each become a member (M2.3).
      *
-     * <p>Only {@code pending} ones count. A revoked or already-accepted invitation is not a future
-     * member — an accepted one is a member already, and counting it would charge the seat twice.
-     * Expired ones are excluded too: they cannot be redeemed, so holding a seat for them would
-     * make an account permanently smaller every time an invitation went unanswered.
+     * <p>Which ones count, and why, is documented on
+     * {@link MemberInvitationService#pendingInvitations}. This method exists only to choose the
+     * failure policy.
      *
-     * <p>Fails open on error, deliberately. If this count cannot be read, the member count alone
-     * still applies; blocking a legitimate invitation because a secondary lookup failed is the
-     * worse outcome, and the primary limit is still enforced.
+     * <p><b>Fails open on error, deliberately</b> — and differently from the bulk path, which
+     * refuses. If this count cannot be read, the member count alone still applies; blocking a
+     * legitimate single invitation because a secondary lookup failed is the worse outcome, and the
+     * primary limit is still enforced. A batch cannot make that trade, because the same failure
+     * would over-grant by the whole batch rather than by one.
      */
     private long pendingInvitationCount(TenantContext context) {
-        try {
-            JsonNode invitations = invitationService.list(context.accountId());
-            if (invitations == null || !invitations.isArray()) {
-                return 0;
-            }
-            Instant now = Instant.now();
-            long pending = 0;
-            for (JsonNode invitation : invitations) {
-                if (!"pending".equalsIgnoreCase(invitation.path("status").asText(""))) {
-                    continue;
-                }
-                String expiresAt = invitation.path("expiresAt").asText(null);
-                if (expiresAt != null) {
-                    try {
-                        if (Instant.parse(expiresAt).isBefore(now)) {
-                            continue;
-                        }
-                    } catch (Exception ignored) {
-                        // An unreadable expiry is treated as still pending — the conservative
-                        // reading, since the alternative under-counts and over-grants seats.
-                    }
-                }
-                pending++;
-            }
-            return pending;
-        } catch (RuntimeException e) {
-            return 0;
-        }
+        return invitationService.pendingInvitations(context.accountId())
+                .map(MemberInvitationService.PendingInvitations::count)
+                .orElse(0L);
     }
 
     /**
@@ -239,11 +243,37 @@ public class BrandsController {
         return invitationService.list(context.accountId());
     }
 
+    /**
+     * Revokes an outstanding invitation.
+     *
+     * <p>The account comes from the verified token and the service checks the invitation against it.
+     * Holding {@code member:remove} on one account is not a licence to revoke invitations in
+     * another, and an id is all that would be needed.
+     */
     @PostMapping("/members/invitations/{id}/revoke")
     public JsonNode revokeInvitation(@RequestHeader(value = "Authorization", required = false) String authorization,
                                      @PathVariable UUID id) {
-        requestUserResolver.requirePermission(authorization, Permission.MEMBER_REMOVE);
-        return invitationService.revoke(id);
+        TenantContext context = requestUserResolver.requirePermission(authorization, Permission.MEMBER_REMOVE);
+        return invitationService.revoke(context.accountId(), id);
+    }
+
+    /**
+     * Issues a fresh link for an invitation that was never delivered.
+     *
+     * <p>The companion to bulk invite, which returns no tokens. One token in one response is the
+     * same contract the single invite already has, and the only shape in which returning one is
+     * defensible — fifty at once would be fifty live credentials in a results table.
+     *
+     * <p>Invalidates the previous link. Two working tokens for one invitation would mean revoking
+     * the visible one still lets the other in.
+     */
+    @PostMapping("/members/invitations/{id}/resend")
+    public InviteResponse resendInvitation(
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @PathVariable UUID id) {
+        TenantContext context = requestUserResolver.requirePermission(authorization, Permission.MEMBER_INVITE);
+        var resent = invitationService.resend(context.accountId(), id, context.email());
+        return new InviteResponse(resent.invitation(), resent.token(), resent.emailDelivered());
     }
 
     /**
@@ -317,6 +347,18 @@ public class BrandsController {
     }
 
     public record InviteRequest(@NotBlank String email, @NotBlank String role, UUID brandId) {
+    }
+
+    /**
+     * @param invitations the rows to invite. Capped here as well as in the service: this stops a
+     *                    five-thousand-row body being deserialized into work before any handler code
+     *                    runs, while the service's own check is what a direct caller or a test hits
+     */
+    public record BulkInviteRequest(
+            @NotEmpty
+            @Size(max = BulkMemberInvitationService.MAX_BATCH)
+            @Valid
+            List<BulkMemberInvitationService.InviteRow> invitations) {
     }
 
     /**

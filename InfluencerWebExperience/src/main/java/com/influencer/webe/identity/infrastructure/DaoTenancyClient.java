@@ -97,6 +97,19 @@ public class DaoTenancyClient {
         return gatewayClient.get("/tenancy/invitations/by-token/" + tokenHash, null);
     }
 
+    /** One invitation by id, so a caller can check which account it belongs to before acting. */
+    public JsonNode invitation(UUID invitationId) {
+        return gatewayClient.get("/tenancy/invitations/" + invitationId, null);
+    }
+
+    /** Replaces an invitation's token, invalidating the previous one. */
+    public JsonNode rotateInvitationToken(UUID invitationId, String tokenHash, Instant expiresAt) {
+        return gatewayClient.post("/tenancy/invitations/" + invitationId + "/rotate-token",
+                com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode()
+                        .put("tokenHash", tokenHash)
+                        .put("expiresAt", expiresAt.toString()));
+    }
+
     public JsonNode acceptInvitation(UUID invitationId, UUID userId) {
         return gatewayClient.post("/tenancy/invitations/" + invitationId + "/accept",
                 com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode()

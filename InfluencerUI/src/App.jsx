@@ -73,6 +73,8 @@ import {
   resumeSubscription,
   cancelSubscription,
   inviteMember,
+  bulkInviteMembers,
+  resendInvitation,
   revokeInvitation,
   updateMemberRole,
   removeMember,
@@ -1390,6 +1392,8 @@ function App() {
   }
   const loadInvitations = async () => listInvitations(authToken)
   const inviteMemberRecord = async (payload) => inviteMember(authToken, payload)
+  const bulkInviteMemberRecords = async (rows) => bulkInviteMembers(authToken, rows)
+  const resendInvitationRecord = async (id) => resendInvitation(authToken, id)
   // Read on each visit rather than held in session state: the server deliberately keeps the plan
   // out of the JWT so an upgrade takes effect immediately, and caching it here would put the
   // staleness back in a different place.
@@ -2115,6 +2119,8 @@ function App() {
                   onLoadInvitations={loadInvitations}
                   onLoadPlan={loadPlan}
                   onInvite={inviteMemberRecord}
+                  onBulkInvite={bulkInviteMemberRecords}
+                  onResendInvitation={resendInvitationRecord}
                   onRevokeInvitation={revokeInvitationRecord}
                   onUpdateRole={updateMemberRoleRecord}
                   onRemoveMember={removeMemberRecord}

@@ -286,9 +286,23 @@ export async function inviteMember(token, { email, role, brandId }) {
   })
 }
 
+// No tokens come back from this one. Fifty invitation tokens in a single response would be fifty
+// live credentials sitting in the browser's memory, in any screenshot of the results table, and in
+// any error report that captured the body. An invitation nobody was emailed is recovered through
+// `resendInvitation` below, one at a time and deliberately.
+export async function bulkInviteMembers(token, invitations) {
+  return request('/api/brands/members/invite/bulk', { method: 'POST', token, body: { invitations } })
+}
+
 export async function listInvitations(token) {
   const payload = await request('/api/brands/members/invitations', { token })
   return unwrapList(payload)
+}
+
+// Issues a fresh link and invalidates the previous one — two working tokens for one invitation
+// would mean revoking the visible one still lets the other in.
+export async function resendInvitation(token, id) {
+  return request(`/api/brands/members/invitations/${id}/resend`, { method: 'POST', token, body: {} })
 }
 
 export async function revokeInvitation(token, id) {

@@ -457,6 +457,49 @@
   user-select: all;
 }
 
+/* Bulk invite. Mostly borrowed: the drop zone is .file-drop from the import screen, the preview
+   and results are .data-table, and the per-row status pills are .badge. Only the panel's own
+   rhythm is defined here. */
+.bulk-invite {
+  display: grid;
+  gap: 14px;
+}
+
+.bulk-invite-modes {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.bulk-invite-textarea {
+  width: 100%;
+  min-height: 120px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85rem;
+  resize: vertical;
+}
+
+/* The seat count sits directly above the table it governs, so the number and the rows it limits
+   are read in one glance rather than at opposite ends of the panel. */
+.bulk-invite-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.bulk-invite-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* The reason the send button is disabled, adjacent to the button rather than at the top of the
+   panel — a disabled control whose explanation is elsewhere reads as a broken control. */
+.bulk-invite-blocker {
+  margin: 0;
+}
+
 @media (max-width: 720px) {
   .members-invite-form,
   .members-row {

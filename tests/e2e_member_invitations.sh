@@ -146,10 +146,84 @@ rec I16 201 "$(st)" "Re-inviting the same email succeeds" "$B"
 rec I16b 1 "$($PG -c "SELECT count(*) FROM identity.member_invitations WHERE account_id='$OWNER_ACCT' AND email='dup.$STAMP@example.test' AND status='pending';" | tr -d '\r')" \
     "Only one live invitation remains, so revoking is not defeated by a stale token"
 
+echo "################ I17: inviting a whole team at once ################"
+# The batch deliberately contains every case that behaves differently from a loop of single
+# invites: a duplicate in two capitalisations, someone already on the account, and someone with a
+# live invitation already outstanding.
+B=$(api POST /api/brands/members/invite/bulk "$OWNER_TOKEN" "{\"invitations\":[
+  {\"email\":\"bulk.a.$STAMP@example.test\",\"role\":\"ANALYST\"},
+  {\"email\":\"bulk.b.$STAMP@example.test\",\"role\":\"MARKETER\"},
+  {\"email\":\"BULK.A.$STAMP@EXAMPLE.TEST\",\"role\":\"ADMIN\"},
+  {\"email\":\"$MEMBER_EMAIL\",\"role\":\"ANALYST\"},
+  {\"email\":\"dup.$STAMP@example.test\",\"role\":\"ANALYST\"}
+]}")
+rec I17 200 "$(st)" "A batch is processed and reports per-row outcomes" "$B"
+rec I17a 2 "$(jqv "$B" "['invited']")" "Two new addresses were invited"
+rec I17b 3 "$(jqv "$B" "['skipped']")" "Duplicate, existing member and outstanding invitation all skipped"
+rec I17c 0 "$(jqv "$B" "['failed']")" "Nothing failed"
+
+# The duplicate is the case a loop would get wrong: the DAO revokes an existing pending invitation
+# before inserting, so sending both rows would leave ONE live invitation while the seat arithmetic
+# had charged for two.
+rec I17d 1 "$($PG -c "SELECT count(*) FROM identity.member_invitations WHERE account_id='$OWNER_ACCT' AND email='bulk.a.$STAMP@example.test' AND status='pending';" | tr -d '\r')" \
+    "A duplicated address produced exactly one live invitation"
+rec I17e ANALYST "$($PG -c "SELECT role FROM identity.member_invitations WHERE account_id='$OWNER_ACCT' AND email='bulk.a.$STAMP@example.test' AND status='pending';" | tr -d '\r')" \
+    "The first occurrence won, so the later ADMIN row did not widen the grant"
+# Re-inviting someone who already has a live invitation must not silently revoke their token: while
+# nothing is emailed, the copy an admin already forwarded by hand may be the only one in existence.
+rec I17f pending "$($PG -c "SELECT status FROM identity.member_invitations WHERE account_id='$OWNER_ACCT' AND email='dup.$STAMP@example.test' AND status='pending';" | tr -d '\r')" \
+    "An already-outstanding invitation was left alone rather than reissued"
+
+# The response is the one place fifty credentials could leak at once.
+rec I17g 0 "$(echo "$B" | grep -c '"token"')" "SECURITY: the bulk response carries no tokens"
+
+echo "################ I18: a batch is refused whole, never half-applied ################"
+BEFORE=$($PG -c "SELECT count(*) FROM identity.member_invitations WHERE account_id='$OWNER_ACCT';" | tr -d '\r')
+B=$(api POST /api/brands/members/invite/bulk "$OWNER_TOKEN" "{\"invitations\":[
+  {\"email\":\"fine.$STAMP@example.test\",\"role\":\"ANALYST\"},
+  {\"email\":\"boss.$STAMP@example.test\",\"role\":\"OWNER\"}
+]}")
+rec I18 400 "$(st)" "An OWNER row refuses the batch" "$B"
+rec I18b "$BEFORE" "$($PG -c "SELECT count(*) FROM identity.member_invitations WHERE account_id='$OWNER_ACCT';" | tr -d '\r')" \
+    "Nothing was written — the valid row in the refused batch was not created either"
+
+B=$(api POST /api/brands/members/invite/bulk "$OWNER_TOKEN" "{\"invitations\":[
+  {\"email\":\"not-an-email\",\"role\":\"ANALYST\"}
+]}")
+rec I19 400 "$(st)" "An unreadable address refuses the batch" "$B"
+
+B=$(api POST /api/brands/members/invite/bulk "$OWNER_TOKEN" '{"invitations":[]}')
+rec I20 400 "$(st)" "An empty batch is refused" "$B"
+
+echo "################ I21: resending replaces the link ################"
+RESEND_ID=$($PG -c "SELECT id FROM identity.member_invitations WHERE account_id='$OWNER_ACCT' AND email='bulk.a.$STAMP@example.test' AND status='pending';" | tr -d '\r')
+OLD_HASH=$($PG -c "SELECT token_hash FROM identity.member_invitations WHERE id='$RESEND_ID';" | tr -d '\r')
+B=$(api POST "/api/brands/members/invitations/$RESEND_ID/resend" "$OWNER_TOKEN" '{}')
+rec I21 200 "$(st)" "OWNER resends an invitation created in bulk" "$B"
+rec I21a ok "$([[ -n "$(jqv "$B" "['token']")" ]] && echo ok || echo missing)" "Resend returns a usable token"
+NEW_HASH=$($PG -c "SELECT token_hash FROM identity.member_invitations WHERE id='$RESEND_ID';" | tr -d '\r')
+rec I21b differs "$([[ "$OLD_HASH" != "$NEW_HASH" ]] && echo differs || echo same)" \
+    "The stored hash changed, so the previous link no longer works"
+# Rotating in place rather than revoke-and-recreate: the id an admin clicked has to survive, and a
+# resend must not read in the audit trail as a revocation.
+rec I21c pending "$($PG -c "SELECT status FROM identity.member_invitations WHERE id='$RESEND_ID';" | tr -d '\r')" \
+    "The same invitation was rotated, not revoked and replaced"
+
+echo "################ I22: invitations are reachable only by their own account ################"
+# Before the account check existed, an id was the entire authorization: any user holding
+# member:remove could revoke or resend an invitation belonging to a stranger's account.
+B=$(api POST "/api/brands/members/invitations/$RESEND_ID/revoke" "$OUTSIDER_TOKEN" '{}')
+rec I22 404 "$(st)" "SECURITY: an outsider cannot revoke another account's invitation" "$B"
+rec I22a pending "$($PG -c "SELECT status FROM identity.member_invitations WHERE id='$RESEND_ID';" | tr -d '\r')" \
+    "The invitation survived the attempt"
+B=$(api POST "/api/brands/members/invitations/$RESEND_ID/resend" "$OUTSIDER_TOKEN" '{}')
+rec I22b 404 "$(st)" "SECURITY: an outsider cannot resend another account's invitation" "$B"
+
 # Housekeeping.
 for e in "$OWNER_EMAIL" "$MEMBER_EMAIL" "$OUTSIDER_EMAIL" "revoke.me.$STAMP@example.test"; do
   $PG -c "DELETE FROM identity.users WHERE email='$e';" > /dev/null
 done
+$PG -c "DELETE FROM identity.member_invitations WHERE email LIKE '%.$STAMP@example.test';" > /dev/null
 rm -f "$SP/.ibody" "$SP/.icode"
 
 echo ""

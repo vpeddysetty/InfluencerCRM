@@ -81,6 +81,15 @@ export function describeUsage(entry) {
     // Warning only below the limit: once you are AT it, "running low" is the wrong tense and the
     // stronger at-limit message takes over.
     nearLimit: !unlimited && ratio !== null && ratio >= WARN_AT && used < limit,
+    // How many more may be created. Null when unlimited — deliberately not a large number, which a
+    // caller would render as a cap. Never negative: being over a limit means no room, not negative
+    // room, and an account CAN be over one (the free member limit dropped from 3 to 1 beneath
+    // accounts that already had more).
+    //
+    // Exists for bulk actions, which have to size a whole batch before sending it. `atLimit` alone
+    // answers "may I add one more", which is the wrong question when the answer needs to be "27
+    // needed, 40 available".
+    remaining: unlimited ? null : Math.max(0, limit - used),
   }
 }
 
@@ -133,8 +142,7 @@ export function usageMessage(usage, plan) {
     return `Your plan includes ${usage.limit} ${noun} and ${spent}. Existing ${usage.label} are unaffected — you just cannot add more.${upgrade}`
   }
   if (usage.nearLimit) {
-    const left = usage.limit - usage.used
-    return `${left} of ${usage.limit} ${usage.label} left.${upgrade}`
+    return `${usage.remaining} of ${usage.limit} ${usage.label} left.${upgrade}`
   }
   return null
 }
