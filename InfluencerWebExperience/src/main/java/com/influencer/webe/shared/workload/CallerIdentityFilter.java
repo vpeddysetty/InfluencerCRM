@@ -92,6 +92,10 @@ public class CallerIdentityFilter extends OncePerRequestFilter {
             chain.doFilter(request, response);
         } finally {
             org.slf4j.MDC.remove(CALLER);
+            // Threads are pooled. A leaked verified tenant would let the NEXT request sign a
+            // workload token for the previous caller's brand — a cross-tenant leak created by
+            // cleanup that was merely incomplete.
+            AuthoritativeTenant.clear();
         }
     }
 }

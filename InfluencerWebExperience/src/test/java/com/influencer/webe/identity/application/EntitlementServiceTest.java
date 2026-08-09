@@ -149,4 +149,91 @@ class EntitlementServiceTest {
 
         assertTrue(error.getReason().contains("Agency"), error.getReason());
     }
+
+    // ---------------------------------------------------------------- batch capacity
+
+    @Test
+    @DisplayName("a batch that exactly fills the plan is allowed")
+    void aBatchMayLandExactlyOnTheLimit() {
+        // The off-by-one that matters most here. Pro allows 10 members; 3 committed plus a batch of
+        // 7 is exactly 10, and refusing it would reject the batch an admin sized on purpose after
+        // reading "7 seats available" on the same screen.
+        assertDoesNotThrow(() -> serviceOnPlan("pro")
+                .requireCapacityFor(ACCOUNT, PlanPolicy.Resource.MEMBER, 3, 7));
+    }
+
+    @Test
+    @DisplayName("a batch one row past the limit is refused whole")
+    void oneRowTooManyRefusesTheWholeBatch() {
+        ResponseStatusException error = assertThrows(ResponseStatusException.class,
+                () -> serviceOnPlan("pro").requireCapacityFor(ACCOUNT, PlanPolicy.Resource.MEMBER, 3, 8));
+
+        assertEquals(HttpStatus.PAYMENT_REQUIRED, error.getStatusCode());
+    }
+
+    @Test
+    @DisplayName("the batch refusal names what was asked, what is available, and that nothing was sent")
+    void theBatchMessageIsActionable() {
+        // An admin who uploaded 8 names needs three facts to act: how many they asked for, how many
+        // they can have, and whether some of them went out anyway. The last is the one that decides
+        // whether their next move is to fix the file or to go hunting through the members list.
+        ResponseStatusException error = assertThrows(ResponseStatusException.class,
+                () -> serviceOnPlan("pro").requireCapacityFor(ACCOUNT, PlanPolicy.Resource.MEMBER, 8, 5));
+
+        String reason = error.getReason();
+        assertTrue(reason.contains("5"), "it must name what was requested: " + reason);
+        assertTrue(reason.contains("2"), "it must name what is available: " + reason);
+        assertTrue(reason.contains("pro"), reason);
+        assertTrue(reason.contains("team members"), reason);
+        assertTrue(reason.contains("Nothing was sent"),
+                "it must say nothing was created: " + reason);
+        assertTrue(reason.contains("Agency"), "it must name the tier that fixes it: " + reason);
+    }
+
+    @Test
+    @DisplayName("an over-limit account is told it has zero available, never a negative number")
+    void availableNeverGoesNegative() {
+        // Reachable today: the free member limit dropped from 3 to 1 with accounts already above it.
+        ResponseStatusException error = assertThrows(ResponseStatusException.class,
+                () -> serviceOnPlan("free").requireCapacityFor(ACCOUNT, PlanPolicy.Resource.MEMBER, 6, 1));
+
+        assertTrue(error.getReason().contains("0 available"),
+                "an account over its limit has zero seats, not minus five: " + error.getReason());
+    }
+
+    @Test
+    @DisplayName("a batch that creates nothing is not refused for capacity")
+    void zeroAdditionalIsAlwaysAllowed() {
+        // Every row was a duplicate or an existing member, so nothing needs a seat. Reporting a
+        // limit problem for a request that consumes no capacity would be a lie.
+        assertDoesNotThrow(() -> serviceOnPlan("free")
+                .requireCapacityFor(ACCOUNT, PlanPolicy.Resource.MEMBER, 99, 0));
+    }
+
+    @Test
+    @DisplayName("the agency tier is never refused a batch, however large")
+    void agencyIsNeverBlockedInBatch() {
+        assertDoesNotThrow(() -> serviceOnPlan("agency")
+                .requireCapacityFor(ACCOUNT, PlanPolicy.Resource.MEMBER, 10_000, 500));
+    }
+
+    @Test
+    @DisplayName("an unreadable plan refuses the batch on free limits rather than letting it through")
+    void batchFailsClosedWhenTheDaoIsDown() {
+        assertThrows(ResponseStatusException.class,
+                () -> serviceThatCannotRead().requireCapacityFor(ACCOUNT, PlanPolicy.Resource.MEMBER, 0, 5));
+    }
+
+    @Test
+    @DisplayName("remaining capacity is what a UI can size a batch against")
+    void remainingCapacityIsReportable() {
+        assertEquals(7, serviceOnPlan("pro").remainingCapacity(ACCOUNT, PlanPolicy.Resource.MEMBER, 3));
+        assertEquals(0, serviceOnPlan("pro").remainingCapacity(ACCOUNT, PlanPolicy.Resource.MEMBER, 10));
+        // Over the limit is zero remaining, not a negative allowance.
+        assertEquals(0, serviceOnPlan("free").remainingCapacity(ACCOUNT, PlanPolicy.Resource.MEMBER, 6));
+        // Unlimited reports the sentinel the UI already understands rather than a large number that
+        // would render as a cap.
+        assertEquals(PlanPolicy.UNLIMITED,
+                serviceOnPlan("agency").remainingCapacity(ACCOUNT, PlanPolicy.Resource.MEMBER, 10_000));
+    }
 }

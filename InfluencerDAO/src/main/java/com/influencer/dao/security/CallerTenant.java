@@ -89,14 +89,28 @@ public final class CallerTenant {
     /**
      * Whether a request may act on {@code requested}.
      *
-     * <p>Returns true when nothing was signed, which is what keeps the migration non-breaking.
-     * Flipping that to false is the switch that completes this work.
+     * <p><b>A mismatch is refused outright</b>, rather than quietly corrected as {@link #resolve}
+     * does. The two exist for different callers: {@code resolve} supplies the right value to a
+     * query that is about to run anyway, while this answers "should this request proceed at all",
+     * which is the question a write needs.
+     *
+     * <p>Still returns true when nothing was signed. That is the remaining migration allowance and
+     * the reason {@code TenantScopeFilter} exists as a separate, switchable control: refusing here
+     * would refuse every legacy-token call, including the ones that named their brand correctly.
      */
     public static boolean requireMatch(String requested) {
         String signed = signed();
         if (signed == null || requested == null) {
             return true;
         }
-        return signed.equals(requested);
+        boolean matches = signed.equals(requested);
+        if (!matches) {
+            // Should never happen in normal operation — the BFF derives both from the same
+            // authorized context. A burst of these is a bug or a probe, and either is worth an
+            // alert rather than a silent correction.
+            log.warn("Refusing a request for tenant {} from a caller whose token asserts {}",
+                    requested, signed);
+        }
+        return matches;
     }
 }

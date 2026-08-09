@@ -17,6 +17,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import com.influencer.platform.workload.WorkloadToken;
 import com.influencer.platform.workload.WorkloadTokenIssuer;
+import com.influencer.webe.shared.workload.AuthoritativeTenant;
 
 import java.time.Duration;
 import java.util.ArrayList;
@@ -72,7 +73,10 @@ public class DaoGatewayClient {
         if (serviceToken != null && !serviceToken.isBlank()) {
             builder.header(SERVICE_TOKEN_HEADER, serviceToken);
         }
-        String workload = workloadTokens.issueFor("dao", DAO_SCOPE);
+        // The VERIFIED brand, not the X-Brand-Id header. Signing a header the BFF never
+        // checked would launder a caller-supplied value into evidence the DAO then trusts
+        // precisely because it is signed — worse than not signing it at all.
+        String workload = workloadTokens.issueFor("dao", DAO_SCOPE, AuthoritativeTenant.get());
         if (workload != null) {
             builder.header(WorkloadToken.HEADER, workload);
         }

@@ -14,11 +14,14 @@ import com.influencer.webe.marketplace.CredentialProtector;
 import com.influencer.webe.marketplace.ExternalCoupon;
 import com.influencer.webe.marketplace.MarketplaceProvider;
 import com.influencer.webe.marketplace.MarketplaceProviderRegistry;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -37,6 +40,8 @@ import java.util.UUID;
  */
 @Service
 public class MarketplaceService {
+    private static final Logger log = LoggerFactory.getLogger(MarketplaceService.class);
+
     private final MarketplaceProviderRegistry registry;
     private final DaoGatewayClient dao;
     private final ResponseShapeService shape;
@@ -153,6 +158,97 @@ public class MarketplaceService {
         update.put("syncStatus", external.getStatus());
         JsonNode saved = dao.put("/influencer-campaign-codes/" + couponId, update);
         return shape.campaignCode(saved);
+    }
+
+    /** A webhook whose signature checked out, and the brand it belongs to. */
+    public record VerifiedWebhook(UUID brandId, UUID connectionId, String providerKey) {
+    }
+
+    /**
+     * Authenticates an inbound webhook and resolves the brand it is for.
+     *
+     * <p><b>The brand comes from the connection, never from the request.</b> That is the whole fix:
+     * the caller no longer names a tenant, so it cannot name someone else's. The store identifier
+     * in the provider's own headers selects a {@code marketplace_connections} row, and that row's
+     * {@code brandId} is the tenant.
+     *
+     * <p><b>The signature is checked against that connection's credentials.</b> Resolving the brand
+     * and verifying the signature are one step on purpose: done separately, a request could be
+     * verified against one store's secret and then attributed to another store's brand.
+     *
+     * <p>Every failure is a flat 401 with the same message. Distinguishing "unknown store" from
+     * "bad signature" would tell someone probing which store identifiers exist.
+     */
+    public VerifiedWebhook verifyWebhook(String providerKey,
+                                         Map<String, String> headers,
+                                         String rawBody) {
+        MarketplaceProvider provider = registry.find(providerKey).orElseThrow(() ->
+                new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Webhook rejected"));
+
+        String storeRef = storeReferenceFrom(headers);
+        if (storeRef == null || storeRef.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Webhook rejected");
+        }
+
+        JsonNode connRow = findConnectionByStore(provider.key(), storeRef);
+        if (connRow == null) {
+            log.warn("Webhook for {} named an unknown store", provider.key());
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Webhook rejected");
+        }
+
+        Connection connection = toConnection(connRow);
+        byte[] body = rawBody == null ? new byte[0] : rawBody.getBytes(StandardCharsets.UTF_8);
+        if (!provider.verifyWebhook(body, headers, connection)) {
+            log.warn("Webhook signature failed for {} store {}", provider.key(), storeRef);
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Webhook rejected");
+        }
+
+        return new VerifiedWebhook(
+                UUID.fromString(connRow.get("brandId").asText()),
+                UUID.fromString(connRow.get("id").asText()),
+                provider.key());
+    }
+
+    /**
+     * The store identifier a provider puts in its webhook headers.
+     *
+     * <p>Header names are matched case-insensitively: HTTP header case is not significant, and a
+     * provider that changes {@code X-Shopify-Shop-Domain} to lowercase would otherwise silently
+     * stop authenticating.
+     */
+    private String storeReferenceFrom(Map<String, String> headers) {
+        if (headers == null) {
+            return null;
+        }
+        for (Map.Entry<String, String> header : headers.entrySet()) {
+            String name = header.getKey().toLowerCase(java.util.Locale.ROOT);
+            if (name.equals("x-shopify-shop-domain") || name.equals("x-marketplace-store")) {
+                return header.getValue();
+            }
+        }
+        return null;
+    }
+
+    /** Finds the connection a store identifier belongs to, or null. */
+    private JsonNode findConnectionByStore(String providerKey, String storeRef) {
+        try {
+            JsonNode rows = dao.get("/marketplace-connections",
+                    Map.of("providerKey", providerKey, "externalAccountRef", storeRef));
+            if (rows == null || !rows.isArray() || rows.isEmpty()) {
+                return null;
+            }
+            // externalAccountRef is unique per provider in practice; take the first and log if not.
+            if (rows.size() > 1) {
+                log.warn("{} store {} matches {} connections; using the first",
+                        providerKey, storeRef, rows.size());
+            }
+            JsonNode row = rows.get(0);
+            return row.hasNonNull("brandId") && row.hasNonNull("id") ? row : null;
+        } catch (RuntimeException lookupFailed) {
+            // A DAO outage must not become a way past authentication.
+            log.warn("Could not resolve the store for a {} webhook: {}", providerKey, lookupFailed.toString());
+            return null;
+        }
     }
 
     // ---- internals -----------------------------------------------------

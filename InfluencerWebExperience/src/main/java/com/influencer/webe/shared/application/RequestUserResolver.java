@@ -2,6 +2,7 @@ package com.influencer.webe.shared.application;
 
 
 import com.influencer.webe.security.Permission;
+import com.influencer.webe.shared.workload.AuthoritativeTenant;
 import com.influencer.webe.security.TenantContext;
 import com.influencer.webe.security.TenantContextHolder;
 import org.springframework.http.HttpStatus;
@@ -50,6 +51,11 @@ public class RequestUserResolver {
                 throw new ResponseStatusException(
                         HttpStatus.FORBIDDEN, "You do not have access to the requested brand");
             }
+            // Legitimately a different brand — the caller named one their token reaches. It has
+            // now passed canAccessBrand, so it is the verified tenant for this request and must
+            // replace the token's default; signing the default instead would send the DAO a
+            // tenant that disagrees with the query the BFF is about to make.
+            AuthoritativeTenant.set(explicitBrandId.toString());
             return explicitBrandId;
         }
         return context.brandId();
@@ -80,10 +86,20 @@ public class RequestUserResolver {
      * re-parsed and re-verified per call site.
      */
     public TenantContext requireTenantContext(String authorizationHeader) {
-        return TenantContextHolder.get()
+        TenantContext context = TenantContextHolder.get()
                 .or(() -> resolveTenantContext(authorizationHeader))
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.UNAUTHORIZED, "A valid Authorization Bearer token is required"));
+
+        // Record the brand this token actually grants, so the workload token sent onward to the
+        // DAO carries a tenant the BFF verified rather than one the caller stated. Set here
+        // because this is the single point every resolution passes through — doing it at each
+        // call site would mean the sites that forget silently sign nothing, which reopens the
+        // unscoped-access hole the tid claim exists to close.
+        if (context.brandId() != null) {
+            AuthoritativeTenant.set(context.brandId().toString());
+        }
+        return context;
     }
 
     public TenantContext requireTenantContext(String authorizationHeader, UUID explicitUserId) {

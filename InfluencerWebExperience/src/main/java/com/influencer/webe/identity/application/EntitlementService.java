@@ -79,6 +79,44 @@ public class EntitlementService {
     }
 
     /**
+     * Refuses the request with 402 if creating {@code additional} more would exceed the plan.
+     *
+     * <p><b>All-or-nothing on purpose.</b> The alternative — take the first N that fit, drop the
+     * rest — is worse in every direction: the admin who uploaded thirty names cannot tell which
+     * eight got in without reading a results table line by line, the twenty-two that were dropped
+     * were dropped by their position in a file rather than by any decision, and re-uploading to
+     * catch the remainder silently re-sends the ones that succeeded. Refusing the whole batch with
+     * the numbers stated is the only outcome an admin can act on.
+     *
+     * <p>Deliberately not {@link #requireCapacity} in a loop: each call would re-read the same
+     * count and pass, so a batch of twenty would sail past a single free seat.
+     *
+     * @param currentCount how many the account already has, including anything already committed
+     *                     (pending invitations hold a seat — see the caller)
+     * @param additional   how many this request would create
+     */
+    public void requireCapacityFor(UUID accountId, PlanPolicy.Resource resource,
+                                   long currentCount, long additional) {
+        PlanPolicy plan = planFor(accountId);
+        if (plan.allowsAdditional(resource, currentCount, additional)) {
+            return;
+        }
+        throw new ResponseStatusException(HttpStatus.PAYMENT_REQUIRED,
+                batchMessage(plan, resource, currentCount, additional));
+    }
+
+    /**
+     * How many more of {@code resource} the plan still allows, or {@link PlanPolicy#UNLIMITED}.
+     *
+     * <p>Exists so a batch can be sized <em>before</em> it is sent. The 402 above is the backstop;
+     * a UI that can say "27 needed, 40 available" never has to reach it.
+     */
+    public long remainingCapacity(UUID accountId, PlanPolicy.Resource resource, long currentCount) {
+        int limit = planFor(accountId).limitFor(resource);
+        return limit == PlanPolicy.UNLIMITED ? PlanPolicy.UNLIMITED : Math.max(0, limit - currentCount);
+    }
+
+    /**
      * Refuses the request with 402 if the plan does not include role-based access.
      *
      * <p><b>402, not 403.</b> The caller holds {@code MEMBER_UPDATE} and is entirely authorized;
@@ -131,6 +169,26 @@ public class EntitlementService {
         return "Your %s plan includes %d %s. Upgrade to %s to add more — nothing you already have "
                 .formatted(plan.key(), limit, resource.plural(), next)
                 + "is affected.";
+    }
+
+    /**
+     * The message for a refused batch. Names what was asked for, what is available, and every way
+     * out of it.
+     *
+     * <p>Says "nothing was sent" explicitly. The immediate fear on a failed bulk action is that it
+     * half-succeeded and some unknown subset of people were invited; leaving that unanswered means
+     * the admin's next move is to go looking rather than to fix the batch.
+     */
+    private String batchMessage(PlanPolicy plan, PlanPolicy.Resource resource,
+                                long currentCount, long additional) {
+        int limit = plan.limitFor(resource);
+        long available = Math.max(0, limit - currentCount);
+        String next = plan == PlanPolicy.FREE ? "Pro" : "Agency";
+        return ("This needs %d %s and your %s plan has %d available (%d of %d already used, "
+                + "including pending invitations). Nothing was sent — send %d or fewer, free a seat "
+                + "by revoking a pending invitation, or upgrade to %s.")
+                .formatted(additional, resource.plural(), plan.key(), available,
+                        currentCount, limit, available, next);
     }
 
     /** Sums a per-brand resource over every brand in the account. */

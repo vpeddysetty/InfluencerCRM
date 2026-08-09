@@ -20,7 +20,15 @@ public class MarketplaceConnectionController {
     @GetMapping
     public List<MarketplaceConnection> findAll(
             @RequestParam(required = false) UUID brandId,
-            @RequestParam(required = false) String providerKey) {
+            @RequestParam(required = false) String providerKey,
+            @RequestParam(required = false) String externalAccountRef) {
+        // Store lookup for webhook authentication. Intentionally reachable without a brand — the
+        // caller is an inbound webhook that does not know its brand yet, and this is what tells it.
+        // Safe because it returns at most the one connection matching a provider's own store id,
+        // and the BFF then verifies the signature against that row before trusting it.
+        if (providerKey != null && externalAccountRef != null) {
+            return repository.findByProviderKeyAndExternalAccountRef(providerKey, externalAccountRef);
+        }
         if (brandId != null && providerKey != null) {
             return repository.findByBrandIdAndProviderKey(brandId, providerKey);
         }

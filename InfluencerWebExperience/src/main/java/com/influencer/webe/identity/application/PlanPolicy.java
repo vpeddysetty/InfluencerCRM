@@ -139,6 +139,28 @@ public enum PlanPolicy {
         return limit == UNLIMITED || currentCount < limit;
     }
 
+    /**
+     * Whether {@code additional} more of {@code resource} may be created at once.
+     *
+     * <p>Exists because {@link #allows} only ever answers "may I create <em>one</em> more", and
+     * calling it in a loop answers a different question than a batch asks: each call sees the same
+     * stale count, so twenty calls all pass against one free seat.
+     *
+     * <p>Note {@code <=} where {@link #allows} uses {@code <}. Both mean the same thing — a batch
+     * that lands exactly on the limit fills it, and one that lands a single row past it does not —
+     * but the operator flips because this compares the count <em>after</em> the batch rather than
+     * before it. Getting this backwards refuses the batch that exactly fits, which is the one an
+     * admin is most likely to have sized deliberately.
+     *
+     * <p>{@code additional <= 0} is allowed rather than rejected: a batch whose rows were all
+     * duplicates or existing members creates nothing, and refusing it would report a limit problem
+     * for a request that needs no capacity at all.
+     */
+    public boolean allowsAdditional(Resource resource, long currentCount, long additional) {
+        int limit = limitFor(resource);
+        return limit == UNLIMITED || additional <= 0 || currentCount + additional <= limit;
+    }
+
     /** A metered resource. */
     public enum Resource {
         BRAND("brand", "brands"),

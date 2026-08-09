@@ -61,16 +61,22 @@ against Shopify's `X-Shopify-Shop-Domain`), never from the request; call `verify
 `ingest` and reject on failure; take the raw body as a `String` for HMAC, exactly as
 `StripeSignature` already does — a body parsed to `JsonNode` and re-serialised will never verify.
 
-### 2. Ingestion is not idempotent
+### 2. Ingestion dedupes, but only check-then-act
 
-Shopify retries a webhook until it gets a 2xx, and `orders/paid` can fire more than once for one
-order. `attribute()` has no check on `externalOrderId`, so a retry attributes the sale twice and
-accrues commission twice.
+**Correction to an earlier draft of this document,** which said there was no dedupe at all. There
+is: `findExistingAttribution(brandId, campaignCodeId, orderId, orderLineId)` runs before an
+attribution is written.
 
-The billing side already solved this: webhook events are recorded by provider event id *before*
-being applied, with a unique index so a concurrent duplicate fails at the database rather than
-racing through a check-then-act gap. Do the same here, keyed on
-`(marketplace_connection_id, external_order_id, external_order_line_id)`.
+The remaining weakness is narrower and still real. It is a read followed by a write with no unique
+constraint underneath, so two concurrent deliveries of the same order — which Shopify produces by
+retrying until it gets a 2xx — can both read "not found" and both insert. The window is small and
+the consequence is double-counted revenue and double-accrued commission.
+
+The billing side already solved exactly this: webhook events are recorded by provider event id
+*before* being applied, with a **unique index** so a concurrent duplicate fails at the database
+rather than racing through the gap. Add the same index here on
+`(brand_id, external_order_id, external_order_line_id)` — the existing check then becomes the fast
+path rather than the only defence.
 
 **Both of these are the same lesson M8.3 taught with payout references: the money path needs an
 idempotency key, and the key must come from the provider.**
@@ -82,14 +88,14 @@ idempotency key, and the key must come from the provider.**
 | # | Item | Size | Depends on |
 |---|---|---|---|
 | 0 | Webhook authentication + brand resolution from the store | 2d | — |
-| 0b | Order-ingestion idempotency | 1d | — |
+| 0b | Unique index behind the existing dedupe check | 0.5d | — |
 | 1 | OAuth install flow + `shopify` connection | 3d | A Partner app, a public URL |
 | 2 | `ShopifyMarketplaceProvider` — connect, coupon CRUD | 3d | 1 |
 | 3 | `verifyWebhook` + `normalizeOrderEvent`, registered topics | 2d | 0, 2 |
 | 4 | `fetchOrders` reconciliation + scheduler | 1d | 3 |
 | 5 | Mandatory GDPR webhooks + uninstall handling | 1d | 1 |
 
-**~13 dev-days**, of which **items 0 and 0b (3 days) are buildable today** — they need no Shopify
+**~12.5 dev-days**, of which **items 0 and 0b (2.5 days) are buildable today** — they need no Shopify
 account at all.
 
 ---
