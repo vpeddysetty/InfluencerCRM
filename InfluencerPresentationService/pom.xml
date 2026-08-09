@@ -30,6 +30,15 @@
     </properties>
 
     <dependencies>
+        <!-- Workload identity and the log schema. Shared because these must be byte-identical
+             across services: three copies of a token format is three chances to drift, and the
+             failure mode is a silent authentication mismatch. -->
+        <dependency>
+            <groupId>com.influencer</groupId>
+            <artifactId>InfluencerPlatformCommons</artifactId>
+            <version>1.0.0</version>
+        </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>

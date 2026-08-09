@@ -1,5 +1,7 @@
 package com.influencer.dao.security;
 
+import com.influencer.platform.workload.WorkloadToken;
+import com.influencer.platform.workload.WorkloadTokenVerifier;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -17,7 +19,6 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.time.Instant;
 import java.util.List;
 
 /**
@@ -51,15 +52,17 @@ public class ServiceTokenFilter extends OncePerRequestFilter {
     private static final String SERVICE_TOKEN_HEADER = "X-Service-Token";
 
     private final String expectedToken;
-    private final String workloadKey;
+    private final WorkloadTokenVerifier verifier;
 
     public ServiceTokenFilter(@Value("${dao.service-token:}") String expectedToken,
-                              @Value("${dao.workload.signing-key:}") String workloadKey) {
+                              @Value("${dao.workload.signing-key:}") String workloadKey,
+                              @Value("${dao.workload.trust.web-experience:}") String bffPublicKey) {
         this.expectedToken = expectedToken;
-        this.workloadKey = workloadKey;
+        this.verifier = new WorkloadTokenVerifier(
+                "dao", java.util.Map.of("web-experience", bffPublicKey), workloadKey);
 
         boolean hasLegacy = expectedToken != null && !expectedToken.isBlank();
-        boolean hasWorkload = workloadKey != null && !workloadKey.isBlank();
+        boolean hasWorkload = verifier.isConfigured();
 
         if (!hasLegacy && !hasWorkload) {
             log.error("Neither dao.service-token nor dao.workload.signing-key is configured. "
@@ -119,11 +122,7 @@ public class ServiceTokenFilter extends OncePerRequestFilter {
 
     /** The verified workload claims, or null if the caller presented no valid workload token. */
     private WorkloadToken.Claims verifiedClaims(HttpServletRequest request) {
-        if (workloadKey == null || workloadKey.isBlank()) {
-            return null;
-        }
-        return WorkloadToken.verify(
-                request.getHeader(WorkloadToken.HEADER), "dao", workloadKey, Instant.now());
+        return verifier.verify(request.getHeader(WorkloadToken.HEADER)).claims();
     }
 
     /**
@@ -142,8 +141,7 @@ public class ServiceTokenFilter extends OncePerRequestFilter {
         // path — it is a forgery, an expired token, or one minted for a different audience. Say so
         // rather than letting it fall through and be accepted on the strength of a shared secret.
         String presentedWorkload = request.getHeader(WorkloadToken.HEADER);
-        if (presentedWorkload != null && !presentedWorkload.isBlank() && workloadKey != null
-                && !workloadKey.isBlank()) {
+        if (presentedWorkload != null && !presentedWorkload.isBlank() && verifier.isConfigured()) {
             log.warn("Rejected an invalid workload token for {} {}",
                     request.getMethod(), request.getRequestURI());
             return false;

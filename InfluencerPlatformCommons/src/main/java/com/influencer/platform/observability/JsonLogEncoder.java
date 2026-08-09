@@ -1,4 +1,4 @@
-package com.influencer.dao.observability;
+package com.influencer.platform.observability;
 
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.classic.spi.IThrowableProxy;

@@ -1,4 +1,4 @@
-package com.influencer.dao.observability;
+package com.influencer.platform.observability;
 
 import org.slf4j.MDC;
 

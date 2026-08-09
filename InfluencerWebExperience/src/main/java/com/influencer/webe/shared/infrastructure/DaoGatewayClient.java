@@ -15,8 +15,8 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
-import com.influencer.webe.shared.workload.WorkloadToken;
-import com.influencer.webe.shared.workload.WorkloadTokenIssuer;
+import com.influencer.platform.workload.WorkloadToken;
+import com.influencer.platform.workload.WorkloadTokenIssuer;
 
 import java.time.Duration;
 import java.util.ArrayList;

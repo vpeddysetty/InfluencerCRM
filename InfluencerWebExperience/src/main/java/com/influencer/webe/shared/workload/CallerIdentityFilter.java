@@ -1,20 +1,20 @@
 package com.influencer.webe.shared.workload;
 
-import com.influencer.webe.shared.observability.LogContext;
+import com.influencer.platform.observability.LogContext;
+import com.influencer.platform.workload.WorkloadToken;
+import com.influencer.platform.workload.WorkloadTokenVerifier;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
-import java.time.Instant;
 
 /**
  * Records which service relayed a request, when it can be verified (roadmap step 4).
@@ -40,10 +40,10 @@ public class CallerIdentityFilter extends OncePerRequestFilter {
     /** MDC key naming the verified upstream service. */
     private static final String CALLER = "caller";
 
-    private final String dpsKey;
+    private final WorkloadTokenVerifier verifier;
 
-    public CallerIdentityFilter(@Value("${web-experience.workload.dps-key:}") String dpsKey) {
-        this.dpsKey = dpsKey;
+    public CallerIdentityFilter(WorkloadTokenVerifier verifier) {
+        this.verifier = verifier;
     }
 
     @Override
@@ -53,9 +53,16 @@ public class CallerIdentityFilter extends OncePerRequestFilter {
 
         String presented = request.getHeader(WorkloadToken.HEADER);
 
-        if (presented != null && !presented.isBlank() && dpsKey != null && !dpsKey.isBlank()) {
-            WorkloadToken.Claims claims =
-                    WorkloadToken.verify(presented, "bff", dpsKey, Instant.now());
+        if (presented != null && !presented.isBlank() && verifier.isConfigured()) {
+            WorkloadTokenVerifier.Result result = verifier.verify(presented);
+            WorkloadToken.Claims claims = result.claims();
+
+            if (claims != null && result.legacy()) {
+                // The signal that decides when the shared secret can be deleted. When these stop
+                // appearing, every caller is signing asymmetrically.
+                log.warn("Accepted a LEGACY HMAC workload token from '{}' on {} {}",
+                        claims.issuer(), request.getMethod(), request.getRequestURI());
+            }
 
             if (claims == null) {
                 // Present but unverifiable. Refusing is the only safe reading: accepting it would

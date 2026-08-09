@@ -52,7 +52,7 @@
             <totalSizeCap>3GB</totalSizeCap>
             <cleanHistoryOnStart>false</cleanHistoryOnStart>
         </rollingPolicy>
-        <encoder class="com.influencer.webe.shared.observability.JsonLogEncoder">
+        <encoder class="com.influencer.platform.observability.JsonLogEncoder">
             <service>${SERVICE_NAME}</service>
         </encoder>
     </appender>

@@ -1,0 +1,93 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!--
+      Cross-cutting code that MUST be identical in every service.
+
+      WHY THIS EXISTS. WorkloadToken was copied into three services because there was no shared
+      module. Three copies of a security primitive is three chances for them to drift, and the
+      failure mode is silent: a fix applied to two of them leaves the third verifying by slightly
+      different rules, which shows up as an authentication bug nobody can reproduce. The
+      observability classes had the same problem in a milder form — a field renamed in one service
+      quietly stops matching every dashboard filter.
+
+      WHAT BELONGS HERE. Only things whose correctness depends on being byte-identical across
+      services: the workload-token format, and the log schema. Business logic does NOT belong here
+      — a shared module that accumulates domain code becomes a distribution of the monolith, and
+      the context boundaries the DAO and BFF spent Phase 4/6 establishing would leak straight
+      through it.
+
+      NOT a Spring Boot application, so it deliberately does not inherit spring-boot-starter-parent
+      as an executable module would; it declares only the dependencies its own classes compile
+      against. Consumers bring their own Spring.
+    -->
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.2.5</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>com.influencer</groupId>
+    <artifactId>InfluencerPlatformCommons</artifactId>
+    <version>1.0.0</version>
+    <name>InfluencerPlatformCommons</name>
+    <description>Workload identity and log schema shared by every service</description>
+
+    <properties>
+        <java.version>17</java.version>
+    </properties>
+
+    <dependencies>
+        <!-- Logging API only. Binding to an implementation here would force one on every
+             consumer, and Spring Boot already chooses logback. -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+        </dependency>
+
+        <!-- logback-classic is needed to COMPILE the encoder against EncoderBase, but is
+             `provided`: the consuming application supplies it at runtime, and dragging a second
+             copy onto a consumer's classpath is how a service ends up with two logging backends
+             and no logs. -->
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- The servlet API and Spring's filter/annotation types the shared filter compiles
+             against, taken via the same starter every consumer already uses. Depending on the
+             starter rather than picking individual artifacts guarantees the exact versions the
+             services resolve, so the shared code cannot compile against a different servlet API
+             than it runs on. `provided`, so nothing is contributed to a consumer's classpath —
+             they all have it already. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!--
+              The Boot repackage goal is explicitly NOT bound. It would rewrite this jar as an
+              executable fat jar, whose classes live under BOOT-INF/ and are therefore invisible
+              to any project depending on it — a library that silently exports nothing.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>
