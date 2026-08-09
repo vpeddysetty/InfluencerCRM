@@ -701,3 +701,88 @@ hero had not. It is a sentence, not a value, and it was only visible because som
 | **M3.2–3.5** Shopify | A Partner app and a public callback URL |
 | **M6** IG/TikTok bodies | Meta and TikTok approval |
 | Email delivery | `web-experience.email.provider` is still `log` |
+
+---
+
+## Shipped 2026-08-09 (eighth cycle) — the three follow-ups
+
+**20 commons (new module), 250 BFF, 36 DAO (was 27), 12 DPS, 162 UI, 9/9 e2e.**
+
+The three items the last cycle left open, done together because each would otherwise have been
+written three times and deleted twice.
+
+### The shared module went first, deliberately
+
+`WorkloadToken` had been copied into three services. Three copies of a security primitive is three
+chances to drift, and the failure mode is silent — a fix applied to two of them leaves the third
+verifying by slightly different rules, which surfaces as an authentication bug nobody can reproduce.
+
+`InfluencerPlatformCommons` holds the token format and the log schema, and only those: things whose
+correctness depends on being byte-identical. **No business logic** — a shared module that
+accumulates domain code becomes a distribution of the monolith, and the context boundaries the DAO
+and BFF spent Phase 4/6 establishing would leak straight through it.
+
+Sequencing it first is why the other two changes landed in one place instead of three.
+
+### Asymmetric signing — the verifier can no longer mint
+
+Under HMAC every verifier is also a forger: an attacker who read the DAO's config could mint tokens
+claiming to be the BFF, for any tenant. `v2` uses Ed25519, so the DAO holds only a public key.
+Tested both directions — the forgery fails, and signing with a public key is not merely disallowed
+but inexpressible.
+
+Ed25519 over RSA: 64-byte signatures, no parameters to get wrong, in the JDK since 15 — which
+matters because this build is offline.
+
+`v1` is still verified but no longer preferred, for the reason the DAO dual-accepts: removing it
+means every service deploys in the same instant, on the hop every request crosses.
+
+**The version selects the algorithm and is never negotiated.** A v2 token is only ever checked with
+Ed25519, a v1 only with HMAC, and an unknown prefix is refused rather than defaulted. That is the
+`alg: none` class of bug, and it has its own test.
+
+Trust is a map of issuer → public key rather than one shared key, or the per-service identities
+collapse back into one principal. The issuer is read from the **verified** claims, never before
+verification — otherwise a caller nominates which key checks its own signature.
+
+### The `brandId` IDOR, narrowed
+
+24 DAO controllers take `brandId` as an optional `@RequestParam` and fall back to an unfiltered
+query. `GET /creators` returned every tenant's rows; naming someone else's brand returned theirs.
+Nothing had to be forged.
+
+Fixed at the **argument-binding layer**, not in 24 controllers. Editing each would be 24 chances to
+write the check differently, and the 25th controller written next month would silently not have it.
+The resolver supplies the signed tenant wherever a controller asks for `brandId`, so controller code
+is unchanged and unaware — which is what makes it impossible to bypass by forgetting.
+
+**Not finished, and the code says so.** A caller with no signed tenant still gets its requested
+value, because a legacy token carries no `tid` and refusing would take the platform down rather than
+secure it. The unfiltered fallback inside each controller also remains. This narrows *which* tenant
+a caller can name; removing the fallback is a behaviour change per endpoint and belongs in its own
+change.
+
+---
+
+## Shopify — planned, not started
+
+Full plan: [docs/shopify-integration-plan.md](docs/shopify-integration-plan.md). **~13 dev-days**,
+of which **3 are buildable today without a Shopify account.**
+
+Writing it surfaced two existing defects that connecting a real store would turn from theoretical
+into exploitable:
+
+**The order webhook is unauthenticated and takes `brandId` from the caller.** `verifyWebhook` is on
+the SPI and is never called, so anyone who knows the URL can post a fabricated order naming any
+brand and any coupon code — straight into attribution, which accrues commission, which becomes a
+payout. An anonymous HTTP request to money owed. Survivable only because the mock is the sole
+provider and the endpoint is not public; connecting a real store makes it public by necessity.
+
+**Ingestion is not idempotent.** Shopify retries until it gets a 2xx and `orders/paid` can fire more
+than once. There is no check on `externalOrderId`, so a retry attributes the sale twice. The billing
+side already solved this — record the event before applying it, with a unique index so a concurrent
+duplicate fails at the database rather than racing through a check-then-act gap.
+
+Both are the M8.3 lesson again: the money path needs an idempotency key, and it must come from the
+provider. Both should be built **before** the Partner app arrives, so the day it does the remaining
+work is an adapter rather than an adapter plus a security fix under time pressure.
