@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.influencer.webe.shared.infrastructure.DaoGatewayClient;
 import com.influencer.webe.shared.infrastructure.DaoHttpClientFactory;
+import com.influencer.webe.shared.workload.WorkloadTokenIssuer;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -43,7 +44,10 @@ class EntitlementServiceTest {
                 public HttpClient create() {
                     return null;
                 }
-            });
+            },
+            // No signing key: the stub issues no workload token, which is the correct shape for a
+            // test that never reaches the network.
+            new WorkloadTokenIssuer("", "test"));
         }
     }
 

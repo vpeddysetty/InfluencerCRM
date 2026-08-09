@@ -1,9 +1,12 @@
 package com.influencer.dps.api;
 
 import com.fasterxml.jackson.annotation.JsonAnySetter;
+import com.influencer.dps.channel.AppRegistry;
 import com.influencer.dps.config.DpsProperties;
 import com.influencer.dps.session.UiSession;
 import com.influencer.dps.session.UiSessionService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
@@ -46,6 +49,11 @@ public class SessionController {
      * an arbitrary value would let a caller shape where the browser is sent.
      */
     private static final Set<String> SUPPORTED_PROVIDERS = Set.of("google", "facebook");
+
+    private static final Logger log = LoggerFactory.getLogger(SessionController.class);
+
+    /** Identifies the calling micro-frontend. See {@link #callingApp}. */
+    static final String APP_ID_HEADER = "X-App-Id";
 
     private final UiSessionService sessionService;
     private final DpsProperties properties;
@@ -159,8 +167,9 @@ public class SessionController {
     @GetMapping("/session")
     public ResponseEntity<SessionView> currentSession(HttpServletRequest request) {
         Optional<UiSession> session = resolve(request);
+        AppRegistry app = callingApp(request).orElse(null);
         return session
-                .map(value -> ResponseEntity.ok(SessionView.of(value)))
+                .map(value -> ResponseEntity.ok(SessionView.of(value, app)))
                 .orElseGet(() -> ResponseEntity.ok(SessionView.anonymous()));
     }
 
@@ -219,6 +228,35 @@ public class SessionController {
     private UiSession requireSession(HttpServletRequest request) {
         return resolve(request).orElseThrow(() ->
                 new ResponseStatusException(HttpStatus.UNAUTHORIZED, "No active session"));
+    }
+
+    /**
+     * Which micro-frontend is calling, from {@code X-App-Id}.
+     *
+     * <p><b>An absent header is permitted; an unrecognised one is not.</b> Every remote in the
+     * platform predates this header, so requiring it would break all of them on deploy — a
+     * self-inflicted outage in the name of security, and the reliable way to get a security control
+     * reverted. An absent header therefore means "unscoped", exactly as before.
+     *
+     * <p>A header that is <em>present but unknown</em> is a different case and is rejected. It is
+     * either a misconfigured deployment or someone probing for an app id that grants more, and
+     * silently treating it as unscoped would make the strictest-sounding value the most permissive
+     * one. Failing there costs nothing, because no legitimate caller sends an unknown id.
+     *
+     * <p>Once every remote sends the header, the absent case should become a rejection too. That is
+     * a one-line change here, deliberately left until the remotes are updated.
+     */
+    private Optional<AppRegistry> callingApp(HttpServletRequest request) {
+        String header = request.getHeader(APP_ID_HEADER);
+        if (header == null || header.isBlank()) {
+            return Optional.empty();
+        }
+        Optional<AppRegistry> app = AppRegistry.find(header);
+        if (app.isEmpty()) {
+            log.warn("Rejected an unknown app id '{}'", header.replaceAll("[^A-Za-z0-9._:-]", ""));
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Unknown application");
+        }
+        return app;
     }
 
     private String readCookie(HttpServletRequest request) {
@@ -327,6 +365,24 @@ public class SessionController {
             Map<String, Object> warmCache) {
 
         static SessionView of(UiSession session) {
+            return of(session, null);
+        }
+
+        /**
+         * The session as one app may see it.
+         *
+         * <p>When the caller identified itself, the permission list is narrowed to what that app is
+         * entitled to use. An unidentified caller gets the full list, because every existing remote
+         * predates the header and breaking them would be a worse outcome than the exposure this
+         * narrows — see the note on {@code X-App-Id} in the controller.
+         *
+         * <p>Narrowing the list is a UI-rendering benefit only. The enforcement that matters is on
+         * the proxy, which refuses paths the app is not entitled to.
+         */
+        static SessionView of(UiSession session, AppRegistry app) {
+            List<String> permissions = app == null
+                    ? session.permissions()
+                    : app.scope(session.permissions());
             return new SessionView(
                     true,
                     session.userId(),
@@ -336,7 +392,7 @@ public class SessionController {
                     session.brandId(),
                     session.brandName(),
                     session.role(),
-                    session.permissions(),
+                    permissions,
                     session.availableBrands(),
                     session.warmCache());
         }

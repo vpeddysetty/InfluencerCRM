@@ -15,6 +15,9 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import com.influencer.webe.shared.workload.WorkloadToken;
+import com.influencer.webe.shared.workload.WorkloadTokenIssuer;
+
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -25,24 +28,53 @@ import java.util.Map;
 public class DaoGatewayClient {
     private static final String SERVICE_TOKEN_HEADER = "X-Service-Token";
 
+    /**
+     * What the BFF claims when calling the DAO.
+     *
+     * <p>Coarse on purpose for now. This client is the general-purpose gateway used by every
+     * context, so a narrower scope here would have to be the union of all of them anyway — which is
+     * this. The finer split belongs with per-context clients, and the claim exists now so the DAO
+     * can begin enforcing on it without another protocol change later.
+     */
+    private static final java.util.Set<String> DAO_SCOPE = java.util.Set.of("dao:read", "dao:write");
+
     private final WebExperienceProperties properties;
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
+    private final WorkloadTokenIssuer workloadTokens;
 
-    public DaoGatewayClient(WebExperienceProperties properties, ObjectMapper objectMapper, DaoHttpClientFactory httpClientFactory) {
+    public DaoGatewayClient(WebExperienceProperties properties,
+                            ObjectMapper objectMapper,
+                            DaoHttpClientFactory httpClientFactory,
+                            WorkloadTokenIssuer workloadTokens) {
         this.properties = properties;
         this.objectMapper = objectMapper;
         this.httpClient = httpClientFactory.create();
+        this.workloadTokens = workloadTokens;
     }
 
     /**
-     * Stamps the service credential the DAO requires. Without it the DAO rejects the call, which is
-     * what stops the DAO from being an unauthenticated CRUD API over the whole database.
+     * Stamps the credentials the DAO requires. Without one the DAO rejects the call, which is what
+     * stops it from being an unauthenticated CRUD API over the whole database.
+     *
+     * <p><b>Both headers are sent during the dual-accept window.</b> The DAO prefers the workload
+     * token and falls back to the legacy shared secret, so a rolling deploy where the two services
+     * update at different moments keeps working in either order. Once the DAO's logs show no
+     * legacy acceptances, the shared token is removed from both sides — the reason it is still
+     * sent here is precisely so that removal can be a separate, revertible change.
+     *
+     * <p>The workload token is minted per request, not cached: it carries this request's tenant and
+     * correlation id, so reusing one would attribute a call to the wrong tenant. Signing an HMAC is
+     * microseconds against a network hop.
      */
     private HttpRequest.Builder authorized(HttpRequest.Builder builder) {
         String serviceToken = properties.getDaoServiceToken();
         if (serviceToken != null && !serviceToken.isBlank()) {
             builder.header(SERVICE_TOKEN_HEADER, serviceToken);
+        }
+        String workload = workloadTokens.issueFor("dao", DAO_SCOPE);
+        if (workload != null) {
+            builder.header(WorkloadToken.HEADER, workload);
         }
         return builder;
     }

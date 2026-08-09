@@ -1,10 +1,13 @@
 package com.influencer.dps.api;
 
+import com.influencer.dps.channel.AppRegistry;
 import com.influencer.dps.config.DpsProperties;
 import com.influencer.dps.identity.IdentityClient;
 import com.influencer.dps.session.UiSession;
 import com.influencer.dps.session.UiSessionService;
 import jakarta.servlet.http.HttpServletRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -30,6 +33,8 @@ import java.util.Optional;
 @RequestMapping("/dps/api")
 public class ApiProxyController {
 
+    private static final Logger log = LoggerFactory.getLogger(ApiProxyController.class);
+
     private final UiSessionService sessionService;
     private final IdentityClient identityClient;
     private final DpsProperties properties;
@@ -54,6 +59,27 @@ public class ApiProxyController {
         // /dps/api/creators -> /api/creators
         String path = request.getRequestURI().substring("/dps/api".length());
         String query = request.getQueryString();
+
+        // The entitlement check that makes step 2 real. Scoping the permission list alone only
+        // changes what the UI draws; this is what stops a compromised content-ui from driving
+        // /payouts on the user's behalf. It runs before the token is attached, so a refused call
+        // never reaches the platform with a valid credential.
+        String appHeader = request.getHeader(SessionController.APP_ID_HEADER);
+        if (appHeader != null && !appHeader.isBlank()) {
+            AppRegistry app = AppRegistry.find(appHeader).orElseThrow(() -> {
+                log.warn("Rejected an unknown app id '{}' calling {}",
+                        appHeader.replaceAll("[^A-Za-z0-9._:-]", ""), path);
+                return new ResponseStatusException(HttpStatus.FORBIDDEN, "Unknown application");
+            });
+            if (!app.mayCall(path)) {
+                // Logged at WARN with the app and path: a burst of these is either a
+                // misconfigured remote or someone probing what an app can reach, and both are
+                // things support should be able to alert on.
+                log.warn("{} is not entitled to {} {}", app.id(), request.getMethod(), path);
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                        app.id() + " is not entitled to call " + path);
+            }
+        }
         String target = "/api" + path + (query == null || query.isBlank() ? "" : "?" + query);
 
         HttpResponse<String> upstream = identityClient.proxy(

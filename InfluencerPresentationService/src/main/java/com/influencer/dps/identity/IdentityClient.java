@@ -3,6 +3,9 @@ package com.influencer.dps.identity;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.influencer.dps.config.DpsProperties;
+import com.influencer.dps.workload.WorkloadToken;
+import com.influencer.dps.workload.WorkloadTokenIssuer;
+import org.slf4j.MDC;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ResponseStatusException;
@@ -14,6 +17,7 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Brokers authentication and API calls to the BFF, which fronts the Identity context.
@@ -34,10 +38,14 @@ public class IdentityClient {
     private final DpsProperties properties;
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
+    private final WorkloadTokenIssuer workloadTokens;
 
-    public IdentityClient(DpsProperties properties, ObjectMapper objectMapper) {
+    public IdentityClient(DpsProperties properties,
+                          ObjectMapper objectMapper,
+                          WorkloadTokenIssuer workloadTokens) {
         this.properties = properties;
         this.objectMapper = objectMapper;
+        this.workloadTokens = workloadTokens;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(5))
                 .build();
@@ -116,6 +124,19 @@ public class IdentityClient {
             // The tenancy key is stamped by the DPS, so no caller can pick a different brand.
             if (brandId != null && !brandId.isBlank()) {
                 builder.header("X-Brand-Id", brandId);
+            }
+            // Step 4: the user's bearer says WHO the request is for; this says WHICH SERVICE is
+            // asking. Without it the BFF cannot distinguish a call relayed by the DPS from one
+            // made by anything else holding a valid user token, so "the DPS vouched for this"
+            // is not a fact it can check.
+            String workload = workloadTokens.issueFor("bff", Set.of("bff:proxy"), brandId);
+            if (workload != null) {
+                builder.header(WorkloadToken.HEADER, workload);
+            }
+            // Correlation: one browser action keeps one id from here through the BFF to the DAO.
+            String requestId = MDC.get("rid");
+            if (requestId != null && !requestId.isBlank()) {
+                builder.header("X-Request-Id", requestId);
             }
             if (contentType != null && !contentType.isBlank()) {
                 builder.header("Content-Type", contentType);
