@@ -105,7 +105,9 @@ public class TenantScopeFilter extends OncePerRequestFilter {
                                     HttpServletResponse response,
                                     FilterChain chain) throws ServletException, IOException {
 
-        if (requiresTenant(request) && CallerTenant.resolve(request.getParameter("brandId")) == null) {
+        if (requiresTenant(request)
+                && CallerTenant.resolve(request.getParameter("brandId")) == null
+                && !CallerTenant.mayReadAcrossTenants()) {
             // Logged whether or not it is enforced: while off, these lines are the inventory of
             // what would break, which is what makes turning it on a measured decision instead of
             // a gamble.

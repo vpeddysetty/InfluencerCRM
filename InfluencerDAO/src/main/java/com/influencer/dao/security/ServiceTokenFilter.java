@@ -106,6 +106,11 @@ public class ServiceTokenFilter extends OncePerRequestFilter {
             if (claims.tenantId() != null) {
                 org.slf4j.MDC.put("tenant", claims.tenantId());
             }
+            // The VERIFIED scopes. CallerTenant reads cross-tenant permission from here, so it
+            // can only ever be claimed by a signature — never by sending a header.
+            if (claims.scope() != null && !claims.scope().isEmpty()) {
+                org.slf4j.MDC.put(CallerTenant.MDC_SCOPE, String.join(" ", claims.scope()));
+            }
         }
 
         try {
@@ -117,6 +122,7 @@ public class ServiceTokenFilter extends OncePerRequestFilter {
             org.slf4j.MDC.remove("rid");
             org.slf4j.MDC.remove("caller");
             org.slf4j.MDC.remove("tenant");
+            org.slf4j.MDC.remove(CallerTenant.MDC_SCOPE);
         }
     }
 

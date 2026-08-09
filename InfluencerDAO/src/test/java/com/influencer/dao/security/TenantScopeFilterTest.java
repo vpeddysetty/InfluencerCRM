@@ -130,4 +130,50 @@ class TenantScopeFilterTest {
 
         verify(chain, times(1)).doFilter(any(), any());
     }
+
+    @Test
+    @DisplayName("a background sweep with the dao:sweep scope may read across tenants")
+    void sweepScopeAllowsCrossTenantRead() throws Exception {
+        // HostingExpiryScheduler warns EVERY brand's owners, so it has no tenant to sign. Without
+        // this it would start failing under enforcement and the only symptom would be that warning
+        // emails quietly stopped — the worst kind of broken.
+        MDC.put("callerScope", "dao:read dao:write dao:sweep");
+        TenantScopeFilter filter = new TenantScopeFilter(true);
+        FilterChain chain = mock(FilterChain.class);
+
+        filter.doFilter(get("/landing-templates"), new MockHttpServletResponse(), chain);
+
+        verify(chain, times(1)).doFilter(any(), any());
+    }
+
+    @Test
+    @DisplayName("an ordinary caller's scopes do not grant a cross-tenant read")
+    void ordinaryScopesDoNotAllowIt() throws Exception {
+        // The scope has to be claimed deliberately. If dao:read were enough, every request would
+        // hold it and the control would mean nothing.
+        MDC.put("callerScope", "dao:read dao:write");
+        TenantScopeFilter filter = new TenantScopeFilter(true);
+        FilterChain chain = mock(FilterChain.class);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(get("/landing-templates"), response, chain);
+
+        verify(chain, never()).doFilter(any(), any());
+        assertThat(response.getStatus()).isEqualTo(400);
+    }
+
+    @Test
+    @DisplayName("the sweep scope cannot be claimed by an unsigned caller")
+    void unsignedCallerHasNoScopes() throws Exception {
+        // Scopes are written to MDC only from VERIFIED claims, so there is no header to send. This
+        // pins that an absent scope context is not treated as permissive.
+        TenantScopeFilter filter = new TenantScopeFilter(true);
+        FilterChain chain = mock(FilterChain.class);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(get("/landing-templates"), response, chain);
+
+        verify(chain, never()).doFilter(any(), any());
+        assertThat(response.getStatus()).isEqualTo(400);
+    }
 }

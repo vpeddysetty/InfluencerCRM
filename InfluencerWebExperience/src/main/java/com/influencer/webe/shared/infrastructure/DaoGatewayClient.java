@@ -18,6 +18,7 @@ import java.nio.charset.StandardCharsets;
 import com.influencer.platform.workload.WorkloadToken;
 import com.influencer.platform.workload.WorkloadTokenIssuer;
 import com.influencer.webe.shared.workload.AuthoritativeTenant;
+import com.influencer.webe.shared.workload.CrossTenantRead;
 
 import java.time.Duration;
 import java.util.ArrayList;
@@ -38,6 +39,16 @@ public class DaoGatewayClient {
      * can begin enforcing on it without another protocol change later.
      */
     private static final java.util.Set<String> DAO_SCOPE = java.util.Set.of("dao:read", "dao:write");
+
+    /**
+     * Additionally claimed by background work that legitimately spans every tenant.
+     *
+     * <p>Only {@code HostingExpiryScheduler} needs this: it sweeps all brands' pages on a timer, so
+     * there is no user and no brand to sign. Granted per call via {@link CrossTenantRead}, not
+     * globally, so an ordinary request cannot pick it up by accident.
+     */
+    private static final java.util.Set<String> SWEEP_SCOPE =
+            java.util.Set.of("dao:read", "dao:write", "dao:sweep");
 
     private final WebExperienceProperties properties;
     private final ObjectMapper objectMapper;
@@ -76,7 +87,10 @@ public class DaoGatewayClient {
         // The VERIFIED brand, not the X-Brand-Id header. Signing a header the BFF never
         // checked would launder a caller-supplied value into evidence the DAO then trusts
         // precisely because it is signed — worse than not signing it at all.
-        String workload = workloadTokens.issueFor("dao", DAO_SCOPE, AuthoritativeTenant.get());
+        String workload = workloadTokens.issueFor(
+                "dao",
+                CrossTenantRead.isActive() ? SWEEP_SCOPE : DAO_SCOPE,
+                AuthoritativeTenant.get());
         if (workload != null) {
             builder.header(WorkloadToken.HEADER, workload);
         }

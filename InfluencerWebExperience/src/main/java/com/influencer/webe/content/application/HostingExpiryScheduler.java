@@ -1,6 +1,7 @@
 package com.influencer.webe.content.application;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.influencer.webe.shared.workload.CrossTenantRead;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.influencer.webe.shared.application.EmailPort;
 import com.influencer.webe.shared.application.ResponseShapeService;
@@ -81,6 +82,14 @@ public class HostingExpiryScheduler {
             initialDelayString = "${web-experience.hosting.expiry-warnings.initial-delay-ms:60000}",
             fixedDelayString = "${web-experience.hosting.expiry-warnings.interval-ms:86400000}")
     public void warnExpiringPages() {
+        // Marks the whole sweep as cross-tenant. This job has no user and no brand — it warns
+        // every brand's owners — so it must prove that permission with a scope rather than rely on
+        // the DAO leaving unscoped reads open. Wrapped so the flag cannot outlive the sweep on a
+        // pooled scheduler thread.
+        CrossTenantRead.runAsSweep(this::sweep);
+    }
+
+    private void sweep() {
         int sent = 0;
         int failed = 0;
 

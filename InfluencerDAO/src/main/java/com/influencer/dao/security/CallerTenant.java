@@ -49,10 +49,47 @@ public final class CallerTenant {
     private CallerTenant() {
     }
 
+    /** MDC key the filter writes the caller's verified scopes to. */
+    static final String MDC_SCOPE = "callerScope";
+
+    /**
+     * The scope a background job must hold to read across every tenant.
+     *
+     * <p>Some work genuinely has no tenant: {@code HostingExpiryScheduler} sweeps every brand's
+     * pages to warn owners before hosting ends. It runs on a timer, so there is no user, no
+     * request, and no brand to sign — and under enforcement it would simply start failing, with
+     * the only symptom being that warning emails quietly stopped.
+     *
+     * <p>Exempting the <em>path</em> instead would have been easier and wrong: {@code
+     * /landing-templates} is also read by ordinary user requests, so the exemption would reopen the
+     * hole for exactly the traffic it is meant to close. A scope is carried by the caller and
+     * proved by a signature, so only the sweep gets it.
+     */
+    public static final String SCOPE_CROSS_TENANT_READ = "dao:sweep";
+
     /** The tenant asserted by the caller's signed token, or null if the call carried none. */
     public static String signed() {
         String tenant = org.slf4j.MDC.get(MDC_TENANT);
         return tenant == null || tenant.isBlank() ? null : tenant;
+    }
+
+    /**
+     * Whether the caller proved it may read across tenants.
+     *
+     * <p>Read from the <em>verified</em> scopes the filter recorded, never from a header. An
+     * unsigned caller has no scopes at all, so this cannot be claimed by asking.
+     */
+    public static boolean mayReadAcrossTenants() {
+        String scopes = org.slf4j.MDC.get(MDC_SCOPE);
+        if (scopes == null || scopes.isBlank()) {
+            return false;
+        }
+        for (String scope : scopes.split(" ")) {
+            if (SCOPE_CROSS_TENANT_READ.equals(scope)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
