@@ -29,13 +29,23 @@ import java.util.Locale;
 public enum PlanPolicy {
 
     /**
-     * Limits sit deliberately ABOVE current real usage (measured 2026-08-07: max 2 brands,
-     * 5 creators, 6 members, 2 landing pages in any one account). Enforcement blocks new
-     * creation and never touches what exists, but a limit set below what customers already
-     * have would freeze real accounts on the day it shipped, which is a support incident
-     * rather than a monetization event.
+     * Single-user. One person manages brands and creators; collaboration is the paid upgrade.
+     *
+     * <p><b>Why the member limit is 1 rather than 3.</b> The free tier's job is to let one person
+     * run the workflow end to end and see the product work. Inviting colleagues is where a team
+     * has adopted the tool, and that is the honest moment to charge. It is also the cleanest line
+     * to explain: free is for you, paid is for your team.
+     *
+     * <p><b>Creators and brands are deliberately NOT reduced.</b> The wedge is spreadsheet
+     * replacement, and a roster too small to hold a real creator list makes the product
+     * unevaluable — which loses the trial rather than converting it.
+     *
+     * <p><b>This is the one limit that can bite an existing account.</b> Measured 2026-08-07, one
+     * account already had 6 members. Enforcement blocks creation and never removes anyone, so that
+     * account keeps its people and simply cannot invite more; its roles also keep working, because
+     * {@link #allowsRoleBasedAccess()} is checked when assigning a role, not when honouring one.
      */
-    FREE("free", 1, 25, 3, 3),
+    FREE("free", 1, 25, 1, 3),
 
     /** Creator cap in the same range competitors meter at — see MARKET-ANALYSIS.md §2. */
     PRO("pro", 1, 250, 10, 25),
@@ -88,6 +98,24 @@ public enum PlanPolicy {
         // Fail closed. An unrecognised plan is likelier to be a typo or an unmigrated value than
         // a deliberate grant of everything.
         return FREE;
+    }
+
+    /**
+     * Whether this plan may assign roles to team members.
+     *
+     * <p><b>A separate question from the seat count, on purpose.</b> It would be tempting to infer
+     * it — "one seat, so no roles to assign" — but inference makes the rule invisible at the point
+     * it is enforced, and it breaks the moment the free seat count changes for an unrelated reason.
+     * Asking directly means the pricing decision is named in the code and a reviewer can see it.
+     *
+     * <p><b>It gates assignment, never enforcement.</b> An account that drops to free keeps the
+     * roles its members already hold and the server keeps honouring them. Ignoring stored roles on
+     * a downgrade would silently widen access — a MARKETER quietly becoming an owner is the worst
+     * possible way to express "this feature is paid". What free loses is the ability to *change*
+     * who has which role, not the protection roles provide.
+     */
+    public boolean allowsRoleBasedAccess() {
+        return this != FREE;
     }
 
     public int limitFor(Resource resource) {

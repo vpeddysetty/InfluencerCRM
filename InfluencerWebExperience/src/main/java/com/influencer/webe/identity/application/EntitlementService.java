@@ -79,6 +79,28 @@ public class EntitlementService {
     }
 
     /**
+     * Refuses the request with 402 if the plan does not include role-based access.
+     *
+     * <p><b>402, not 403.</b> The caller holds {@code MEMBER_UPDATE} and is entirely authorized;
+     * their plan simply does not include this. 403 tells a UI to hide the control, 402 tells it to
+     * offer the upgrade — and hiding it would leave a free user unable to discover that team roles
+     * exist at all.
+     *
+     * <p>Gates assignment only. Roles already stored keep working, so a downgrade never widens
+     * anyone's access — see {@link PlanPolicy#allowsRoleBasedAccess()}.
+     */
+    public void requireRoleBasedAccess(UUID accountId) {
+        PlanPolicy plan = planFor(accountId);
+        if (plan.allowsRoleBasedAccess()) {
+            return;
+        }
+        throw new ResponseStatusException(HttpStatus.PAYMENT_REQUIRED,
+                "Team roles are part of Pro. Your free plan is for a single user — "
+                + "upgrade to invite teammates and choose what each of them can do. "
+                + "Any roles already assigned keep working.");
+    }
+
+    /**
      * How many of {@code resource} an account already has.
      *
      * <p>Counted per ACCOUNT, across every brand it owns. Counting per brand would let anyone

@@ -130,10 +130,52 @@ class PlanPolicyTest {
         // Two limits deliberately DO bite on existing accounts, and this records that as a
         // decision rather than an oversight:
         //   - brands: 1 is the whole point of the agency tier. One account has 2.
-        //   - members: 3. One account has 6.
+        //   - members: 1 (was 3). Free is now single-user; one account has 6.
         // Both are frozen at their current size, not reduced — nobody loses a brand or a
         // teammate. If that turns out to be the wrong call, these are the two numbers to move.
         assertFalse(PlanPolicy.FREE.allows(PlanPolicy.Resource.BRAND, 2));
         assertFalse(PlanPolicy.FREE.allows(PlanPolicy.Resource.MEMBER, 6));
+    }
+
+    // ---- free is single-user; RBAC is the paid feature ----------------------------------
+
+    @Test
+    @DisplayName("free allows exactly one member")
+    void freeIsSingleUser() {
+        // The product decision: one person runs the free tier end to end. The second person is
+        // where a team has adopted the tool, and that is the honest moment to charge.
+        assertTrue(PlanPolicy.FREE.allows(PlanPolicy.Resource.MEMBER, 0));
+        assertFalse(PlanPolicy.FREE.allows(PlanPolicy.Resource.MEMBER, 1));
+        assertEquals(1, PlanPolicy.FREE.limitFor(PlanPolicy.Resource.MEMBER));
+    }
+
+    @Test
+    @DisplayName("free still holds a real roster and its brand workspace")
+    void freeRemainsUsableAlone() {
+        // Reducing seats must not reduce the thing being evaluated. The wedge is spreadsheet
+        // replacement, and a roster too small to hold a real creator list makes the product
+        // unevaluable — which loses the trial rather than converting it.
+        assertTrue(PlanPolicy.FREE.allows(PlanPolicy.Resource.CREATOR, 24));
+        assertTrue(PlanPolicy.FREE.allows(PlanPolicy.Resource.BRAND, 0));
+        assertEquals(25, PlanPolicy.FREE.limitFor(PlanPolicy.Resource.CREATOR));
+    }
+
+    @Test
+    @DisplayName("role-based access is paid")
+    void rolesArePaid() {
+        assertFalse(PlanPolicy.FREE.allowsRoleBasedAccess());
+        assertTrue(PlanPolicy.PRO.allowsRoleBasedAccess());
+        assertTrue(PlanPolicy.AGENCY.allowsRoleBasedAccess());
+    }
+
+    @Test
+    @DisplayName("an unknown plan gets neither seats nor roles")
+    void unknownPlansFailClosedOnRoles() {
+        // Same instinct as every other limit: a typo must not become a free upgrade. Worth its
+        // own assertion because a capability flag is easier to accidentally default to true than
+        // a number is to default to unlimited.
+        assertFalse(PlanPolicy.forKey("enterprise-typo").allowsRoleBasedAccess());
+        assertFalse(PlanPolicy.forKey(null).allowsRoleBasedAccess());
+        assertFalse(PlanPolicy.forKey("").allowsRoleBasedAccess());
     }
 }

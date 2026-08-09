@@ -1293,10 +1293,36 @@ test('the public tier table matches the limits the server enforces', () => {
   const agency = PUBLIC_TIERS.find((tier) => tier.key === 'agency')
 
   assert.ok(free.highlights.some((line) => line.includes('25 creators')))
-  assert.ok(free.highlights.some((line) => line.includes('3 team members')))
   assert.ok(free.highlights.some((line) => line.includes('1 brand')))
   assert.ok(pro.highlights.some((line) => line.includes('250 creators')))
   assert.ok(agency.highlights.some((line) => line.includes('Unlimited brands')))
+
+  // Free is single-user: PlanPolicy.FREE caps members at 1, so the page must not imply a team.
+  // This is the pairing that would otherwise drift — the page advertising seats the server
+  // refuses is exactly the failure this test exists for.
+  assert.ok(
+    free.highlights.some((line) => /single login|just you/i.test(line)),
+    'the free tier must say it is for one person',
+  )
+  assert.ok(
+    !free.highlights.some((line) => /\d+ team members/.test(line)),
+    'free must not advertise a team-member count',
+  )
+  assert.ok(
+    pro.highlights.some((line) => line.includes('10 team members')),
+    'Pro is where teammates start',
+  )
+})
+
+test('roles are advertised as a paid capability, not a free one', () => {
+  // The product decision: one person runs the free tier; deciding what OTHER people may do is
+  // what Pro sells. If roles ever appear in the free highlights, the page is promising a feature
+  // EntitlementService.requireRoleBasedAccess refuses with a 402.
+  const free = PUBLIC_TIERS.find((tier) => tier.key === 'free')
+  const pro = PUBLIC_TIERS.find((tier) => tier.key === 'pro')
+
+  assert.ok(pro.highlights.some((line) => /roles and permissions/i.test(line)))
+  assert.ok(!free.highlights.some((line) => /role|permission/i.test(line)))
 })
 
 test('the landing page states no price, because none has been decided', () => {

@@ -270,6 +270,9 @@ public class BrandsController {
             // member administration, with no one able to undo it.
             throw new IllegalArgumentException("You cannot change your own role");
         }
+        // Choosing what a teammate may do is the paid feature. Existing assignments keep working;
+        // this refuses the change, not the roles already in force.
+        entitlements.requireRoleBasedAccess(context.accountId());
         return tenancyClient.updateMemberRole(context.accountId(), userId, request.role());
     }
 

@@ -328,25 +328,28 @@ export const PUBLIC_TIERS = Object.freeze([
   Object.freeze({
     key: 'free',
     label: 'Free',
-    tagline: 'Run a real program, not a trial.',
+    tagline: 'One person, running a real program.',
     highlights: Object.freeze([
+      'Just you — a single login',
       '1 brand workspace',
       '25 creators',
-      '3 team members',
       '3 landing pages',
     ]),
-    // The honest version of a free tier: what makes it free is the ceiling, not a countdown.
-    note: 'No card required, and no time limit — the free plan is capped by size, not by a clock.',
+    // Says what free IS rather than what it withholds. "Single user" is a shape, not a
+    // restriction, and the tier reads better as the honest answer to "can I try this alone?"
+    // than as a list of things removed.
+    note: 'No card required, and no time limit — free is capped by size, not by a clock. '
+      + 'Add your team whenever you are ready.',
   }),
   Object.freeze({
     key: 'pro',
     label: 'Pro',
-    tagline: 'For a program that outgrew the free ceiling.',
+    tagline: 'For when it stops being a one-person job.',
     highlights: Object.freeze([
+      'Up to 10 team members',
+      'Roles and permissions for each of them',
       '250 creators',
-      '10 team members',
       '25 landing pages',
-      'Everything in Free',
     ]),
     note: 'Pricing is not published yet.',
   }),
