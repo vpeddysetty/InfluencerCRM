@@ -28,6 +28,18 @@ import java.util.UUID;
  * attribution and claw back (void) the commission.
  *
  * Attribution model: last-touch on the coupon code (simple + defensible).
+ *
+ * <h2>Why the dedupe is in two places</h2>
+ *
+ * <p>{@code findExistingAttribution} is the fast path: it answers "already attributed?" with a read
+ * and costs nothing. It is not, however, a guarantee — it is a read followed by a write, so two
+ * concurrent deliveries of the same order can both see "not found" and both proceed.
+ *
+ * <p>The guarantee is the unique index added in
+ * {@code 2026_08_09_m3_order_attribution_idempotency.sql}. The loser of that race gets a 409 from
+ * the DAO and reports {@code duplicate}, exactly as though the check had caught it. This matters
+ * specifically because Shopify retries until it receives a 2xx: a duplicate must be a success, or
+ * the guard that prevents double-counting becomes an endpoint that never stops being retried.
  */
 @Service
 public class AttributionService {
@@ -130,7 +142,23 @@ public class AttributionService {
             attribution.put("occurredAt", event.getOccurredAt().toString());
         }
 
-        JsonNode savedAttribution = dao.post("/influencer-sale-attributions", attribution);
+        JsonNode savedAttribution;
+        try {
+            savedAttribution = dao.post("/influencer-sale-attributions", attribution);
+        } catch (ResponseStatusException rejected) {
+            if (rejected.getStatusCode() != HttpStatus.CONFLICT) {
+                throw rejected;
+            }
+            // Lost a race with a concurrent delivery of this same order. The unique index
+            // (uq_isa_brand_order_line / uq_isa_brand_order_no_line) refused the second insert,
+            // which is the index doing its job rather than an error.
+            //
+            // Reporting the winner's row as a duplicate — not rethrowing — is the whole point.
+            // A 5xx here would tell Shopify the delivery failed, and it retries for 48 hours; the
+            // retry would hit the same constraint and fail identically, so a working guard would
+            // masquerade as a broken endpoint forever.
+            return duplicateOf(brandId, coupon, event, result);
+        }
 
         ObjectNode commissionRow = shape.objectMapper().createObjectNode();
         commissionRow.put("brandId", brandId.toString());
@@ -147,6 +175,33 @@ public class AttributionService {
         result.put("attributionId", savedAttribution.get("id").asText());
         result.put("commissionId", savedCommission.get("id").asText());
         result.put("commissionAmount", commission.toPlainString());
+        return result;
+    }
+
+    /**
+     * The outcome when a concurrent delivery won the race to insert this order line.
+     *
+     * <p>Re-reads the row the winner wrote so the caller gets the same {@code duplicate} answer it
+     * would have got had the check at the top of {@link #attribute} seen it. From the provider's
+     * side the two paths are indistinguishable, which is what makes the endpoint idempotent rather
+     * than merely guarded.
+     *
+     * <p><b>Still reports success if the re-read comes back empty.</b> The constraint has already
+     * proven a row exists — the only reasons not to see it are a read that has not caught up or a
+     * commission accrued under a different coupon code, and neither is a reason to tell the
+     * provider its delivery failed. Retrying is the one thing that would definitely not help,
+     * because the constraint that refused this insert will refuse it identically next time.
+     */
+    private JsonNode duplicateOf(UUID brandId, JsonNode coupon, OrderEvent event, ObjectNode result) {
+        JsonNode winner = findExistingAttribution(brandId, coupon.get("id").asText(),
+                event.getExternalOrderId(), event.getExternalOrderLineId());
+
+        result.put("outcome", "duplicate");
+        if (winner != null && winner.hasNonNull("id")) {
+            result.put("attributionId", winner.get("id").asText());
+        } else {
+            result.put("reason", "a concurrent delivery of this order was recorded first");
+        }
         return result;
     }
 

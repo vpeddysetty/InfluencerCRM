@@ -1,9 +1,15 @@
 # Shopify integration — plan
 
-**Date:** 2026-08-09
-**Status:** plan only, nothing built
+**Date:** 2026-08-09, revised after item 0 shipped
+**Status:** items 0 and 0b done; adapter work blocked on a Partner app
 **Covers:** EXECUTION-ROADMAP M3.2–3.5 (M3.1, credential encryption, shipped 2026-08-08)
-**Method:** every claim below was checked against the code on this date.
+**Method:** every claim below was re-checked against the code on 2026-08-09 after the webhook fix landed.
+
+> **What changed since the first draft.** Both prerequisite defects are now **fixed and shipped**.
+> Defect 1: `WebhookController` takes the raw body as a `String`, resolves the brand from the store
+> via `MarketplaceService.verifyWebhook`, and no longer accepts `brandId` from the caller. Defect 2
+> was narrower than the first draft claimed — a dedupe check existed, but no unique index sat behind
+> it; two partial indexes now do. **No remaining item can be built without a Shopify Partner app.**
 
 ---
 
@@ -23,45 +29,38 @@ platform project.
 | Registry auto-discovery | ✅ Proven |
 | Credential encryption (M3.1) | ✅ Envelope-encrypted; a real provider cannot connect without a KEK |
 | Attribution pipeline | ✅ Coupon → sale → commission → payout, live against the mock |
-| `POST /api/webhooks/marketplace/{providerKey}` | ⚠️ Exists, **and is unauthenticated — see below** |
+| `POST /api/webhooks/marketplace/{providerKey}` | ✅ Authenticated: signature-verified, brand resolved from the store |
+| Unique index behind order dedupe | ✅ Two partial indexes; 409 handled as `duplicate` |
 | Shopify adapter | ❌ Not started |
 | OAuth install flow | ❌ Not started |
 
 ---
 
-## Two defects that must be fixed first
+## Prerequisites that are not Shopify work
 
-These are not Shopify work. They are existing holes that connecting a real store would turn from
-theoretical into exploitable, and they are cheap now and expensive later.
+Existing holes that connecting a real store would turn from theoretical into exploitable. One is
+now closed; one remains.
 
-### 1. The order webhook is unauthenticated and takes `brandId` from the caller
+### 1. ✅ FIXED — the order webhook is authenticated
 
-[`WebhookController.java:35-45`](../InfluencerWebExperience/src/main/java/com/influencer/webe/attribution/api/WebhookController.java#L35-L45):
+Shipped 2026-08-09. [`WebhookController.java:73-95`](../InfluencerWebExperience/src/main/java/com/influencer/webe/attribution/api/WebhookController.java#L73-L95)
+now takes `@RequestBody String rawBody`, calls `marketplaceService.verifyWebhook(providerKey,
+headers, rawBody)` **before** ingestion, and derives the brand from the returned `VerifiedWebhook`.
+The `brandId` request parameter is gone, so a caller cannot name a brand at all.
 
-```java
-public JsonNode webhook(@PathVariable String providerKey,
-                        @RequestParam(required = false) UUID brandId,   // ← from the caller
-                        @RequestBody ObjectNode payload) {
-    UUID resolved = brandId != null ? brandId : getUuid(payload, "brandId");
-    return attributionService.ingest(resolved, providerKey, payload);   // ← no signature check
-}
-```
+Two details worth keeping in view because the Shopify adapter depends on them:
 
-`verifyWebhook` is on the SPI and **is never called**. So anyone who knows the URL can post a
-fabricated order naming any brand and any coupon code, and it flows straight into attribution —
-which accrues commission, which becomes a payout. This is a path from an anonymous HTTP request to
-money owed.
+- **The raw body is a `String`, never a re-serialised `JsonNode`.** The payload is parsed only
+  *after* the signature verifies. An HMAC covers exact bytes; re-serialising changes key order and
+  spacing and would never verify.
+- **Resolution and authentication are one step, deliberately.** The connection is found by the
+  provider's own store identifier and the signature is checked against *that row's* credentials. A
+  brand resolved separately from the signature check could be a brand the signature does not cover.
 
-It is survivable today only because the mock is the sole provider and nobody has the URL. It stops
-being survivable the moment a real store is connected, because then the endpoint has to be publicly
-reachable.
+`/api/attribution/simulate` remains the auth-scoped path the e2e journeys use, which is why the
+public webhook did not need to stay permissive for tests.
 
-**Fix:** resolve the brand from the *store* (`marketplace_connections.external_account_ref` matched
-against Shopify's `X-Shopify-Shop-Domain`), never from the request; call `verifyWebhook` before
-`ingest` and reject on failure; take the raw body as a `String` for HMAC, exactly as
-`StripeSignature` already does — a body parsed to `JsonNode` and re-serialised will never verify.
-
-### 2. Ingestion dedupes, but only check-then-act
+### 2. ⏳ OPEN — ingestion dedupes, but only check-then-act
 
 **Correction to an earlier draft of this document,** which said there was no dedupe at all. There
 is: `findExistingAttribution(brandId, campaignCodeId, orderId, orderLineId)` runs before an
@@ -85,18 +84,55 @@ idempotency key, and the key must come from the provider.**
 
 ## Build order
 
-| # | Item | Size | Depends on |
-|---|---|---|---|
-| 0 | Webhook authentication + brand resolution from the store | 2d | — |
-| 0b | Unique index behind the existing dedupe check | 0.5d | — |
-| 1 | OAuth install flow + `shopify` connection | 3d | A Partner app, a public URL |
-| 2 | `ShopifyMarketplaceProvider` — connect, coupon CRUD | 3d | 1 |
-| 3 | `verifyWebhook` + `normalizeOrderEvent`, registered topics | 2d | 0, 2 |
-| 4 | `fetchOrders` reconciliation + scheduler | 1d | 3 |
-| 5 | Mandatory GDPR webhooks + uninstall handling | 1d | 1 |
+| # | Item | Size | Depends on | State |
+|---|---|---|---|---|
+| 0 | Webhook authentication + brand resolution from the store | 2d | — | ✅ Done 2026-08-09 |
+| 0b | Unique index behind the existing dedupe check | 0.5d | — | ✅ Done 2026-08-09 |
+| 1 | OAuth install flow + `shopify` connection | 3d | A Partner app, a public URL | Blocked |
+| 2 | `ShopifyMarketplaceProvider` — connect, coupon CRUD | 3d | 1 | Blocked |
+| 3 | `verifyWebhook` + `normalizeOrderEvent`, registered topics | 2d | 2 | Blocked |
+| 4 | `fetchOrders` reconciliation + scheduler | 1d | 3 | Blocked |
+| 5 | Mandatory GDPR webhooks + uninstall handling | 1d | 1 | Blocked |
 
-**~12.5 dev-days**, of which **items 0 and 0b (2.5 days) are buildable today** — they need no Shopify
-account at all.
+**~10 dev-days remaining, and every one of them is blocked on a Shopify Partner app and a public
+callback URL.** Both prerequisites are now shipped, so there is no remaining engineering that can
+proceed without that account. Item 3 no longer depends on item 0 — the brand-resolution machinery it
+needed now exists, so the adapter supplies a `verifyWebhook` body against a caller that already works.
+
+---
+
+## Item 0b — the unique index ✅ SHIPPED 2026-08-09
+
+Migration: [`schema/migrations/2026_08_09_m3_order_attribution_idempotency.sql`](../schema/migrations/2026_08_09_m3_order_attribution_idempotency.sql).
+
+`AttributionService.findExistingAttribution` runs before every write, but it was a read followed by
+a write with nothing underneath it. Shopify retries `orders/paid` until it gets a 2xx, so two
+concurrent deliveries could both read "not found" and both insert — double-counted revenue and
+double-accrued commission.
+
+**The nullable-column trap, and why there are two indexes.** `order_line_id` is nullable, and in
+Postgres `null` is never equal to `null`, so the obvious single
+`unique (brand_id, order_id, order_line_id)` would **not** stop duplicates on order-level events —
+exactly the `orders/paid` case that retries most. It would have looked correct and caught nothing.
+Shipped as two partial indexes:
+
+- `uq_isa_brand_order_line` — `where order_line_id is not null`
+- `uq_isa_brand_order_no_line` — `(brand_id, order_id) where order_line_id is null`
+
+**`campaign_code_id` is deliberately not in the key.** The in-code check includes it, but the rule
+being enforced is "this order line is attributed at most once", not "at most once per coupon".
+Including it would let a second delivery of the same real order naming a different code accrue
+commission twice.
+
+**A constraint violation is handled as success.** `handlePurchase` catches the DAO's 409 and returns
+`outcome: duplicate` with the winner's attribution id. A 5xx would tell Shopify the delivery failed;
+it would retry for 48 hours, hit the same constraint, and fail identically — so a guard working
+correctly would present as a permanently broken endpoint.
+
+**Verified against the live database**, not just unit-tested. Applying the migration and replaying
+Shopify's retry behaviour: a repeated order-level delivery is rejected by `uq_isa_brand_order_no_line`;
+the same order claiming a different coupon code is also rejected; a genuinely different line on the
+same order is still accepted. Covered by `OrderIdempotencyTest` (5 tests).
 
 ---
 
@@ -146,8 +182,14 @@ free client and no transitive surface.
 | `updateCoupon` | `PUT` the price rule |
 | `deactivateCoupon` | `DELETE` the discount code; keep the price rule |
 | `fetchOrders` | `GET /admin/api/2024-10/orders.json?updated_at_min=&status=any` |
-| `verifyWebhook` | HMAC-SHA256 of the raw body with the app secret, base64, constant-time compare |
+| `verifyWebhook` | HMAC-SHA256 of the raw body with the app secret, base64, constant-time compare — signature is `verifyWebhook(byte[] body, ...)`, see below |
 | `normalizeOrderEvent` | `discount_codes[].code` → `couponCode`; `current_total_price` → `saleAmount` |
+
+**One encoding seam to get right.** The SPI declares `verifyWebhook(byte[] body, ...)` while the
+controller now holds the body as a `String`. Whoever bridges those must convert with an explicit
+`StandardCharsets.UTF_8` and no intermediate re-parse — a platform-default charset would verify on
+one machine and fail on another, and that failure looks like a wrong secret rather than an encoding
+bug. Constant-time compare (`MessageDigest.isEqual`), not `String.equals`.
 
 **Coupon creation is two API calls, and that is the adapter's one real trap.** A price rule can be
 created and the discount code then fail, leaving an orphaned rule that is invisible in the product
@@ -208,7 +250,21 @@ The last clause is the one that distinguishes this from a demo.
 
 ## Recommendation
 
-**Build items 0 and 0b now.** They need no Shopify account, they close a live path from an anonymous
-request to money owed, and item 3 depends on the brand-resolution work anyway. Doing them first also
-means the day the Partner app is approved, the remaining work is an adapter rather than an adapter
-plus a security fix under time pressure.
+**Both prerequisites are shipped. The critical path is now procurement, not engineering.**
+Item 0 closed the anonymous-request-to-money-owed path; item 0b closed the narrower race that
+Shopify's retry behaviour actively provokes. Nothing further can be built without an account.
+
+Everything from item 1 onward is blocked
+on a Shopify Partner app and a public callback URL. That is the thing to start today, because it has
+a lead time and the ~10 remaining dev-days do not begin until it lands. Registering the Partner app
+is free and does not require the code to exist.
+
+Worth deciding before item 1 starts, since it changes the shape of the work:
+
+- **Public callback URL.** OAuth and webhooks both need one reachable from the internet. This is the
+  same infrastructure gap `WEBE_HOSTING_TARGET` (M5.1) is waiting on — worth solving once.
+- **`read_all_orders` or not.** Without it, `read_orders` sees only 60 days, which caps backfill.
+  It needs Shopify review, so ask early or accept the limit and state it to customers.
+- **App Store listing or custom app.** A custom app for a single merchant skips App Store review
+  entirely, and with it item 5's GDPR webhooks. If the near-term goal is one design-partner store
+  rather than public distribution, that removes ~1 day and a review cycle.

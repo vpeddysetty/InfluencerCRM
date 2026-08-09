@@ -119,7 +119,7 @@ Unchanged from UI-OPPORTUNITIES-ROADMAP §U1. It is the defining CRM gap — the
 | **M8.3** Payout idempotency | — | ✅ Done. The payout id is now the idempotency key |
 | **M2.1 / M2.2** Subscriptions + billing | 6d | ✅ Path built behind a port — ⏳ **needs Stripe credentials** (see below) |
 | **M3.1** Envelope-encrypt credentials | 2d | ✅ Done 2026-08-08. See below |
-| **M3.2–3.5** Shopify OAuth + adapter | 10d | ⏳ **Needs a Shopify Partner app and a public callback URL.** 3.1 no longer blocks it |
+| **M3.2–3.5** Shopify OAuth + adapter | 10d | ⏳ **Needs a Shopify Partner app and a public callback URL.** Both prerequisites (webhook auth, order idempotency) shipped 2026-08-09 — nothing left is buildable without the account |
 
 ---
 
@@ -764,25 +764,41 @@ change.
 
 ---
 
-## Shopify — planned, not started
+## Shopify — prerequisites clear, adapter blocked on procurement
 
-Full plan: [docs/shopify-integration-plan.md](docs/shopify-integration-plan.md). **~13 dev-days**,
-of which **3 are buildable today without a Shopify account.**
+Full plan: [docs/shopify-integration-plan.md](docs/shopify-integration-plan.md). **~10 dev-days
+remaining, none of it buildable without a Shopify account.**
 
 Writing it surfaced two existing defects that connecting a real store would turn from theoretical
-into exploitable:
+into exploitable. **Both are now fixed.**
 
-**The order webhook is unauthenticated and takes `brandId` from the caller.** `verifyWebhook` is on
-the SPI and is never called, so anyone who knows the URL can post a fabricated order naming any
-brand and any coupon code — straight into attribution, which accrues commission, which becomes a
-payout. An anonymous HTTP request to money owed. Survivable only because the mock is the sole
-provider and the endpoint is not public; connecting a real store makes it public by necessity.
+**✅ The order webhook is authenticated (shipped 2026-08-09).** It previously took `brandId` from the
+caller and never called `verifyWebhook`, so anyone who knew the URL could post a fabricated order
+naming any brand — straight into attribution, which accrues commission, which becomes a payout.
+`WebhookController` now takes the raw body as a `String`, resolves the connection by the provider's
+own store identifier, verifies the signature against **that row's** credentials, and derives the
+brand from the result. The `brandId` parameter is gone.
 
-**Ingestion is not idempotent.** Shopify retries until it gets a 2xx and `orders/paid` can fire more
-than once. There is no check on `externalOrderId`, so a retry attributes the sale twice. The billing
-side already solved this — record the event before applying it, with a unique index so a concurrent
-duplicate fails at the database rather than racing through a check-then-act gap.
+**✅ Order ingestion is now idempotent (shipped 2026-08-09).** Correcting an earlier claim here that
+there was no dedupe at all: `findExistingAttribution` does run. The narrower real problem was that no
+unique index sat under it, so two concurrent deliveries — which Shopify produces by retrying until it
+gets a 2xx — could both read "not found" and both insert.
+`2026_08_09_m3_order_attribution_idempotency.sql` adds the key.
 
-Both are the M8.3 lesson again: the money path needs an idempotency key, and it must come from the
-provider. Both should be built **before** the Partner app arrives, so the day it does the remaining
-work is an adapter rather than an adapter plus a security fix under time pressure.
+The trap worth remembering: `order_line_id` is nullable, and in Postgres `null` never equals `null`,
+so the obvious single `unique (brand_id, order_id, order_line_id)` would **not** have caught
+order-level duplicates — the `orders/paid` case that retries most. It would have looked right and
+caught nothing. Shipped as two partial indexes instead, with `campaign_code_id` deliberately left
+out of the key so the same order claiming a different coupon code cannot accrue twice. The 409 is
+handled as `duplicate` rather than rethrown, because a 5xx would make Shopify retry for 48 hours
+against a constraint that will refuse it identically every time.
+
+Both were the M8.3 lesson again: the money path needs an idempotency key, and it must come from the
+provider.
+
+**The critical path is now entirely procurement.** No remaining Shopify work can be built without a
+Partner app and a public callback URL. Registering the Partner app is free, has a lead time, and
+does not require any of the code to exist — so it is the thing to start first. Worth deciding at the
+same time: whether this is a **custom app for one merchant** (skips App Store review and the three
+mandatory GDPR webhooks entirely, ~1 day less) or a public listing, and whether to request
+`read_all_orders` (without it, backfill sees only 60 days).
