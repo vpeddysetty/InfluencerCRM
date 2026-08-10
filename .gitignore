@@ -123,7 +123,11 @@ influencrm-e2e-journeys.mp4
 *.tfvars.json
 !example.tfvars
 
-# Plan output is a binary containing resolved secret values, not just a diff.
+# Plan output contains resolved secret values, not just a diff — the generated RDS password and
+# every service token are in there. The JSON form (`terraform show -json`) is worse, because it is
+# greppable plaintext.
 *.tfplan
+plan.json
+tfplan.json
 crash.log
 crash.*.log
