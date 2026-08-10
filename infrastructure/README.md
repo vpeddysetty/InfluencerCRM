@@ -90,6 +90,29 @@ no other change.
 
 Each step depends on the one before it.
 
+### 0. Credentials and permissions — **currently blocking**
+
+```bash
+export AWS_PROFILE=tejdux AWS_REGION=us-east-1   # no default profile is configured
+./infrastructure/scripts/preflight.sh
+```
+
+`~/.aws/config` has a `tejdux` profile and **no default**, so without `AWS_PROFILE` every call fails
+with `NoCredentials` — which reads like "not logged in" rather than "wrong profile".
+
+**As of 2026-08-09 the preflight fails: 16 passed, 5 failed.** The `tejdux` user was scoped for the
+static site and has no access to ECS, ELB, IAM, KMS or CloudWatch Logs. It also cannot grant itself
+permissions, so **an admin or root identity must attach the two policies** in
+[iam/README.md](iam/README.md) before anything here can be applied.
+
+Two other things that preflight found and that must be done first:
+
+- `AWSServiceRoleForECS` does not exist in the account. Fargate needs it, and the first
+  `CreateService` fails with a message that does not name the cause.
+- The only ACM certificate in us-east-1 is `www.tejdux.com`, **not a wildcard**. The seven
+  micro-frontend subdomains need `*.tejdux.com`. Until it exists, leave both certificate variables
+  empty and everything serves on its default AWS hostname.
+
 ### 1. State backend (do this before a second person ever runs apply)
 
 State is **local** by default. A second person running `apply` would create a second copy of every

@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # Check that the logged-in identity can actually perform the deployment, BEFORE running apply.
 #
-#   ./infrastructure/scripts/preflight.sh [region]
+#   AWS_PROFILE=tejdux AWS_REGION=us-east-1 ./infrastructure/scripts/preflight.sh
+#
+# THE PROFILE IS NOT OPTIONAL. ~/.aws/config defines a `tejdux` profile but no default, so without
+# AWS_PROFILE every call fails with NoCredentials — which reads like "not logged in" rather than
+# "logged in, wrong profile selected". Export it, or pass --profile to everything.
 #
 # WHY THIS EXISTS. A `terraform apply` that stops two-thirds of the way through on an AccessDenied is
 # the worst outcome available: the environment is half-built, some resources are billing, and the fix
