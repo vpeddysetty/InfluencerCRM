@@ -123,6 +123,15 @@ data "aws_iam_policy_document" "compose_instance" {
     }
   }
 
+  # The compose file. GetObject on the one key, not the bucket: the instance has no reason to read
+  # anything else that lands there later.
+  statement {
+    sid       = "ReadComposeFile"
+    effect    = "Allow"
+    actions   = ["s3:GetObject"]
+    resources = ["${aws_s3_bucket.config.arn}/docker-compose.yml"]
+  }
+
   # The Elastic IP the instance claims for itself at boot. DescribeAddresses cannot be resource-scoped
   # (it is a list operation), AssociateAddress can be but the instance id is not known until it exists.
   statement {
@@ -307,25 +316,25 @@ locals {
   # ONE ENTRY PER DISTINCT SECRET, not per use: WORKLOAD_SIGNING_KEY is read by the DAO, the BFF, the DPS
   # and all seven context services, and they must all see the same value.
   compose_secret_env = {
-    DB_PASSWORD                = local.secret_arns["db-password"]
-    DAO_SERVICE_TOKEN          = local.secret_arns["dao-service-token"]
-    DAO_KEYSTORE_B64           = local.secret_arns["dao-keystore-b64"]
-    DAO_KEYSTORE_PASSWORD      = local.secret_arns["dao-keystore-password"]
-    WORKLOAD_SIGNING_KEY       = local.secret_arns["workload-signing-key"]
-    JWT_SIGNING_KEY            = local.secret_arns["jwt-signing-key"]
-    MARKETPLACE_CREDENTIAL_KEY = local.secret_arns["marketplace-credential-key"]
-    WORKFLOW_SERVICE_TOKEN     = local.secret_arns["workflow-service-token"]
-    DPS_SERVICE_TOKEN          = local.secret_arns["dps-service-token"]
-    GOOGLE_OAUTH_CLIENT_ID     = local.secret_arns["google-oauth-client-id"]
-    GOOGLE_OAUTH_CLIENT_SECRET = local.secret_arns["google-oauth-client-secret"]
-    FACEBOOK_OAUTH_CLIENT_ID   = local.secret_arns["facebook-oauth-client-id"]
+    DB_PASSWORD                  = local.secret_arns["db-password"]
+    DAO_SERVICE_TOKEN            = local.secret_arns["dao-service-token"]
+    DAO_KEYSTORE_B64             = local.secret_arns["dao-keystore-b64"]
+    DAO_KEYSTORE_PASSWORD        = local.secret_arns["dao-keystore-password"]
+    WORKLOAD_SIGNING_KEY         = local.secret_arns["workload-signing-key"]
+    JWT_SIGNING_KEY              = local.secret_arns["jwt-signing-key"]
+    MARKETPLACE_CREDENTIAL_KEY   = local.secret_arns["marketplace-credential-key"]
+    WORKFLOW_SERVICE_TOKEN       = local.secret_arns["workflow-service-token"]
+    DPS_SERVICE_TOKEN            = local.secret_arns["dps-service-token"]
+    GOOGLE_OAUTH_CLIENT_ID       = local.secret_arns["google-oauth-client-id"]
+    GOOGLE_OAUTH_CLIENT_SECRET   = local.secret_arns["google-oauth-client-secret"]
+    FACEBOOK_OAUTH_CLIENT_ID     = local.secret_arns["facebook-oauth-client-id"]
     FACEBOOK_OAUTH_CLIENT_SECRET = local.secret_arns["facebook-oauth-client-secret"]
-    STRIPE_SECRET_KEY          = local.secret_arns["stripe-secret-key"]
-    BILLING_WEBHOOK_SECRET     = local.secret_arns["billing-webhook-secret"]
-    YOUTUBE_API_KEY            = local.secret_arns["youtube-api-key"]
-    OPENAI_API_KEY             = local.secret_arns["openai-api-key"]
-    SES_ACCESS_KEY_ID          = local.secret_arns["ses-access-key-id"]
-    SES_SECRET_ACCESS_KEY      = local.secret_arns["ses-secret-access-key"]
+    STRIPE_SECRET_KEY            = local.secret_arns["stripe-secret-key"]
+    BILLING_WEBHOOK_SECRET       = local.secret_arns["billing-webhook-secret"]
+    YOUTUBE_API_KEY              = local.secret_arns["youtube-api-key"]
+    OPENAI_API_KEY               = local.secret_arns["openai-api-key"]
+    SES_ACCESS_KEY_ID            = local.secret_arns["ses-access-key-id"]
+    SES_SECRET_ACCESS_KEY        = local.secret_arns["ses-secret-access-key"]
   }
 
   # The seven extracted services, with the memory figures measured for the ECS deployment. Unused while
@@ -389,6 +398,65 @@ locals {
 }
 
 # ---------------------------------------------------------------------------
+# The compose file, in S3
+# ---------------------------------------------------------------------------
+# NOT in user data, and this is a hard AWS limit rather than a preference: user data is capped at 16384
+# bytes and the rendered compose file is ~23KB on its own (~31KB base64-encoded). Embedding it failed the
+# apply outright with "InvalidUserData.Malformed: User data is limited to 16384 bytes".
+#
+# So the boot script fetches it instead. That is better anyway: the instance role already needs S3 for
+# nothing else, the object is versioned, and a compose change no longer forces a new launch template
+# version — though it DOES still need an instance refresh to take effect, because nothing re-reads the
+# file on a running instance.
+
+resource "aws_s3_bucket" "config" {
+  bucket = "${local.name_prefix}-config-${data.aws_caller_identity.current.account_id}"
+  tags   = { Name = "${local.name_prefix}-config" }
+}
+
+resource "aws_s3_bucket_public_access_block" "config" {
+  bucket = aws_s3_bucket.config.id
+
+  # The compose file names every secret ENV VAR (not its value) and every internal port. Not a
+  # credential, but not something to serve to the internet either.
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "config" {
+  bucket = aws_s3_bucket.config.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm     = "aws:kms"
+      kms_master_key_id = aws_kms_key.main.arn
+    }
+  }
+}
+
+resource "aws_s3_bucket_versioning" "config" {
+  bucket = aws_s3_bucket.config.id
+
+  versioning_configuration {
+    # A bad compose file is recoverable by rolling the object back, without a Terraform run.
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_object" "compose" {
+  bucket  = aws_s3_bucket.config.id
+  key     = "docker-compose.yml"
+  content = local.compose_rendered
+
+  # So a changed compose file is visible in the plan as a content change rather than only as a new etag.
+  etag = md5(local.compose_rendered)
+
+  tags = { Name = "${local.name_prefix}-compose" }
+}
+
+# ---------------------------------------------------------------------------
 # Launch template
 # ---------------------------------------------------------------------------
 
@@ -417,7 +485,13 @@ resource "aws_launch_template" "compose" {
     delete_on_termination       = true
   }
 
-  user_data = base64encode(templatefile("${path.module}/templates/compose-boot.sh.tftpl", {
+  # GZIPPED, then base64-encoded. user_data is capped at 16384 bytes AFTER encoding, and this script is
+  # ~12.5KB raw — which base64 inflates by a third to just over the limit. cloud-init detects gzip magic
+  # bytes and decompresses before executing, so this is transparent at boot and buys ~4x headroom.
+  #
+  # Without it, adding a few lines of comment to the boot script fails the apply with
+  # "InvalidUserData.Malformed: User data is limited to 16384 bytes" — which reads like a syntax problem.
+  user_data = base64gzip(templatefile("${path.module}/templates/compose-boot.sh.tftpl", {
     region = var.aws_region
 
     efs_id        = aws_efs_file_system.main.id
@@ -430,9 +504,13 @@ resource "aws_launch_template" "compose" {
 
     secret_env = local.compose_secret_env
 
-    # Base64 so a YAML document with its own quoting survives being embedded in a shell script inside a
-    # Terraform template. One level of escaping instead of three.
-    compose_b64 = base64encode(local.compose_rendered)
+    # The compose file is FETCHED, not embedded: at ~23KB it does not fit in user data's 16KB budget.
+    # The etag is passed so a changed file forces a new launch template version, which is what makes an
+    # instance refresh pick it up — without it, a compose-only change would leave user data byte-identical
+    # and the refresh would have nothing to notice.
+    compose_bucket = aws_s3_bucket.config.id
+    compose_key    = aws_s3_object.compose.key
+    compose_etag   = aws_s3_object.compose.etag
   }))
 
   block_device_mappings {

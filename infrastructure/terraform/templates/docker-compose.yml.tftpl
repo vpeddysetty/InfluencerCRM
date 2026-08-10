@@ -34,9 +34,16 @@ x-logging: &logging
   options:
     awslogs-region: ${region}
     awslogs-group: ${log_group}
-    awslogs-stream-prefix: influencrm
-    # Without this the daemon creates the stream only if the group exists; the group is Terraform's, so
-    # this is belt-and-braces for a first boot that races the apply.
+    # NOT awslogs-stream-prefix. That option belongs to ECS, which synthesises a stream name per task
+    # from it; the DOCKER DAEMON does not accept it and refuses to create the container at all:
+    # "unknown log opt 'awslogs-stream-prefix' for awslogs log driver".
+    #
+    # The daemon's default stream name is the container ID — a 64-char hex string that tells you nothing
+    # about which service it came from. awslogs-stream is set per service below to the service name, so
+    # `aws logs tail /influencrm/prod --log-stream-names dao` works.
+    #
+    # Without create-group the daemon writes only if the group exists; the group is Terraform's, so this
+    # is belt-and-braces for a first boot that races the apply.
     awslogs-create-group: "true"
 
 x-common-volumes: &common-volumes
@@ -68,7 +75,15 @@ services:
       PGDATABASE: ${db_name}
       PGUSER: ${db_user}
       PGPASSWORD: $${DB_PASSWORD}
-    logging: *logging
+    logging:
+      <<: *logging
+      options:
+        # Merged with x-logging's options, not replacing them: driver-level keys come from the anchor,
+        # and this adds the stream name so the service is identifiable in CloudWatch.
+        awslogs-region: ${region}
+        awslogs-group: ${log_group}
+        awslogs-create-group: "true"
+        awslogs-stream: migrate
 
   # ---------------------------------------------------------------------------
   # DAO — the monolith data-access tier
@@ -109,7 +124,15 @@ services:
         limits:
           # 45 JPA repositories, the whole schema — the heaviest JVM here.
           memory: 896M
-    logging: *logging
+    logging:
+      <<: *logging
+      options:
+        # Merged with x-logging's options, not replacing them: driver-level keys come from the anchor,
+        # and this adds the stream name so the service is identifiable in CloudWatch.
+        awslogs-region: ${region}
+        awslogs-group: ${log_group}
+        awslogs-create-group: "true"
+        awslogs-stream: dao
 
   # ---------------------------------------------------------------------------
   # BFF — every outbound integration
@@ -176,7 +199,15 @@ services:
       resources:
         limits:
           memory: 896M
-    logging: *logging
+    logging:
+      <<: *logging
+      options:
+        # Merged with x-logging's options, not replacing them: driver-level keys come from the anchor,
+        # and this adds the stream name so the service is identifiable in CloudWatch.
+        awslogs-region: ${region}
+        awslogs-group: ${log_group}
+        awslogs-create-group: "true"
+        awslogs-stream: web-experience
 
   # ---------------------------------------------------------------------------
   # DPS — sessions and the OAuth callbacks
@@ -216,7 +247,15 @@ services:
         limits:
           # Holds sessions in-heap while Redis is out of scope.
           memory: 640M
-    logging: *logging
+    logging:
+      <<: *logging
+      options:
+        # Merged with x-logging's options, not replacing them: driver-level keys come from the anchor,
+        # and this adds the stream name so the service is identifiable in CloudWatch.
+        awslogs-region: ${region}
+        awslogs-group: ${log_group}
+        awslogs-create-group: "true"
+        awslogs-stream: dps
 
   # ---------------------------------------------------------------------------
   # Agent — Python, FastAPI, langgraph
@@ -253,7 +292,15 @@ services:
         limits:
           # Python + openai + langgraph; largest resident set of the non-JVM containers.
           memory: 768M
-    logging: *logging
+    logging:
+      <<: *logging
+      options:
+        # Merged with x-logging's options, not replacing them: driver-level keys come from the anchor,
+        # and this adds the stream name so the service is identifiable in CloudWatch.
+        awslogs-region: ${region}
+        awslogs-group: ${log_group}
+        awslogs-create-group: "true"
+        awslogs-stream: agent
 
   # ---------------------------------------------------------------------------
   # The seven extracted context services
@@ -292,7 +339,15 @@ services:
       resources:
         limits:
           memory: ${cfg.memory}M
-    logging: *logging
+    logging:
+      <<: *logging
+      options:
+        # Merged with x-logging's options, not replacing them: driver-level keys come from the anchor,
+        # and this adds the stream name so the service is identifiable in CloudWatch.
+        awslogs-region: ${region}
+        awslogs-group: ${log_group}
+        awslogs-create-group: "true"
+        awslogs-stream: ${name}
 %{ endfor ~}
 
   # ---------------------------------------------------------------------------
@@ -366,4 +421,12 @@ services:
       resources:
         limits:
           memory: 128M
-    logging: *logging
+    logging:
+      <<: *logging
+      options:
+        # Merged with x-logging's options, not replacing them: driver-level keys come from the anchor,
+        # and this adds the stream name so the service is identifiable in CloudWatch.
+        awslogs-region: ${region}
+        awslogs-group: ${log_group}
+        awslogs-create-group: "true"
+        awslogs-stream: caddy

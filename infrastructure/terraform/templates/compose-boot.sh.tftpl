@@ -164,11 +164,19 @@ echo "--- starting the platform ---"
 APP_DIR=/opt/influencrm
 mkdir -p "$APP_DIR"
 
-# The compose file is rendered by Terraform and delivered base64-encoded, because user data is a single
-# blob and embedding a YAML document inside a shell heredoc inside a Terraform template invites one
-# level of escaping too many.
-echo "${compose_b64}" | base64 -d > "$APP_DIR/docker-compose.yml"
+# The compose file comes from S3 rather than from user data: at ~23KB it does not fit in user data's
+# 16KB budget. etag ${compose_etag} — referenced only so a changed file changes this script, and
+# therefore the launch template version an instance refresh rolls to.
+#
+# A FAILURE HERE IS FATAL and must not be swallowed: without the compose file there is no platform, and
+# starting the systemd unit against a missing file produces a confusing error much later.
+if ! aws s3 cp "s3://${compose_bucket}/${compose_key}" "$APP_DIR/docker-compose.yml" --region "$REGION" >/dev/null 2>&1; then
+  echo "FATAL: could not fetch the compose file from s3://${compose_bucket}/${compose_key}." >&2
+  echo "Check the instance role has s3:GetObject on it, and that the object exists." >&2
+  exit 1
+fi
 chmod 0644 "$APP_DIR/docker-compose.yml"
+echo "  fetched $(wc -c < "$APP_DIR/docker-compose.yml") bytes of compose config"
 
 # Log in to ECR. The instance role carries the pull permissions; this exchanges them for a docker
 # credential, and it must happen before the first `compose up` or every pull is denied.
@@ -213,37 +221,20 @@ systemctl enable --now influencrm.service \
 # ---------------------------------------------------------------------------
 # 5. Spot interruption handling
 # ---------------------------------------------------------------------------
-# ECS_ENABLE_SPOT_INSTANCE_DRAINING did this before. Without the agent, a small poller watches the
-# instance metadata for the two-minute notice and stops the stack gracefully, so Spring shuts down
-# cleanly instead of being killed mid-request.
-cat > /usr/local/bin/influencrm-spot-watch.sh <<'WATCH'
-#!/bin/bash
-# Polls the Spot interruption endpoint. 404 is the normal answer; 200 means termination is coming.
-set -uo pipefail
-while true; do
-  TOKEN=$(curl -sX PUT "http://169.254.169.254/latest/api/token" \
-          -H "X-aws-ec2-metadata-token-ttl-seconds: 60" 2>/dev/null)
-  # The status code, WITHOUT curl's -w '%<brace>http_code<brace>' format string: that sequence opens a
-  # Terraform template directive in this file and fails the apply. `-o /dev/null -f` gives the same
-  # answer through the exit status — 0 when the endpoint returns 200, non-zero on the normal 404.
-  if curl -sf -o /dev/null -H "X-aws-ec2-metadata-token: $TOKEN" \
-       http://169.254.169.254/latest/meta-data/spot/instance-action 2>/dev/null; then
-    logger -t influencrm-spot "interruption notice received; stopping the stack gracefully"
-    systemctl stop influencrm.service
-    exit 0
-  fi
-  sleep 5
-done
-WATCH
-chmod 0750 /usr/local/bin/influencrm-spot-watch.sh
-
+# ECS_ENABLE_SPOT_INSTANCE_DRAINING did this before. Without the agent, a poller watches the metadata
+# endpoint for the two-minute notice and stops the stack gracefully, so Spring shuts down cleanly
+# instead of being killed mid-request. `curl -f` succeeds only on the 200 that means termination is
+# coming; the normal answer is a 404.
+#
+# INLINE IN THE UNIT rather than a separate script file, because user data is capped at 16384 bytes
+# after base64 encoding and this script was over it. Terse here is a size constraint, not a style.
 cat > /etc/systemd/system/influencrm-spot-watch.service <<'UNIT'
 [Unit]
 Description=InfluenCRM Spot interruption watcher
 After=influencrm.service
 
 [Service]
-ExecStart=/usr/local/bin/influencrm-spot-watch.sh
+ExecStart=/bin/bash -c 'while true; do T=$(curl -sX PUT http://169.254.169.254/latest/api/token -H "X-aws-ec2-metadata-token-ttl-seconds: 60"); if curl -sf -o /dev/null -H "X-aws-ec2-metadata-token: $T" http://169.254.169.254/latest/meta-data/spot/instance-action; then logger -t influencrm-spot "interruption notice; stopping the stack"; systemctl stop influencrm.service; exit 0; fi; sleep 5; done'
 Restart=always
 RestartSec=10
 

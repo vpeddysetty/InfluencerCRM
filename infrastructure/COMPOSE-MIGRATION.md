@@ -62,6 +62,34 @@ now stateless, which is the entire point of running it on Spot.
 - `terraform/iam.tf` — now a comment explaining where the execution and task roles went
 - `terraform/compose-support.tf` (was `alb-toggle.tf`) — EIP, `use_rds`, spot variables, `acme_email`
 
+## BLOCKER: the migration is not idempotent
+
+**Found by the smoke test, and it will take the platform down on your next deploy.**
+
+The ECS config asserted "every migration in this repo is idempotent," and it is not. On a second run
+against an already-built schema, `migrate` fails:
+
+```
+psql:/schema/influencer_crm_schema.sql:34: ERROR:  relation "users" already exists
+FATAL: influencer_crm_schema.sql failed. The schema is INCOMPLETE; do not start the services.
+```
+
+Because every application service declares `depends_on: migrate: service_completed_successfully`, a
+failed migration means **nothing starts at all**. The first deploy works (empty database); every
+subsequent one takes the whole platform down. This is not caused by the move off ECS — ECS would have
+hit it identically on the second deploy — but the move is what surfaced it.
+
+`schema/influencer_crm_schema.sql` uses bare `CREATE TABLE`. The extension creation is already guarded
+with `IF NOT EXISTS`, so the pattern is established; the table and type DDL just needs the same
+treatment. Until that is fixed, a redeploy needs:
+
+```bash
+docker compose --env-file /run/influencrm/platform.env up -d --no-deps dao web-experience dps agent caddy
+```
+
+which is what the smoke test used to recover, and is exactly the sort of manual step this deployment
+should not need.
+
 ## Two things you must do
 
 ### 1. The DAO certificate needs a `dao` SAN
@@ -146,6 +174,40 @@ BFF's routing flag rather than a new task definition and a service mesh.
 
 Starting all seven adds ~2.7GB and does **not** fit on a `.large`. That needs an `.xlarge` in
 `var.spot_instance_types`.
+
+## End-to-end smoke test (2026-08-10, against the deployed stack)
+
+Run from outside AWS against the Elastic IP, plus SSM into the instance. Every layer touched.
+
+| # | Integration point | Result |
+|---|---|---|
+| 1 | Caddy edge, public :80 | reachable from the internet |
+| 2 | BFF `actuator/health` | 200 `{"status":"UP"}` |
+| 3 | DAO `/health` over TLS | 200 |
+| 4 | DPS `actuator/health` | 200 |
+| 5 | Agent (FastAPI) `/docs` | 200 |
+| 6 | **BFF → DAO at `dao:8443`** | 200 — the bridge-network change works |
+| 7 | Schema on RDS | 8 context schemas, 8 `svc_*` roles, 6 late tables, 2 idempotency indexes |
+| 8 | **Signup** `POST /api/auth/signup` | **201** — user + account + brand persisted, JWT issued |
+| 9 | **Login** with same credentials | 200, same `userId` — read back from RDS |
+| 10 | **Create campaign** `POST /api/campaigns` | **200**, persisted |
+| 11 | **List campaigns** | 200, returns the created row — full round trip |
+| 12 | Authenticated reads (`/api/creators`, `/api/brands`, `/api/campaign-creators`, `/api/import-batches`) | 200 |
+| 13 | Unauthenticated `/api/campaigns` | **401** — authz enforced |
+| 14 | DAO without a service token | **401** — zero-trust chain intact |
+| 15 | EFS `/mnt/logs` | services writing `influencrm-{dao,dps,web-experience}.log` as uid 1001 |
+| 16 | EFS `/mnt/caddy` | Caddy cert store written as root |
+| 17 | CloudWatch | one named stream per service |
+
+Two bugs were found and fixed during the test:
+
+- **`awslogs-stream-prefix` is ECS-only.** The Docker daemon rejects it outright and refused to create
+  any container: `unknown log opt 'awslogs-stream-prefix'`. Replaced with a per-service `awslogs-stream`,
+  which also gives readable stream names instead of container-ID hashes.
+- **CloudFront rejects an IP origin.** The first fix tested `!= ""`, but the IP *is* non-empty — the test
+  now checks the value is a hostname.
+
+One defect was found and **not** fixed: the non-idempotent migration above.
 
 ## Verification performed
 

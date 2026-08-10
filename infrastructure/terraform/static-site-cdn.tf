@@ -7,8 +7,21 @@ locals {
   # The public app origin used by the browser for the API and DPS endpoints. The Terraform module
   # already infers the externally reachable base URL from the deployment mode, so the same value can
   # drive both the service config and the CloudFront proxy behavior.
-  cloudfront_backend_origin_domain = local.public_base_url != "" ? replace(replace(local.public_base_url, "https://", ""), "http://", "") : ""
-  cloudfront_backend_origin_policy = local.public_base_url != "" ? (startswith(local.public_base_url, "https://") ? "https-only" : "http-only") : "http-only"
+  cloudfront_backend_origin_host = local.public_base_url != "" ? replace(replace(local.public_base_url, "https://", ""), "http://", "") : ""
+
+  # CloudFront REJECTS AN IP as an origin: "InvalidArgument: The parameter origin name cannot be an IP
+  # address". With api_domain unset, public_base_url falls back to the Elastic IP — a perfectly good
+  # smoke-test address for a browser, but not something CloudFront will accept.
+  #
+  # So the test is "is this a hostname", NOT "is this non-empty". An IP is non-empty and would sail
+  # through an emptiness check — which is exactly the bug this replaced.
+  cloudfront_backend_is_hostname = (
+    local.cloudfront_backend_origin_host != "" &&
+    length(regexall("^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$", local.cloudfront_backend_origin_host)) == 0
+  )
+
+  cloudfront_backend_origin_domain = local.cloudfront_backend_is_hostname ? local.cloudfront_backend_origin_host : ""
+  cloudfront_backend_origin_policy = startswith(local.public_base_url, "https://") ? "https-only" : "http-only"
 }
 
 # SPA routing.
@@ -132,51 +145,47 @@ resource "aws_cloudfront_distribution" "ui" {
     origin_path = "/${each.key}"
   }
 
-  origin {
-    domain_name = local.cloudfront_backend_origin_domain
-    origin_id   = "api-origin"
+  # ONLY WHEN THERE IS A HOSTNAME. CloudFront rejects an IP address as an origin outright:
+  # "InvalidArgument: The parameter origin name cannot be an IP address".
+  #
+  # With api_domain unset, local.public_base_url falls back to the Elastic IP — which is a usable
+  # smoke-test address for the browser to call directly, but cannot be a CloudFront origin. So the API
+  # origin and the three behaviors that target it appear together with the domain, or not at all.
+  #
+  # While they are absent the micro-frontends still serve; the SPA simply calls the BFF directly at
+  # VITE_BFF_URL rather than through the distribution. Set api_domain to route /api and /dps through
+  # CloudFront.
+  dynamic "origin" {
+    for_each = local.cloudfront_backend_origin_domain != "" ? [1] : []
+    content {
+      domain_name = local.cloudfront_backend_origin_domain
+      origin_id   = "api-origin"
 
-    custom_origin_config {
-      http_port              = 80
-      https_port             = 443
-      origin_protocol_policy = local.cloudfront_backend_origin_policy
-      # An ARGUMENT, not a block, in provider v5 — a nested block here fails validation with
-      # "Blocks of type origin_ssl_protocols are not expected here".
-      origin_ssl_protocols = ["TLSv1.2"]
+      custom_origin_config {
+        http_port              = 80
+        https_port             = 443
+        origin_protocol_policy = local.cloudfront_backend_origin_policy
+        # An ARGUMENT, not a block, in provider v5 — a nested block here fails validation with
+        # "Blocks of type origin_ssl_protocols are not expected here".
+        origin_ssl_protocols = ["TLSv1.2"]
+      }
     }
   }
 
-  ordered_cache_behavior {
-    path_pattern     = "/api/*"
-    target_origin_id = "api-origin"
+  dynamic "ordered_cache_behavior" {
+    # The API and both DPS prefixes, generated rather than written out three times: they differ only in
+    # the path pattern.
+    for_each = local.cloudfront_backend_origin_domain != "" ? ["/api/*", "/dps", "/dps/*"] : []
+    content {
+      path_pattern     = ordered_cache_behavior.value
+      target_origin_id = "api-origin"
 
-    viewer_protocol_policy = "redirect-to-https"
-    allowed_methods         = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
-    cached_methods          = ["GET", "HEAD", "OPTIONS"]
-    compress                = true
-    cache_policy_id         = "4135ea2d-6df8-4f0b-9f0d-979c4b3c8d9a"
-  }
-
-  ordered_cache_behavior {
-    path_pattern     = "/dps"
-    target_origin_id = "api-origin"
-
-    viewer_protocol_policy = "redirect-to-https"
-    allowed_methods         = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
-    cached_methods          = ["GET", "HEAD", "OPTIONS"]
-    compress                = true
-    cache_policy_id         = "4135ea2d-6df8-4f0b-9f0d-979c4b3c8d9a"
-  }
-
-  ordered_cache_behavior {
-    path_pattern     = "/dps/*"
-    target_origin_id = "api-origin"
-
-    viewer_protocol_policy = "redirect-to-https"
-    allowed_methods         = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
-    cached_methods          = ["GET", "HEAD", "OPTIONS"]
-    compress                = true
-    cache_policy_id         = "4135ea2d-6df8-4f0b-9f0d-979c4b3c8d9a"
+      viewer_protocol_policy = "redirect-to-https"
+      allowed_methods        = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
+      cached_methods         = ["GET", "HEAD", "OPTIONS"]
+      compress               = true
+      cache_policy_id        = "4135ea2d-6df8-4f0b-9f0d-979c4b3c8d9a"
+    }
   }
 
   default_cache_behavior {
