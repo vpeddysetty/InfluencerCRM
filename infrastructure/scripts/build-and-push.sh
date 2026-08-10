@@ -51,6 +51,8 @@ SERVICES=(
     "finance:InfluencerFinanceService"
     "content:InfluencerContentService"
     "agent:"
+    # The schema migration runner. Third Dockerfile, no MODULE — see build_one().
+    "migrate:"
 )
 
 # A subset may be requested; default is everything.
@@ -92,10 +94,13 @@ build_one() {
         --file docker/Dockerfile.service
         --build-arg "MODULE=${module}"
     )
-    if [ -z "$module" ]; then
-        # The agent has its own Dockerfile and takes no MODULE.
-        args=(--file docker/Dockerfile.agent)
-    fi
+    # Two images build from their own Dockerfile and take no MODULE: the Python agent, and the schema
+    # migration runner. Selected by NAME rather than by "module is empty", because both are empty and
+    # they are not the same image.
+    case "$name" in
+        agent)   args=(--file docker/Dockerfile.agent) ;;
+        migrate) args=(--file docker/Dockerfile.migrate) ;;
+    esac
 
     docker build \
         "${args[@]}" \

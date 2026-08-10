@@ -237,9 +237,17 @@ resource "aws_route53_record" "api" {
   name    = var.api_domain
   type    = "A"
 
-  alias {
-    name                   = aws_lb.main.dns_name
-    zone_id                = aws_lb.main.zone_id
-    evaluate_target_health = true
+  # An ALIAS to the ALB, or an A record to the Elastic IP when Caddy replaces it. The record type is A
+  # either way, which is why one resource can serve both.
+  dynamic "alias" {
+    for_each = var.use_alb ? [1] : []
+    content {
+      name                   = aws_lb.main[0].dns_name
+      zone_id                = aws_lb.main[0].zone_id
+      evaluate_target_health = true
+    }
   }
+
+  records = var.use_alb ? null : [aws_eip.app[0].public_ip]
+  ttl     = var.use_alb ? null : 60
 }

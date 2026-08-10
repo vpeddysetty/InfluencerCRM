@@ -30,6 +30,10 @@ locals {
     content        = { module = "InfluencerContentService", port = 8450 }
     # The agent builds from a different Dockerfile; module is unused for it.
     agent = { module = "", port = 8000 }
+    # The schema migration runner. Not a service — it runs to completion and exits — but it needs a
+    # repository like any other image, and keeping it in this map means build-and-push.sh and the
+    # lifecycle policy cover it automatically.
+    migrate = { module = "", port = 0 }
   }
 }
 

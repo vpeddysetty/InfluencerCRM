@@ -1,6 +1,12 @@
-output "alb_dns_name" {
-  description = "The ALB hostname. Reach the BFF here when api_domain is unset."
-  value       = aws_lb.main.dns_name
+output "public_address" {
+  description = <<-EOT
+    Where the platform answers from outside. The ALB's DNS name when use_alb is true, otherwise the
+    Elastic IP that Caddy serves on.
+
+    An IP is a smoke-test address only: OAuth providers reject an IP as a redirect URI and Let's Encrypt
+    cannot certify one, so sign-in needs api_domain pointed at this address.
+  EOT
+  value       = var.use_alb ? aws_lb.main[0].dns_name : (local.caddy_enabled ? aws_eip.app[0].public_ip : "none")
 }
 
 output "application_url" {
@@ -19,8 +25,8 @@ output "ecr_registry" {
 }
 
 output "database_endpoint" {
-  description = "RDS endpoint. Reachable only from inside the VPC — the task's security group is the only ingress."
-  value       = aws_db_instance.main.address
+  description = "RDS endpoint. Reachable only from inside the VPC - the task's security group is the only ingress."
+  value       = var.use_rds ? aws_db_instance.main[0].address : "localhost (container in the task)"
 }
 
 output "efs_file_system_id" {
@@ -39,7 +45,7 @@ output "service_name" {
 }
 
 output "task_definition_arn" {
-  description = "The revision currently deployed. Note the revision number — it is what a rollback targets."
+  description = "The revision currently deployed. Note the revision number - it is what a rollback targets."
   value       = aws_ecs_task_definition.main.arn
 }
 

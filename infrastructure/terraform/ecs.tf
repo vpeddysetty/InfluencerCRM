@@ -1,26 +1,42 @@
-# ECS cluster, the single task definition holding all eleven containers, and the service.
+# ECS cluster, the single task definition, and the service.
 #
-# ONE TASK DEFINITION, ELEVEN CONTAINERS. Containers in a task share a network namespace, so they
-# reach each other on localhost:<port> — no Service Connect, no Cloud Map, no mesh. That is why the
-# URL variables below are mostly absent: `localhost` is already every one of their defaults.
+# ONE TASK DEFINITION, SEVEN CONTAINERS: postgres, migrate, dao, web-experience, dps, agent, caddy.
+# Containers in a task share a network namespace, so they reach each other on localhost:<port> — no
+# Service Connect, no Cloud Map, no mesh. That is why the URL variables below are mostly absent:
+# `localhost` is already every one of their defaults.
+#
+# ECS caps a task at TEN containers. The seven extracted context services are therefore not here; see
+# local.app_containers for why that costs nothing today.
 
 locals {
-  # Per-container memory. NOT optional: each JVM runs -XX:MaxRAMPercentage=75, and a container with
-  # no limit of its own measures that 75% against the TASK total — eleven times over. The sum here is
-  # 7936MB against a task_memory of 8192MB, leaving 256MB for the agent's headroom and Fargate's own
-  # overhead.
+  # Per-container memory. NOT optional: each JVM runs -XX:MaxRAMPercentage=75, and a container with no
+  # limit of its own measures that 75% against the TASK total — eleven times over.
+  #
+  # SIZED FROM MEASUREMENT, not estimate. A Spring service was run under a hard 320MB cap: it started
+  # cleanly and settled at 222MB (69%). The 384MB below is that floor plus headroom for a GC spike.
+  #
+  # The budget is tight and the arithmetic matters, because an 8GB instance leaves ~7.6GB usable after
+  # the OS and the ECS agent, and ECS refuses to register a task definition whose containers exceed the
+  # task total:
+  #     postgres 512 + migrate 256 + caddy 128            =  896
+  #     dao 896 + bff 896 + dps 640                       = 2432
+  #     agent 768                                         =  768
+  #                                                   total 4096  against task_memory 5120
+  #
+  # The seven context entries below are unused while those containers are dropped, and are kept so
+  # re-enabling one does not also require re-deriving its size.
   container_memory = {
-    dao            = 1024 # 45 JPA repositories, the whole schema.
-    web-experience = 1024 # Every outbound integration lives here.
-    dps            = 768  # Holds sessions in-heap while Redis is out of scope.
-    workflow       = 512
-    identity       = 512
-    creator        = 512
-    campaign       = 512
-    attribution    = 512
-    finance        = 512
-    content        = 512
-    agent          = 1024 # Python + openai + langgraph; the largest resident set of the non-JVM containers.
+    dao            = 896 # 45 JPA repositories, the whole schema — the heaviest JVM here.
+    web-experience = 896 # Every outbound integration lives here.
+    dps            = 640 # Holds sessions in-heap while Redis is out of scope.
+    workflow       = 384
+    identity       = 384
+    creator        = 384
+    campaign       = 384
+    attribution    = 384
+    finance        = 384
+    content        = 384
+    agent          = 768 # Python + openai + langgraph; largest resident set of the non-JVM containers.
   }
 
   # Which services the platform cannot serve a request without. A non-essential container that dies
@@ -29,10 +45,18 @@ locals {
   # losing `finance` should degrade payouts, not sign-in.
   essential_containers = ["dao", "web-experience", "dps"]
 
-  # The externally reachable origin. Falls back to the ALB's own DNS name, which is enough to smoke
-  # test but cannot be registered as an OAuth callback.
-  public_base_url = var.public_base_url != "" ? var.public_base_url : "http://${aws_lb.main.dns_name}"
-  ui_base_url     = var.ui_base_url != "" ? var.ui_base_url : local.public_base_url
+  # Where a browser reaches the platform. With an ALB that is its DNS name; with Caddy it is the
+  # Elastic IP, or api_domain once DNS points at it.
+  #
+  # An IP-based URL is a smoke-test address only: OAuth providers reject an IP as a redirect URI, and
+  # Let's Encrypt cannot issue a certificate for one — so sign-in needs api_domain set either way.
+  public_base_url = (
+    var.public_base_url != "" ? var.public_base_url :
+    var.use_alb ? "http://${aws_lb.main[0].dns_name}" :
+    var.api_domain != "" ? "https://${var.api_domain}" :
+    local.caddy_enabled ? "http://${aws_eip.app[0].public_ip}" : ""
+  )
+  ui_base_url = var.ui_base_url != "" ? var.ui_base_url : local.public_base_url
 
   # Environment shared by every Spring container.
   common_environment = [
@@ -46,7 +70,7 @@ locals {
   # The JDBC URL every service uses. One database, many roles: the DAO connects as the master user
   # because it owns every schema; the extracted services connect as their own svc_* roles, which is
   # what makes a cross-context query fail at the database.
-  jdbc_url = "jdbc:postgresql://${aws_db_instance.main.address}:5432/${var.db_name}?stringtype=unspecified"
+  jdbc_url = "jdbc:postgresql://${local.db_host}:5432/${var.db_name}?stringtype=unspecified"
 
   # Repeated for each of the seven extracted services, differing only in the variable NAME prefix.
   # The svc_* passwords are the `change-me-<ctx>` defaults set by the context-roles migration and are
@@ -62,7 +86,7 @@ locals {
   }
 
   # Mount both EFS access points into every Spring container. The log directory is genuinely shared —
-  # all ten append into it so `rid` ties one browser action across the chain — while only the BFF
+  # every service appends into it so `rid` ties one browser action across the chain — while only the BFF
   # writes assets. Mounting assets everywhere costs nothing and means the next service that needs it
   # is a property change rather than a task definition change.
   common_mount_points = [
@@ -295,7 +319,7 @@ locals {
       # libpq, not JDBC — the agent uses psycopg. Same database, different URL grammar.
       {
         name  = "DATABASE_URL"
-        value = "postgresql://${var.db_master_username}@${aws_db_instance.main.address}:5432/${var.db_name}"
+        value = "postgresql://${var.db_master_username}@${local.db_host}:5432/${var.db_name}"
       },
       { name = "OPENAI_MODEL", value = "gpt-4.1-mini" },
       { name = "OPENAI_EMBEDDING_MODEL", value = "text-embedding-3-small" },
@@ -328,9 +352,40 @@ locals {
     logConfiguration = local.log_configuration
   }
 
+  # Every application container must wait for the schema. `SUCCESS` means the migrate container exited
+  # ZERO — not merely that it ran — so a failed migration stops the deploy instead of producing services
+  # that fail later on a query against a table that does not exist.
+  migrate_dependency = [{ containerName = "migrate", condition = "SUCCESS" }]
+
+  # Merge the migration dependency into whatever a container already depends on. The BFF already waits
+  # for the DAO, the DPS for the BFF; those orderings are preserved and the migration is added.
+  # ECS ALLOWS AT MOST 10 CONTAINERS PER TASK DEFINITION. With postgres, migrate and caddy alongside the
+  # application that is a hard ceiling, and 14 was rejected outright: "ClientException: Too many
+  # containers."
+  #
+  # The seven extracted context services are the ones dropped, and it costs no functionality TODAY:
+  # `web-experience.workflow-service-enabled` is false and no *_SERVICE_URL routing is enabled, so the
+  # BFF already serves every domain from the monolith DAO. Those containers would have started, passed
+  # their health checks, and received no traffic at all.
+  #
+  # To bring one back: set its flag on the BFF, and give it its own task definition and service — a
+  # second task means cross-task calls, which needs ECS Service Connect rather than localhost. That is
+  # the migration this single-task shape defers, not one it forecloses.
+  #
+  # local.context_containers stays defined but unused, so re-enabling is an edit here rather than
+  # rewriting the generator.
+  app_containers = [
+    for c in [local.dao_container, local.bff_container, local.dps_container, local.agent_container] :
+    merge(c, {
+      dependsOn = concat(lookup(c, "dependsOn", []), local.migrate_dependency)
+    })
+  ]
+
   all_containers = concat(
-    [local.dao_container, local.bff_container, local.dps_container, local.agent_container],
-    local.context_containers,
+    local.postgres_container, # first: everything else depends on it, directly or through migrate
+    local.migrate_container,
+    local.app_containers,
+    local.caddy_container, # last: depends on the BFF and DPS being healthy
   )
 }
 
@@ -358,7 +413,21 @@ resource "aws_ecs_cluster" "main" {
 resource "aws_ecs_task_definition" "main" {
   family = "${local.name_prefix}-platform"
 
-  requires_compatibilities = ["FARGATE"]
+  # BOTH, deliberately. The same task definition then runs on Fargate or on the EC2 Spot capacity
+  # provider, so `use_ec2_spot` is a genuine switch rather than two divergent definitions — and
+  # flipping back to Fargate is a supported rollback rather than a rewrite.
+  #
+  # Declaring EC2 costs nothing when running on Fargate; it only widens what the definition is
+  # *allowed* to run on.
+  # EC2 ONLY. Declaring FARGATE as well was the original intent — one task definition runnable on
+  # either, so switching back was a variable change — but it is INCOMPATIBLE with this design:
+  # Fargate has no host filesystem, so it rejects the host_path volumes that Postgres data and Caddy
+  # certificates require ("Fargate compatible task definitions do not support sourcePath").
+  #
+  # The Fargate rollback therefore is not a flag flip any more: it means use_rds = true and use_alb =
+  # true as well, because Fargate cannot host the database or the proxy that replaced them. That is a
+  # real coupling and worth stating rather than discovering.
+  requires_compatibilities = ["EC2"]
   # awsvpc is the only mode Fargate supports, and it is what gives every container in the task one
   # shared network namespace — the reason localhost works between them.
   network_mode = "awsvpc"
@@ -391,6 +460,29 @@ resource "aws_ecs_task_definition" "main" {
     }
   }
 
+  # The Postgres data directory, on the EBS volume that outlives the instance. A HOST path, not EFS:
+  # Postgres on NFS is a documented data-corruption risk (locking semantics differ), and EFS would also
+  # be slower for the write pattern of a database.
+  #
+  # The path is where the boot script mounts the EBS volume.
+  dynamic "volume" {
+    for_each = local.pg_container_enabled ? [1] : []
+    content {
+      name      = "pgdata"
+      host_path = "/mnt/pgdata"
+    }
+  }
+
+  # Caddy's certificate store. Also a host path on the EBS volume: losing it means re-requesting
+  # certificates, and Let's Encrypt allows only 5 per domain per week.
+  dynamic "volume" {
+    for_each = local.caddy_enabled ? [1] : []
+    content {
+      name      = "caddydata"
+      host_path = "/mnt/caddydata"
+    }
+  }
+
   volume {
     name = "assets"
     efs_volume_configuration {
@@ -413,46 +505,88 @@ resource "aws_ecs_service" "main" {
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.main.arn
   desired_count   = var.desired_count
-  launch_type     = "FARGATE"
-  # Pinned rather than LATEST: a platform version change is an infrastructure change and should
-  # appear in a plan, not arrive on the next task replacement.
-  platform_version = "1.4.0"
 
-  # A shell into a running container — the only practical way to debug a Fargate task, since there is
-  # no host to log into.
+  # launch_type and capacity_provider_strategy are MUTUALLY EXCLUSIVE — setting both is an API error,
+  # which is why each is conditional rather than one being a default.
+  #
+  # On Spot the strategy replaces the launch type entirely, and platform_version must be absent: it is
+  # a Fargate-only concept and passing it with an EC2 capacity provider is rejected.
+  launch_type = local.spot_enabled ? null : "FARGATE"
+
+  dynamic "capacity_provider_strategy" {
+    for_each = local.spot_enabled ? [1] : []
+    content {
+      capacity_provider = aws_ecs_capacity_provider.spot[0].name
+      weight            = 100
+      # base = 1: the first task must go to this provider. With base = 0 and one provider it behaves
+      # the same, but stating it means adding an on-demand provider later does not silently change
+      # where the first task lands.
+      base = 1
+    }
+  }
+
+  # Pinned rather than LATEST when it applies at all: a platform version change is an infrastructure
+  # change and should appear in a plan, not arrive on the next task replacement.
+  platform_version = local.spot_enabled ? null : "1.4.0"
+
+  # A shell into a running container. On Fargate it is the only way in at all; on EC2 the instance is
+  # also reachable via SSM Session Manager, which is how the manual RDS schema step gets a psql prompt
+  # inside the VPC.
   enable_execute_command = true
 
   network_configuration {
     subnets         = local.task_subnet_ids
     security_groups = [aws_security_group.task.id]
-    # True while there is no NAT gateway: without a public IP the task cannot reach ECR to pull its
-    # own images and would fail to start. It is still unreachable inbound — the security group admits
-    # only the ALB.
-    assign_public_ip = local.task_public_ip
+    # FARGATE ONLY. On EC2 the ENI inherits its addressing from the instance, and ECS rejects the
+    # parameter outright: "Assign public IP is not supported for this launch type."
+    #
+    # Reaching ECR still works, because the INSTANCE has a public IP — assigned by the ASG's subnet,
+    # which is public while there is no NAT gateway. The task is still unreachable inbound: its
+    # security group admits only what alb-toggle.tf opens on 80/443.
+    assign_public_ip = local.spot_enabled ? null : local.task_public_ip
   }
 
-  load_balancer {
-    target_group_arn = aws_lb_target_group.bff.arn
-    container_name   = "web-experience"
-    container_port   = 8081
+  # Only when there IS a load balancer. With Caddy the task has no target group at all — Caddy reaches
+  # both services on loopback inside the same task, so there is nothing to register.
+  dynamic "load_balancer" {
+    for_each = var.use_alb ? [1] : []
+    content {
+      target_group_arn = aws_lb_target_group.bff[0].arn
+      container_name   = "web-experience"
+      container_port   = 8081
+    }
   }
 
-  load_balancer {
-    target_group_arn = aws_lb_target_group.dps.arn
-    container_name   = "dps"
-    container_port   = 8090
+  dynamic "load_balancer" {
+    for_each = var.use_alb ? [1] : []
+    content {
+      target_group_arn = aws_lb_target_group.dps[0].arn
+      container_name   = "dps"
+      container_port   = 8090
+    }
   }
 
   # Ten JVMs starting together, each with a 120s startPeriod, is slow. Without this grace period the
   # service's own health check logic can kill the task before the containers have finished booting —
   # a crash loop that looks exactly like a broken image.
-  health_check_grace_period_seconds = 300
+  # Only meaningful with a load balancer; ECS rejects it otherwise.
+  health_check_grace_period_seconds = var.use_alb ? 300 : null
 
   # With desired_count = 1 there is no rolling deploy to be had: 100/200 means ECS starts the new
   # task, waits for it to be healthy, then stops the old one. minimum_healthy_percent = 0 would be
   # faster and would take the platform down between the two.
-  deployment_minimum_healthy_percent = 100
-  deployment_maximum_percent         = 200
+  # ON FARGATE: 100/200 means start the new task, wait for healthy, then stop the old one — no downtime.
+  #
+  # ON EC2 SPOT this must be 0/100, and the difference is physical rather than a preference. The task
+  # reserves ~4.7GB of an 8GB instance, so a SECOND task cannot be placed alongside the first; with
+  # 100/200 the deployment would wait forever for capacity that the ASG can only provide by launching
+  # another instance, doubling the cost to deploy.
+  #
+  # 0/100 therefore accepts a GAP: the old task stops, then the new one starts, and the platform is down
+  # for the ~3-5 minutes ten JVMs take to boot. That is the real cost of one Spot instance, and it is
+  # the same window a Spot reclamation causes anyway.
+  deployment_minimum_healthy_percent = local.spot_enabled ? 0 : 100
+  deployment_maximum_percent         = local.spot_enabled ? 100 : 200
 
   deployment_circuit_breaker {
     # Stop a deploy that cannot become healthy, and put the previous task definition back. Without
@@ -470,12 +604,16 @@ resource "aws_ecs_service" "main" {
 
   depends_on = [
     # The listener must exist before the service registers targets, or registration races it.
-    aws_lb_listener.http,
+    aws_lb_listener.http, # empty list when use_alb is false
     # IAM propagation: the task fails to pull or to read secrets if the policy is not yet in effect.
     aws_iam_role_policy.execution_secrets,
     aws_iam_role_policy.task,
     # A missing mount target makes the task hang on mount until it times out.
     aws_efs_mount_target.main,
+    # On Spot: the capacity provider must be ATTACHED TO THE CLUSTER before the service references it,
+    # or CreateService fails with "capacity provider not found" — the provider existing is not enough.
+    # An empty list on Fargate, so this dependency simply is not there.
+    aws_ecs_cluster_capacity_providers.main,
   ]
 
   tags = { Name = "${local.name_prefix}-platform" }

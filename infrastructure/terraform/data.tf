@@ -5,6 +5,8 @@
 # ---------------------------------------------------------------------------
 
 resource "aws_db_subnet_group" "main" {
+  count = var.use_rds ? 1 : 0
+
   name = "${local.name_prefix}-db"
   # RDS requires subnets in at least two AZs even for a single-AZ instance, which is the other
   # reason network.tf always creates two public subnets. The instance itself lands in one.
@@ -18,6 +20,8 @@ resource "aws_db_subnet_group" "main" {
 }
 
 resource "aws_db_parameter_group" "main" {
+  count = var.use_rds ? 1 : 0
+
   name_prefix = "${local.name_prefix}-pg16-"
   family      = "postgres16"
 
@@ -42,6 +46,8 @@ resource "aws_db_parameter_group" "main" {
 }
 
 resource "aws_db_instance" "main" {
+  count = var.use_rds ? 1 : 0
+
   identifier = "${local.name_prefix}-postgres"
 
   engine = "postgres"
@@ -63,9 +69,9 @@ resource "aws_db_instance" "main" {
   # Read from the generated secret rather than written here, so the value exists in exactly one place.
   password = random_password.db_master.result
 
-  db_subnet_group_name   = aws_db_subnet_group.main.name
+  db_subnet_group_name   = aws_db_subnet_group.main[0].name
   vpc_security_group_ids = [aws_security_group.database.id]
-  parameter_group_name   = aws_db_parameter_group.main.name
+  parameter_group_name   = aws_db_parameter_group.main[0].name
 
   # NOT publicly accessible. The task reaches it inside the VPC; nothing else should reach it at all.
   publicly_accessible = false

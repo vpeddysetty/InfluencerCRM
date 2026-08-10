@@ -1,0 +1,190 @@
+#!/bin/bash
+# Instance boot script. Runs on EVERY instance launch, including the replacement after a Spot
+# reclamation — so it must be idempotent and must not assume a clean slate.
+#
+# It does four things Terraform cannot, because they happen after an instance exists that Terraform did
+# not create (the ASG did):
+#   1. Attach and mount the EBS data volume, formatting it only if it is genuinely blank.
+#   2. Claim the Elastic IP, so DNS keeps resolving after a replacement.
+#   3. Install the nightly backup to S3.
+#   4. Join the ECS cluster.
+#
+# Logs to /var/log/influencrm-boot.log AND to the console, so `aws ec2 get-console-output` shows it when
+# the instance never gets far enough to run the SSM agent.
+set -uo pipefail
+exec > >(tee -a /var/log/influencrm-boot.log | logger -t influencrm-boot -s 2>/dev/console) 2>&1
+
+echo "=== influencrm boot $(date -u +%FT%TZ) ==="
+
+REGION="${region}"
+TOKEN=$(curl -sX PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 300")
+IID=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/instance-id)
+echo "instance $IID in $REGION"
+
+%{ if pg_enabled == "true" ~}
+# ---------------------------------------------------------------------------
+# 1. The data volume
+# ---------------------------------------------------------------------------
+VOLUME_ID="${volume_id}"
+echo "--- attaching $VOLUME_ID ---"
+
+# Wait for the volume to be detached from the previous instance. On a Spot replacement the old instance
+# may still be shutting down, and AttachVolume fails while the volume is 'in-use'.
+for i in $(seq 1 60); do
+  STATE=$(aws ec2 describe-volumes --region "$REGION" --volume-ids "$VOLUME_ID" \
+          --query 'Volumes[0].State' --output text 2>/dev/null || echo unknown)
+  [ "$STATE" = "available" ] && break
+  echo "  volume state=$STATE, waiting ($i/60)"
+  sleep 5
+done
+
+# /dev/sdf is the request; Nitro instances expose it as a /dev/nvme*n1 device with a different name, which
+# is why the device is discovered below rather than assumed.
+aws ec2 attach-volume --region "$REGION" --volume-id "$VOLUME_ID" \
+    --instance-id "$IID" --device /dev/sdf >/dev/null 2>&1 \
+  || echo "  attach returned non-zero (already attached?), continuing"
+
+# Find the device by its EBS volume id, not by name. Device naming is not stable across instance
+# families, and mounting the wrong device would either fail or — worse — format the root volume.
+VOL_SHORT=$(echo "$VOLUME_ID" | tr -d '-')
+DEV=""
+for i in $(seq 1 30); do
+  for candidate in /dev/nvme*n1; do
+    [ -e "$candidate" ] || continue
+    if nvme id-ctrl -H "$candidate" 2>/dev/null | grep -qi "$VOL_SHORT"; then
+      DEV="$candidate"; break
+    fi
+  done
+  # Non-Nitro fallback.
+  [ -z "$DEV" ] && [ -e /dev/sdf ] && DEV=/dev/sdf
+  [ -n "$DEV" ] && break
+  echo "  waiting for device ($i/30)"
+  sleep 2
+done
+
+if [ -z "$DEV" ]; then
+  echo "FATAL: data volume never appeared as a device. Postgres cannot start." >&2
+  exit 1
+fi
+echo "  device $DEV"
+
+# Format ONLY if there is no filesystem. `blkid` returning non-zero means blank. This single check is
+# what stops a reboot from wiping the database — get it wrong and every replacement starts empty.
+if ! blkid "$DEV" >/dev/null 2>&1; then
+  echo "  no filesystem found -> formatting (FIRST BOOT ONLY)"
+  mkfs.ext4 -L influencrm-data "$DEV"
+else
+  echo "  existing filesystem found -> preserving data"
+fi
+
+mkdir -p /mnt/pgdata /mnt/caddydata
+# fstab so a reboot remounts it. nofail: a missing volume must not make the instance unbootable and
+# therefore unreachable for debugging.
+grep -q "$DEV /mnt/data" /etc/fstab || echo "$DEV /mnt/data ext4 defaults,nofail 0 2" >> /etc/fstab
+mkdir -p /mnt/data
+mount /mnt/data 2>/dev/null || mount "$DEV" /mnt/data
+
+# Both volumes live on the one EBS device: Postgres data and Caddy's certificate store. Separate
+# directories, one volume — two volumes would be two attachments to sequence for no benefit at this size.
+mkdir -p /mnt/data/pgdata /mnt/data/caddydata
+# The postgres container runs as uid 999 (the postgres user in the official image), and Caddy as root.
+chown -R 999:999 /mnt/data/pgdata
+# Bind-mount to the paths the task definition declares as host paths.
+mountpoint -q /mnt/pgdata   || mount --bind /mnt/data/pgdata /mnt/pgdata
+mountpoint -q /mnt/caddydata || mount --bind /mnt/data/caddydata /mnt/caddydata
+echo "  mounted: $(df -h /mnt/data | tail -1)"
+%{ endif ~}
+
+%{ if eip_enabled == "true" ~}
+# ---------------------------------------------------------------------------
+# 2. The Elastic IP
+# ---------------------------------------------------------------------------
+# Claimed by the instance itself rather than by Terraform, because the instance Terraform knows about is
+# not the instance that exists after a Spot replacement. Found by tag so replacing the address does not
+# require a new launch template.
+echo "--- associating Elastic IP ---"
+ALLOC=$(aws ec2 describe-addresses --region "$REGION" \
+        --filters "Name=tag:Role,Values=influencrm-app-eip" \
+        --query 'Addresses[0].AllocationId' --output text 2>/dev/null)
+if [ -n "$ALLOC" ] && [ "$ALLOC" != "None" ]; then
+  aws ec2 associate-address --region "$REGION" --instance-id "$IID" \
+      --allocation-id "$ALLOC" --allow-reassociation >/dev/null \
+    && echo "  associated $ALLOC" \
+    || echo "  WARNING: could not associate $ALLOC — the platform will be unreachable by DNS"
+else
+  echo "  WARNING: no EIP tagged Role=influencrm-app-eip found"
+fi
+%{ endif ~}
+
+%{ if pg_enabled == "true" ~}
+# ---------------------------------------------------------------------------
+# 3. Nightly backup
+# ---------------------------------------------------------------------------
+# This REPLACES the automated backups lost by moving off RDS. Without it, the only copy of the data is
+# one EBS volume — recoverable from a Spot reclamation, not from a mistake or a corruption.
+echo "--- installing backup cron ---"
+cat > /usr/local/bin/influencrm-backup.sh <<'BACKUP'
+#!/bin/bash
+# pg_dump the database to S3. Runs on the HOST, dumping through the postgres container.
+set -uo pipefail
+BUCKET="__BUCKET__"
+REGION="__REGION__"
+DB="__DB__"
+USER="__USER__"
+STAMP=$(date -u +%Y%m%d-%H%M%S)
+KEY="pgdump/$${DB}-$${STAMP}.sql.gz"
+
+# The password comes from Secrets Manager at run time, not from a file on disk.
+PGPASSWORD=$(aws secretsmanager get-secret-value --region "$REGION" \
+             --secret-id "__SECRET__" --query SecretString --output text 2>/dev/null)
+if [ -z "$PGPASSWORD" ]; then
+  logger -t influencrm-backup "FATAL: could not read the database password; no backup taken"
+  exit 1
+fi
+
+CID=$(docker ps --filter "name=postgres" --filter "status=running" -q | head -1)
+if [ -z "$CID" ]; then
+  logger -t influencrm-backup "FATAL: no running postgres container; no backup taken"
+  exit 1
+fi
+
+# --clean --if-exists so the dump can be restored over an existing database.
+if docker exec -e PGPASSWORD="$PGPASSWORD" "$CID" \
+     pg_dump -U "$USER" -d "$DB" --clean --if-exists 2>/tmp/pgdump.err | gzip -9 \
+   | aws s3 cp - "s3://$${BUCKET}/$${KEY}" --region "$REGION" --sse aws:kms >/dev/null 2>&1; then
+  logger -t influencrm-backup "backup ok: s3://$${BUCKET}/$${KEY}"
+else
+  logger -t influencrm-backup "FATAL: backup failed: $(tail -3 /tmp/pgdump.err 2>/dev/null)"
+  exit 1
+fi
+BACKUP
+
+sed -i "s|__BUCKET__|${backup_bucket}|; s|__REGION__|$REGION|; s|__DB__|${db_name}|; s|__USER__|${db_user}|; s|__SECRET__|${db_secret_arn}|" \
+    /usr/local/bin/influencrm-backup.sh
+chmod 0750 /usr/local/bin/influencrm-backup.sh
+
+# 03:17 UTC — an odd minute rather than :00, so this does not contend with every other cron on the hour.
+cat > /etc/cron.d/influencrm-backup <<'CRON'
+17 3 * * * root /usr/local/bin/influencrm-backup.sh
+CRON
+chmod 0644 /etc/cron.d/influencrm-backup
+echo "  backup scheduled 03:17 UTC daily -> s3://${backup_bucket}/pgdump/"
+%{ endif ~}
+
+# ---------------------------------------------------------------------------
+# 4. Join the ECS cluster
+# ---------------------------------------------------------------------------
+# LAST, deliberately. The ECS agent starts placing tasks as soon as it registers, and a task that starts
+# before /mnt/pgdata is mounted would have Postgres write to the instance's own disk — data that
+# disappears with the instance, and which the real volume then shadows on the next boot.
+echo "--- joining ECS cluster ${cluster_name} ---"
+cat >> /etc/ecs/ecs.config <<CFG
+ECS_CLUSTER=${cluster_name}
+ECS_ENABLE_SPOT_INSTANCE_DRAINING=true
+ECS_ENABLE_CONTAINER_METADATA=true
+ECS_CONTAINER_STOP_TIMEOUT=30s
+ECS_IMAGE_PULL_BEHAVIOR=prefer-cached
+CFG
+
+systemctl enable --now ecs 2>/dev/null || systemctl restart ecs
+echo "=== boot complete $(date -u +%FT%TZ) ==="

@@ -5,12 +5,14 @@
 # network path to them to secure, rather than a path secured by configuration.
 
 resource "aws_lb" "main" {
+  count = var.use_alb ? 1 : 0
+
   name               = "${local.name_prefix}-alb"
   load_balancer_type = "application"
   # Public subnets in both AZs — an ALB requires at least two, which is why network.tf always creates
   # two even when compute runs in one.
   subnets         = aws_subnet.public[*].id
-  security_groups = [aws_security_group.alb.id]
+  security_groups = [aws_security_group.alb[0].id]
 
   # Protects against `terraform destroy` removing the thing DNS points at. Set false to tear down.
   enable_deletion_protection = false
@@ -27,6 +29,8 @@ resource "aws_lb" "main" {
 }
 
 resource "aws_lb_target_group" "bff" {
+  count = var.use_alb ? 1 : 0
+
   name        = "${local.name_prefix}-bff"
   port        = 8081
   protocol    = "HTTP"
@@ -66,6 +70,8 @@ resource "aws_lb_target_group" "bff" {
 }
 
 resource "aws_lb_target_group" "dps" {
+  count = var.use_alb ? 1 : 0
+
   name        = "${local.name_prefix}-dps"
   port        = 8090
   protocol    = "HTTP"
@@ -93,7 +99,9 @@ resource "aws_lb_target_group" "dps" {
 # ---------------------------------------------------------------------------
 
 resource "aws_lb_listener" "http" {
-  load_balancer_arn = aws_lb.main.arn
+  count = var.use_alb ? 1 : 0
+
+  load_balancer_arn = aws_lb.main[0].arn
   port              = 80
   protocol          = "HTTP"
 
@@ -115,15 +123,15 @@ resource "aws_lb_listener" "http" {
     for_each = var.acm_certificate_arn == "" ? [1] : []
     content {
       type             = "forward"
-      target_group_arn = aws_lb_target_group.bff.arn
+      target_group_arn = aws_lb_target_group.bff[0].arn
     }
   }
 }
 
 resource "aws_lb_listener" "https" {
-  count = var.acm_certificate_arn != "" ? 1 : 0
+  count = var.use_alb && var.acm_certificate_arn != "" ? 1 : 0
 
-  load_balancer_arn = aws_lb.main.arn
+  load_balancer_arn = aws_lb.main[0].arn
   port              = 443
   protocol          = "HTTPS"
   # TLS 1.2 minimum, forward secrecy. TLS 1.3 is included; 1.0 and 1.1 are not.
@@ -133,20 +141,22 @@ resource "aws_lb_listener" "https" {
   # The BFF is the default: it serves /api/** , which is most of the traffic.
   default_action {
     type             = "forward"
-    target_group_arn = aws_lb_target_group.bff.arn
+    target_group_arn = aws_lb_target_group.bff[0].arn
   }
 }
 
 # The DPS owns the session and OAuth entry points. It must be reachable by path, because the browser
 # is redirected to it by the provider and by the shell.
 resource "aws_lb_listener_rule" "dps" {
+  count = var.use_alb ? 1 : 0
+
   # Attaches to whichever listener exists.
-  listener_arn = var.acm_certificate_arn != "" ? aws_lb_listener.https[0].arn : aws_lb_listener.http.arn
+  listener_arn = var.acm_certificate_arn != "" ? aws_lb_listener.https[0].arn : aws_lb_listener.http[0].arn
   priority     = 100
 
   action {
     type             = "forward"
-    target_group_arn = aws_lb_target_group.dps.arn
+    target_group_arn = aws_lb_target_group.dps[0].arn
   }
 
   condition {

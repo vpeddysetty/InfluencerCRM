@@ -11,13 +11,105 @@
 data "aws_caller_identity" "current" {}
 
 resource "aws_kms_key" "main" {
-  description = "influencrm ${var.environment}: encrypts Secrets Manager entries, ECR images, EFS and RDS storage."
+  description = "influencrm ${var.environment}: encrypts Secrets Manager entries, ECR images, EFS and log groups."
   # 30 days rather than the 7-day minimum: deleting this key makes every secret, every EFS file and
   # the database permanently unreadable. The window is the only chance to notice.
   deletion_window_in_days = 30
   enable_key_rotation     = true
 
+  # A KEY POLICY IS REQUIRED, not optional. The default policy grants only the account root, and an AWS
+  # SERVICE encrypting on your behalf is not covered by that — CreateLogGroup fails with "The specified
+  # KMS key does not exist or is not allowed to be used", which sounds like a missing key and is really a
+  # missing grant. That is exactly how the first apply of this configuration failed.
+  policy = data.aws_iam_policy_document.kms_key[0].json
+
   tags = { Name = "${local.name_prefix}-kms" }
+}
+
+data "aws_iam_policy_document" "kms_key" {
+  count = 1
+
+  # Without this the key becomes unmanageable: only the root user could change the policy, and
+  # Terraform could not read or rotate it.
+  statement {
+    sid       = "AccountFullControl"
+    effect    = "Allow"
+    actions   = ["kms:*"]
+    resources = ["*"]
+    principals {
+      type        = "AWS"
+      identifiers = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"]
+    }
+  }
+
+  # CloudWatch Logs encrypting log groups. The condition scopes it to THIS account's log groups, so the
+  # grant cannot be used by a log group in another account that somehow references this key.
+  statement {
+    sid       = "CloudWatchLogsEncrypt"
+    effect    = "Allow"
+    actions   = ["kms:Encrypt*", "kms:Decrypt*", "kms:ReEncrypt*", "kms:GenerateDataKey*", "kms:Describe*"]
+    resources = ["*"]
+    principals {
+      type        = "Service"
+      identifiers = ["logs.${var.aws_region}.amazonaws.com"]
+    }
+    condition {
+      test     = "ArnLike"
+      variable = "kms:EncryptionContext:aws:logs:arn"
+      values   = ["arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:*"]
+    }
+  }
+
+  # EBS, AND THIS IS NOT OPTIONAL EITHER. Writing a key policy REPLACES the default that granted the
+  # account root everything, so any service that was implicitly allowed becomes implicitly denied.
+  #
+  # Attaching the encrypted data volume then fails with "CustomerKeyHasBeenRevoked: The encrypted volume
+  # was unable to access the KMS key" — which names the key but not the cause, and leaves the instance
+  # booting fine while Postgres has nowhere to store data.
+  #
+  # `kms:ViaService` scopes it to EC2 in this region: the roles below can use the key for volumes, and
+  # for nothing else.
+  statement {
+    sid    = "EbsVolumeEncrypt"
+    effect = "Allow"
+    actions = [
+      "kms:Encrypt", "kms:Decrypt", "kms:ReEncrypt*",
+      "kms:GenerateDataKey*", "kms:DescribeKey", "kms:CreateGrant",
+    ]
+    resources = ["*"]
+    principals {
+      type = "AWS"
+      identifiers = [
+        # The instance role, which is what calls AttachVolume from the boot script.
+        aws_iam_role.instance[0].arn,
+        # The account root, so Terraform and an operator can manage encrypted volumes too.
+        "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root",
+      ]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "kms:ViaService"
+      values   = ["ec2.${var.aws_region}.amazonaws.com"]
+    }
+  }
+
+  # The EC2 Spot service-linked role attaches volumes on behalf of the ASG, and is a distinct principal
+  # from the instance role above.
+  statement {
+    sid    = "AutoScalingUseKey"
+    effect = "Allow"
+    actions = [
+      "kms:Encrypt", "kms:Decrypt", "kms:ReEncrypt*",
+      "kms:GenerateDataKey*", "kms:DescribeKey", "kms:CreateGrant",
+    ]
+    resources = ["*"]
+    principals {
+      type = "AWS"
+      identifiers = [
+        "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling",
+      ]
+    }
+  }
 }
 
 resource "aws_kms_alias" "main" {
@@ -132,15 +224,26 @@ resource "aws_secretsmanager_secret" "external" {
   tags = { Name = "${local.name_prefix}-${each.key}" }
 }
 
-# A placeholder version, so the ARN resolves and the task can start. An EMPTY string is used rather
-# than a fake-looking value: every consumer treats empty as "not configured" and takes its
-# documented fail-closed path, whereas "replace-me" would be passed to Google or Stripe as if it
-# were real and fail with a confusing authentication error instead.
+# A placeholder version, so the ARN resolves and the task can start.
+#
+# THE VALUE IS A SINGLE SPACE, NOT AN EMPTY STRING. Secrets Manager rejects "" outright —
+# `InvalidRequestException: You must provide either SecretString or SecretBinary` — which is how the
+# first apply of this configuration failed on all thirteen of these.
+#
+# A space works because every consumer of these values treats blank-after-trim as "not configured" and
+# takes its documented fail-closed path. Spring's ${VAR:default} does not trim, but the code that reads
+# these does: `isBlank()` in the Java adapters, and `if api_key` in Python, where " " is truthy — which
+# is why the OpenAI key is set to a space only until bootstrap-secrets.sh replaces it, and why the agent
+# reports itself unavailable rather than sending a request with a one-space key.
+#
+# A fake-looking value like "replace-me" was rejected for a worse reason: it would be PASSED to Google
+# or Stripe as though real, and fail with an authentication error that reads like a broken integration
+# rather than a missing configuration.
 resource "aws_secretsmanager_secret_version" "external_placeholder" {
   for_each = local.external_secrets
 
   secret_id     = aws_secretsmanager_secret.external[each.key].id
-  secret_string = ""
+  secret_string = " "
 
   lifecycle {
     # Once a real value is put in — by the CLI, the console, or a rotation — Terraform must not

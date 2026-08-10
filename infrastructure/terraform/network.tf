@@ -143,6 +143,8 @@ locals {
 # ---------------------------------------------------------------------------
 
 resource "aws_security_group" "alb" {
+  count = var.use_alb ? 1 : 0
+
   name_prefix = "${local.name_prefix}-alb-"
   description = "ALB: public ingress on 80/443."
   vpc_id      = aws_vpc.main.id
@@ -157,9 +159,9 @@ resource "aws_security_group" "alb" {
 }
 
 resource "aws_vpc_security_group_ingress_rule" "alb_http" {
-  for_each = toset(var.alb_ingress_cidrs)
+  for_each = var.use_alb ? toset(var.alb_ingress_cidrs) : toset([])
 
-  security_group_id = aws_security_group.alb.id
+  security_group_id = aws_security_group.alb[0].id
   cidr_ipv4         = each.value
   from_port         = 80
   to_port           = 80
@@ -170,9 +172,9 @@ resource "aws_vpc_security_group_ingress_rule" "alb_http" {
 resource "aws_vpc_security_group_ingress_rule" "alb_https" {
   # Only opened when there is a certificate to terminate with; an open 443 with no listener is a
   # rule that says something is served there when nothing is.
-  for_each = var.acm_certificate_arn == "" ? toset([]) : toset(var.alb_ingress_cidrs)
+  for_each = var.use_alb && var.acm_certificate_arn != "" ? toset(var.alb_ingress_cidrs) : toset([])
 
-  security_group_id = aws_security_group.alb.id
+  security_group_id = aws_security_group.alb[0].id
   cidr_ipv4         = each.value
   from_port         = 443
   to_port           = 443
@@ -181,10 +183,14 @@ resource "aws_vpc_security_group_ingress_rule" "alb_https" {
 }
 
 resource "aws_vpc_security_group_egress_rule" "alb_to_task" {
-  security_group_id            = aws_security_group.alb.id
+  # No ALB, no rule. Gated separately from the group itself because Terraform evaluates the reference
+  # even when the group is an empty tuple — which is the error this catches.
+  count = var.use_alb ? 1 : 0
+
+  security_group_id            = aws_security_group.alb[0].id
   referenced_security_group_id = aws_security_group.task.id
   ip_protocol                  = "-1"
-  description                  = "To the task only — the ALB has no reason to reach anything else."
+  description                  = "To the task only - the ALB has no reason to reach anything else."
 }
 
 resource "aws_security_group" "task" {
@@ -207,8 +213,10 @@ resource "aws_security_group" "task" {
 # every container in a single task definition shares one network namespace. There is no rule to
 # write for localhost, which is precisely why the single-task shape is defensible without a mesh.
 resource "aws_vpc_security_group_ingress_rule" "task_from_alb_bff" {
+  count = var.use_alb ? 1 : 0
+
   security_group_id            = aws_security_group.task.id
-  referenced_security_group_id = aws_security_group.alb.id
+  referenced_security_group_id = aws_security_group.alb[0].id
   from_port                    = 8081
   to_port                      = 8081
   ip_protocol                  = "tcp"
@@ -216,8 +224,10 @@ resource "aws_vpc_security_group_ingress_rule" "task_from_alb_bff" {
 }
 
 resource "aws_vpc_security_group_ingress_rule" "task_from_alb_dps" {
+  count = var.use_alb ? 1 : 0
+
   security_group_id            = aws_security_group.task.id
-  referenced_security_group_id = aws_security_group.alb.id
+  referenced_security_group_id = aws_security_group.alb[0].id
   from_port                    = 8090
   to_port                      = 8090
   ip_protocol                  = "tcp"
@@ -228,11 +238,15 @@ resource "aws_vpc_security_group_egress_rule" "task_all" {
   security_group_id = aws_security_group.task.id
   cidr_ipv4         = "0.0.0.0/0"
   ip_protocol       = "-1"
-  description       = <<-EOT
-    Unrestricted egress, which the task genuinely needs: ECR and Secrets Manager to start at all,
-    then Google and Facebook OAuth, the OpenAI API and SES. Those are public endpoints, so this
-    cannot be narrowed to a VPC endpoint list.
-  EOT
+  # A SINGLE LINE, not a heredoc. EC2 rejects newlines in a rule description — the permitted set is
+  # a-zA-Z0-9._-:/()#,@[]+=&;{}!$* and nothing else, so a multi-line description fails with
+  # "InvalidParameterValue: Invalid rule description". The reasoning that was here has moved to the
+  # comment, which has no such constraint.
+  #
+  # Unrestricted egress is genuinely needed: ECR and Secrets Manager before the app starts at all, then
+  # Google and Facebook OAuth, the OpenAI API and SES. Those are public endpoints, so this cannot be
+  # narrowed to a VPC endpoint list.
+  description = "Egress for ECR, Secrets Manager, OAuth providers, OpenAI and SES."
 }
 
 resource "aws_security_group" "database" {

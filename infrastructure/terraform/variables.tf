@@ -137,7 +137,7 @@ variable "db_master_username" {
 }
 
 variable "db_multi_az" {
-  description = "Multi-AZ RDS. Forced off when availability_zone_count is 1 — it has nowhere to fail over to."
+  description = "Multi-AZ RDS. Forced off when availability_zone_count is 1 - it has nowhere to fail over to."
   type        = bool
   default     = false
 }
@@ -179,7 +179,10 @@ variable "task_memory" {
     overcommits immediately and gets containers OOM-killed under load.
   EOT
   type        = number
-  default     = 8192
+  # 5120, not 7168: the seven extracted context services were dropped to fit the 10-container ECS limit,
+  # so the containers now sum to 4096. The extra 1024 is headroom for a GC spike, and leaves ~2.5GB of
+  # the 8GB instance for the OS, the ECS agent and the Docker daemon.
+  default = 5120
 }
 
 variable "desired_count" {
