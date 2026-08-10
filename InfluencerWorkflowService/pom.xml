@@ -27,6 +27,18 @@
     </properties>
 
     <dependencies>
+        <!-- Cross-cutting platform infrastructure: JsonLogEncoder (referenced by the shared
+             logback-influencrm.xml this service includes) and the workload-identity token classes.
+             Without it logback logged "Could not find resource corresponding to
+             [logback-influencrm.xml]", fell back to console-only, and this service wrote NOTHING to
+             the shared log directory — so the centralized `rid` correlation had a hole in it for
+             every extracted context. Contains no domain code, so it crosses no context boundary. -->
+        <dependency>
+            <groupId>com.influencer</groupId>
+            <artifactId>InfluencerPlatformCommons</artifactId>
+            <version>1.0.0</version>
+        </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>

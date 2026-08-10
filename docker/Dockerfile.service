@@ -1,0 +1,104 @@
+# Shared build for every Spring Boot service in this repo.
+#
+# There is one Dockerfile rather than ten because the ten services differ only in which module is
+# built and which port it listens on. Ten near-identical files would drift: someone bumps the base
+# image in nine of them and the tenth silently ships an old JRE.
+#
+# Build from the REPO ROOT, not from a module directory:
+#   docker build -f docker/Dockerfile.service --build-arg MODULE=InfluencerDAO -t influencrm/dao:v1.0.0 .
+#
+# The context has to be the root because every service depends on InfluencerPlatformCommons, which
+# is a sibling module that must be installed into the local repository first.
+
+# ---------------------------------------------------------------------------
+# Stage 1 — build
+# ---------------------------------------------------------------------------
+FROM maven:3.9-eclipse-temurin-17 AS build
+
+# Which module to build. No default: a typo'd or missing MODULE should fail loudly at build time
+# rather than silently produce an image of the wrong service.
+ARG MODULE
+RUN test -n "$MODULE" || (echo "ERROR: --build-arg MODULE=<ModuleName> is required" && exit 1)
+
+WORKDIR /src
+
+# Commons first, and as its own layer. It changes far less often than the services, so this layer
+# stays cached across most builds — and every service needs it in the local repository before its
+# own build can resolve com.influencer:InfluencerPlatformCommons.
+COPY InfluencerPlatformCommons/pom.xml InfluencerPlatformCommons/pom.xml
+RUN mvn -f InfluencerPlatformCommons/pom.xml -B -q dependency:go-offline
+
+COPY InfluencerPlatformCommons InfluencerPlatformCommons
+RUN mvn -f InfluencerPlatformCommons/pom.xml -B -q clean install -DskipTests
+
+# Then the service's own dependencies, again before its source, so editing a .java file does not
+# re-download the world.
+COPY ${MODULE}/pom.xml ${MODULE}/pom.xml
+RUN mvn -f ${MODULE}/pom.xml -B -q dependency:go-offline
+
+COPY ${MODULE} ${MODULE}
+
+# Tests are deliberately NOT run here. They already ran in CI against the tagged commit before any
+# image was built, and several need a live Postgres that does not exist inside a build container.
+# Running them here would either duplicate that work or fail for reasons unrelated to the image.
+RUN mvn -f ${MODULE}/pom.xml -B -q clean package -DskipTests \
+    && cp ${MODULE}/target/*.jar /src/app.jar
+
+# ---------------------------------------------------------------------------
+# Stage 2 — runtime
+# ---------------------------------------------------------------------------
+# JRE, not JDK: the compiler and its toolchain are build-time concerns and are a needlessly large
+# attack surface to ship to production.
+FROM eclipse-temurin:17-jre
+
+# Run as a non-root user. A container process that does not need root should not have it; if the
+# app is compromised, this is the difference between a contained blast radius and an uncontained one.
+RUN groupadd --system --gid 1001 influencrm \
+    && useradd --system --uid 1001 --gid influencrm --create-home influencrm
+
+WORKDIR /app
+COPY --from=build --chown=influencrm:influencrm /src/app.jar /app/app.jar
+
+# logback-spring.xml defaults LOG_DIR to ../logs, which resolves to /logs from /app — a directory
+# that does not exist and that the non-root user could not create. Logback treats that as a fatal
+# configuration error, so the container exits before Spring starts at all. The config anticipates
+# this ("Override with LOG_DIR in a container deploy"); this supplies the override it asks for.
+#
+# /mnt/logs is the EFS mount point in AWS. Every service mounts the SAME access point here, which
+# is what makes the centralized logging design work in ECS: all services append JSON lines into one
+# shared directory, so `rid` still ties a single action across the chain the way it does locally.
+#
+# It is created (and owned by the runtime user) in the image so the container also starts when
+# nothing is mounted — a local `docker run` writes to the container's own copy instead of failing.
+# When EFS IS mounted it shadows this directory, so the mount's own ownership governs; the EFS
+# access point must therefore be configured with uid/gid 1001 or the append fails at runtime.
+ENV LOG_DIR=/mnt/logs
+RUN mkdir -p /mnt/logs && chown influencrm:influencrm /mnt/logs
+VOLUME ["/mnt/logs"]
+
+# Uploaded assets (BFF only, but created here so one Dockerfile still serves every service).
+#
+# It must exist AND be owned by the runtime user in the IMAGE, not just in compose: Docker seeds a
+# fresh named volume from the image's directory — including its ownership — so a mount point that is
+# missing or root-owned produces a root-owned volume that the non-root user cannot write. That is
+# the same AccessDeniedException as the ./asset-store default, just moved.
+#
+# Separate from /mnt/logs because the lifecycles differ: logs roll under a 3GB cap, assets must
+# never be deleted by a rolling policy. Two EFS access points in AWS, both uid/gid 1001.
+RUN mkdir -p /mnt/assets && chown influencrm:influencrm /mnt/assets
+VOLUME ["/mnt/assets"]
+
+# Decodes TLS key material from Secrets Manager env vars into tmpfs before exec'ing the JVM. It is
+# a no-op when no such secret is set, so this is the entrypoint for every service in both local and
+# deployed runs — one image, one code path. See the script for why the file cannot simply be baked
+# into the image.
+COPY --chmod=0555 docker/entrypoint-service.sh /usr/local/bin/entrypoint.sh
+
+USER influencrm
+
+# MaxRAMPercentage rather than a fixed -Xmx: the JVM then sizes its heap from the container's actual
+# cgroup limit, so the same image behaves correctly whether ECS gives it 512MB or 4GB. A hardcoded
+# heap is either wasteful on a large task or OOM-killed on a small one.
+ENV JAVA_OPTS="-XX:MaxRAMPercentage=75.0 -XX:+UseContainerSupport"
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

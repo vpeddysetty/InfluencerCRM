@@ -1,0 +1,87 @@
+# agent_service — FastAPI + LangGraph metadata-mapping agent.
+#
+# Build from the REPO ROOT (requirements.txt lives there, not in agent_service/):
+#   docker build -f docker/Dockerfile.agent -t influencrm/agent:v1.0.0 .
+#
+# Python 3.12 rather than 3.14 (what the local .venv uses): psycopg[binary] and the rest of this
+# dependency set ship prebuilt wheels for 3.12, and pinning the runtime here means the image does
+# not silently start compiling from source — or failing to — when a wheel lags a new release.
+
+# ---------------------------------------------------------------------------
+# Stage 1 — build the dependency tree into a virtualenv
+# ---------------------------------------------------------------------------
+# Split from the runtime stage so the compilers needed by any source-only dependency stay out of
+# the shipped image, matching the JRE-not-JDK choice in Dockerfile.service.
+FROM python:3.12-slim AS build
+
+# build-essential is for source-only wheels; libpq-dev is NOT needed because psycopg[binary]
+# vendors libpq. Installing the -dev package anyway would pull a second copy of it.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Requirements before source: editing app.py must not re-resolve and re-download the dependency
+# tree, which for langgraph + openai is the slow part of this build by a wide margin.
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -r requirements.txt
+
+# ---------------------------------------------------------------------------
+# Stage 2 — runtime
+# ---------------------------------------------------------------------------
+FROM python:3.12-slim
+
+# Non-root, and the SAME uid/gid 1001 as the Java services. That is deliberate: every service
+# writes into one shared EFS access point, so they must agree on ownership or one service's log
+# files become unwritable by the next.
+RUN groupadd --system --gid 1001 influencrm \
+    && useradd --system --uid 1001 --gid influencrm --create-home influencrm
+
+COPY --from=build /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+WORKDIR /app
+# The package directory, preserving the `agent_service.` import prefix app.py uses internally
+# (`from agent_service.mapping_service import ...`), which only resolves if the parent of the
+# package is the working directory.
+COPY --chown=influencrm:influencrm agent_service /app/agent_service
+
+# The system prompt. OpenAIAdvisor resolves it as `Path(__file__).parent.parent / "prompt.md"` —
+# the PARENT of the package — so with the package at /app/agent_service it must land at /app.
+#
+# Without this the FileNotFoundError branch is taken silently and the advisor falls back to a four-
+# line hardcoded prompt instead of the 5KB tuned one: the agent keeps working and returns worse
+# mappings, with nothing in the logs saying why. A missing prompt file is not a crash, which is
+# exactly what makes it worth copying deliberately rather than discovering later.
+COPY --chown=influencrm:influencrm prompt.md /app/prompt.md
+
+# Match the Java services' log mount so `rid` correlation spans the whole platform, including the
+# agent. Created in the image (owned by the runtime user) so a plain `docker run` with nothing
+# mounted still starts; when EFS is mounted it shadows this and the access point's own uid/gid 1001
+# governs. See the same block in Dockerfile.service.
+ENV LOG_DIR=/mnt/logs
+RUN mkdir -p /mnt/logs && chown influencrm:influencrm /mnt/logs
+VOLUME ["/mnt/logs"]
+
+# Unbuffered, or stdout is held in a pipe buffer and CloudWatch shows nothing until the buffer
+# fills — which reads as "the agent is hung" during the exact minutes you are watching it start.
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+USER influencrm
+
+# 8000 matches web-experience.agent-base-url's default port, so the BFF's URL needs only a
+# hostname change in a container, not a port change.
+ENV AGENT_PORT=8000
+EXPOSE 8000
+
+# Exec form via sh -c so AGENT_PORT expands, and `exec` so uvicorn becomes PID 1 and receives
+# SIGTERM directly — without it the shell holds PID 1, swallows the signal, and Fargate waits out
+# the stop timeout before killing the task.
+#
+# No --reload: it watches the filesystem and spawns a child process, so the signal handling above
+# stops working and a read-only root filesystem breaks it. It is a development flag.
+ENTRYPOINT ["sh", "-c", "exec uvicorn agent_service.app:app --host 0.0.0.0 --port ${AGENT_PORT}"]

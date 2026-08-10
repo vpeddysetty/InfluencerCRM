@@ -34,6 +34,16 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
+        <!-- The DAO was the only service without actuator, and it is the one every other service
+             depends on. A container needs a health endpoint to be orchestrated at all: compose
+             gates `depends_on: service_healthy` on it, and in Fargate the ALB uses it to decide
+             whether a task joins the target group. Without it the DAO's health can only be guessed
+             from "did the process stay up", which stays true while its database connection is
+             broken. The exposure is deliberately narrowed in application.properties. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-jpa</artifactId>

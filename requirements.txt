@@ -7,3 +7,7 @@ pytest>=8.0.0
 typing-extensions>=4.16.0
 psycopg[binary]>=3.2.0
 python-dotenv>=1.0.1
+# app.py imports this to read .xlsx uploads. It was undeclared and only present because another
+# package happened to pull it into the local venv — so /map-upload worked on a laptop and would
+# have raised "openpyxl is required" in a clean container image.
+openpyxl>=3.1.0

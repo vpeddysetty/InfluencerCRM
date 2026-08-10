@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  THE shared logging definition, in Commons so it exists once.
+
+  Three services (DAO, BFF, DPS) each carried their own near-identical copy of this; the other
+  eight had NO file appender at all and logged only to the console. That was survivable when a
+  console meant a terminal someone was watching. It is not survivable in Fargate: the centralized
+  design says every service appends JSON lines into one shared directory so `rid` ties a single
+  browser action across the whole chain, and eight services writing nowhere means that chain has
+  eight holes in it.
+
+  Rather than paste the file into eight more modules — where the next base-image or rolling-policy
+  change would land in some of them and not others — the definition lives here and each service's
+  logback-spring.xml is three lines that include it.
+
+  Included, not autoconfigured: logback resolves <include resource="..."/> from the classpath, and
+  Commons is already a compile dependency of every service.
+
+  See the per-setting rationale below; the two AsyncAppender settings in particular are non-default
+  on purpose and are the ones worth understanding before changing.
+-->
+<included>
+
+    <!-- Every service must set spring.application.name; SERVICE_NAME names its log file and tags
+         every line. There is deliberately no defaultValue: a service that forgets would otherwise
+         silently write to influencrm-null.log, or collide with another forgetful service in the
+         same shared directory. Failing at startup is the cheaper discovery. -->
+    <springProperty scope="context" name="SERVICE_NAME" source="spring.application.name"/>
+
+    <!-- One directory for every service: a scraper tails the directory, not N paths, and `rid`
+         joins the lines across them. Locally that is ../logs; in a container LOG_DIR points at
+         the EFS mount (/mnt/logs), which every task mounts from the same access point. -->
+    <property name="LOG_DIR" value="${LOG_DIR:-../logs}"/>
+
+    <!-- Human-readable, for someone watching a terminal. Not the scraper's input.
+         In Fargate this is what reaches CloudWatch via the awslogs driver, which is why it stays
+         enabled alongside the file appender rather than being switched off in containers. -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} %-5level [%X{rid:-—}] %logger{28} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!--
+      ROLLING. Size-and-time based, 100MB per file, 14 days, 3GB total cap. The cap is the
+      important one — an uncapped log directory fills the volume, and on EFS that volume is SHARED
+      BY EVERY SERVICE, so one chatty service filling it takes the whole platform's logging down
+      with it. The cap is per service, so the ceiling is 3GB × service count; size EFS accordingly.
+    -->
+    <appender name="JSON_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_DIR}/influencrm-${SERVICE_NAME}.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_DIR}/influencrm-${SERVICE_NAME}.%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
+            <maxFileSize>100MB</maxFileSize>
+            <maxHistory>14</maxHistory>
+            <totalSizeCap>3GB</totalSizeCap>
+            <cleanHistoryOnStart>false</cleanHistoryOnStart>
+        </rollingPolicy>
+        <encoder class="com.influencer.platform.observability.JsonLogEncoder">
+            <service>${SERVICE_NAME}</service>
+        </encoder>
+    </appender>
+
+    <!--
+      WHY ASYNC. A synchronous file appender makes every log statement a disk write on the request
+      thread. Under load that turns logging into the bottleneck, and — worse — an I/O stall on the
+      log volume becomes an application stall. That risk is HIGHER on EFS than on a local disk: it
+      is a network filesystem, so a write can stall for reasons that have nothing to do with this
+      task. AsyncAppender hands off to a bounded queue so the request thread returns immediately.
+
+      THE TWO SETTINGS THAT MATTER, both non-default on purpose:
+
+        discardingThreshold=0
+          By default AsyncAppender starts DROPPING events when the queue is 80% full, and it drops
+          TRACE/DEBUG/INFO first — keeping WARN/ERROR. That sounds sensible and is exactly wrong
+          for support: the INFO lines leading up to a failure are the context that explains it, and
+          they vanish precisely during the incident that filled the queue. 0 means discard nothing.
+
+        neverBlock=false
+          With discarding off, a full queue must either block the caller or drop. Blocking briefly
+          is the right answer for an audit-adjacent log: losing the record of a security decision is
+          worse than a few milliseconds of latency. If that trade is ever wrong for a given
+          deployment, this is the one line to change — and on EFS it is the line to look at first if
+          request latency correlates with log volume.
+    -->
+    <appender name="ASYNC_JSON" class="ch.qos.logback.classic.AsyncAppender">
+        <appender-ref ref="JSON_FILE"/>
+        <queueSize>8192</queueSize>
+        <discardingThreshold>0</discardingThreshold>
+        <neverBlock>false</neverBlock>
+        <includeCallerData>false</includeCallerData>
+    </appender>
+
+    <!--
+      DEBUG for our own packages, INFO for everything else. Framework DEBUG is overwhelmingly noise
+      that buries the application's own lines and multiplies the file size, which shortens the
+      window the 3GB cap can retain.
+    -->
+    <logger name="com.influencer" level="${INFLUENCRM_LOG_LEVEL:-DEBUG}"/>
+
+    <!-- Deliberately quieted: these log a line per request/statement at DEBUG. -->
+    <logger name="org.springframework.web" level="INFO"/>
+    <logger name="org.hibernate" level="INFO"/>
+    <logger name="org.apache" level="INFO"/>
+
+</included>

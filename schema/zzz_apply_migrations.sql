@@ -25,4 +25,23 @@
 \i /docker-entrypoint-initdb.d/migrations/2026_08_02_stage3_member_invitations.sql
 \i /docker-entrypoint-initdb.d/migrations/2026_08_02_stage4_creator_identity.sql
 \i /docker-entrypoint-initdb.d/migrations/2026_08_02_landing_builder_reset.sql
+-- Everything from here down was written but never added to this list, so a database created from
+-- this file — which is now how EVERY containerized environment is created — came up without the
+-- landing builder, assets, creator onboarding, vetting, domains, collaborators, billing, expiry
+-- warnings, or the order-idempotency index. The services would start and then fail on first query
+-- against a table that does not exist.
+--
+-- Kept in filename date order: these are not independent. phase_a creates the landing tables that
+-- phase_b's assets and m5_6's expiry warnings then alter.
+\i /docker-entrypoint-initdb.d/migrations/2026_08_05_phase_a_landing_builder.sql
+\i /docker-entrypoint-initdb.d/migrations/2026_08_05_phase_b_assets.sql
+\i /docker-entrypoint-initdb.d/migrations/2026_08_05_phase_c_creator_onboarding.sql
+\i /docker-entrypoint-initdb.d/migrations/2026_08_05_phase_d_stage_automation.sql
+\i /docker-entrypoint-initdb.d/migrations/2026_08_06_phase_c2_vetting.sql
+\i /docker-entrypoint-initdb.d/migrations/2026_08_06_phase_c3_creator_health.sql
+\i /docker-entrypoint-initdb.d/migrations/2026_08_06_phase_e_domains.sql
+\i /docker-entrypoint-initdb.d/migrations/2026_08_06_phase_g_collaborators.sql
+\i /docker-entrypoint-initdb.d/migrations/2026_08_07_m2_subscriptions_billing.sql
+\i /docker-entrypoint-initdb.d/migrations/2026_08_07_m5_6_hosting_expiry_warnings.sql
 \i /docker-entrypoint-initdb.d/migrations/2026_08_07_m6_creator_platform_tokens.sql
+\i /docker-entrypoint-initdb.d/migrations/2026_08_09_m3_order_attribution_idempotency.sql

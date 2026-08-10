@@ -1,0 +1,51 @@
+# Port-offset overlay, for verifying the containers WHILE the stack also runs natively on the host.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.hostports.yml up -d
+#
+# WHY THIS EXISTS. The default compose file publishes each service on its real port (8443, 8081, …)
+# so a browser and the E2E suite can reach a containerized stack at the URLs they already use. But
+# during development those ports are already held by the services running directly on the host, and
+# `up` fails with "ports are not available" — the containers never start, which looks like a broken
+# image rather than a busy port.
+#
+# This overlay adds 10000 to every published port. Container-internal ports are UNCHANGED, so
+# service-to-service URLs, the DAO certificate's SANs and every healthcheck still work exactly as
+# they do without it — only the host side of each mapping moves.
+#
+#   dao 18443   web-experience 18081/19081   dps 18090   workflow 18444   identity 18445
+#   creator 18446   campaign 18447   attribution 18448   finance 18449   content 18450
+#   agent 18000   postgres 15432
+#
+# Postgres moves too: the host's own Postgres holds 5432, and a container quietly connecting to the
+# WRONG database is far worse than one that fails to start. The containerized services reach it as
+# `postgres:5432` on the compose network regardless, so this only affects psql from the host.
+#
+# `!override` IS LOAD-BEARING. Compose merges sequences from an override file by APPENDING, so a
+# plain `ports:` list here would leave the base file's mapping in place and publish BOTH — the
+# original conflict is untouched and `up` still fails on the busy port, while `config` looks like the
+# override was applied. `!override` replaces the list instead of adding to it.
+services:
+  postgres:
+    ports: !override ["15432:5432"]
+  dao:
+    ports: !override ["18443:8443"]
+  web-experience:
+    ports: !override ["18081:8081", "19081:9081"]
+  dps:
+    ports: !override ["18090:8090"]
+  workflow:
+    ports: !override ["18444:8444"]
+  identity:
+    ports: !override ["18445:8445"]
+  creator:
+    ports: !override ["18446:8446"]
+  campaign:
+    ports: !override ["18447:8447"]
+  attribution:
+    ports: !override ["18448:8448"]
+  finance:
+    ports: !override ["18449:8449"]
+  content:
+    ports: !override ["18450:8450"]
+  agent:
+    ports: !override ["18000:8000"]

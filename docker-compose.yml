@@ -1,4 +1,95 @@
+# The whole platform, locally: Postgres, ten Spring services and the Python agent. (No Redis — see
+# the note where it used to be.)
+#
+#   ./docker/certs/generate-dev-secrets.sh     # once: TLS keystore + JWT signing key + tokens
+#   docker compose build                        # ~10 min cold; the Commons layer is shared
+#   docker compose --env-file docker/certs/.env.local up -d
+#   docker compose logs -f web-experience
+#
+# The --env-file is not optional for a working stack: the BFF refuses to start without a persistent
+# JWT signing key, deliberately, because tokens signed by an ephemeral one cannot be verified after a
+# restart. Add `-f docker-compose.hostports.yml` to run alongside a host-run stack on offset ports.
+#
+# WHAT THIS IS FOR. Proving the images actually run and talk to each other before Fargate is
+# involved. Every value that differs between here and AWS is an environment variable, so the
+# SAME images run in both — the compose file and the task definitions are two sets of values for
+# one set of images, not two builds.
+#
+# WHAT IS DELIBERATELY DIFFERENT FROM AWS:
+#   - Secrets are the committed dev defaults here; in Fargate they come from Secrets Manager via
+#     the task definition's `secrets` block (same env var names, different source).
+#   - Logs go to a named volume; in Fargate the same /mnt/logs path is an EFS access point.
+#   - The DAO's keystore comes from a bind-mounted file; in Fargate it is decoded from
+#     DAO_KEYSTORE_B64 by docker/entrypoint-service.sh. Both paths are exercised by the same image.
+#   - Ports are published to the host for debugging. In Fargate nothing but the BFF and DPS should
+#     be reachable outside the VPC.
+#
+# SERVICE DISCOVERY, AND WHY IT DIFFERS FROM THE TARGET DEPLOYMENT.
+# All eleven containers are going into ONE Fargate task definition. Containers in a single task
+# share a network namespace, so there they reach each other on `localhost:<port>` — no Service
+# Connect, no Cloud Map, no DNS. Compose cannot reproduce that (each service is its own network
+# namespace), so here they resolve by service NAME on a shared bridge network.
+#
+# This is the one place where local and deployed genuinely differ, and it is contained entirely in
+# the URL variables set below — the images are still identical. Every one of those variables takes
+# its `localhost` default in a single-task deployment, which means the Fargate task definition sets
+# FEWER of them than this file does, not more.
+#
+# The DAO's certificate carries `localhost` as a SAN precisely so BFF -> DAO TLS verification keeps
+# working in that shared namespace without a certificate reissue.
+#
+# One caveat that comes with a single task: no per-service scaling, and one container's OOM takes
+# the whole task down. Fine for a first deployment, and the reason to keep these URLs as variables
+# rather than hardcoding localhost — splitting services into their own tasks later is then a change
+# of values, not of code.
+
+# ---------------------------------------------------------------------------
+# Shared fragments
+# ---------------------------------------------------------------------------
+
+# Every Spring service gets the same log mount and the same JVM sizing. Anchors rather than
+# repetition: eleven copies of this would drift the moment one is edited.
+x-service-base: &service-base
+  restart: unless-stopped
+  networks: [influencrm]
+  volumes:
+    - service_logs:/mnt/logs
+  environment: &service-env
+    LOG_DIR: /mnt/logs
+    # 75% of a container limit is fine for a real task; locally the limit is the whole machine, so
+    # this is left to the image default and only the log dir is pinned here.
+    TZ: UTC
+
+# The seven extracted context services are identical except for their module, port, and svc_ role.
+# This holds everything they share so each service block below is only what makes it different.
+x-context-service: &context-service
+  <<: *service-base
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+# Health probe timings, shared by the extracted services. The `test` itself is NOT here: it needs
+# each service's own port, and a `${SERVICE_PORT}` reference would be resolved by compose from the
+# environment at parse time — once, identically, for every service — rather than per container. So
+# each block below states its own one-line test and merges these timings.
+#
+# Every one of those tests uses /health, NOT /actuator/health: these services exempt `/health` from
+# their service token (ServiceTokenFilter#shouldNotFilter) and nothing else, and an orchestrator
+# cannot present a token. Before actuator was mapped onto that path /actuator/health returned 401 —
+# so these containers ran with NO healthcheck, reported a bare "Up", and an ALB target group would
+# have rejected all seven.
+x-context-healthcheck: &context-healthcheck
+  interval: 15s
+  timeout: 5s
+  retries: 10
+  # Hibernate against a large schema is slower than the interval on a cold start; without this the
+  # first checks fail and the orchestrator restarts a container that was only still booting.
+  start_period: 90s
+
 services:
+  # -------------------------------------------------------------------------
+  # Infrastructure
+  # -------------------------------------------------------------------------
   postgres:
     image: pgvector/pgvector:pg15
     container_name: influencercrm-postgres
@@ -11,6 +102,10 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      # Init scripts run ONLY on an empty data directory. After a schema change:
+      #   docker compose down -v && docker compose up -d
+      # Without -v the volume persists and the new migration never runs, which looks like the
+      # migration was broken rather than never applied.
       - ./schema:/docker-entrypoint-initdb.d:ro
     ports:
       - "5432:5432"
@@ -19,26 +114,355 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks: [influencrm]
 
-  redis:
-    image: redis:7-alpine
-    container_name: influencercrm-redis
-    restart: always
-    # appendonly keeps sessions across a restart. Without it a Redis bounce logs every user out,
-    # which defeats the point of moving sessions out of a single JVM.
-    command: ["redis-server", "--appendonly", "yes"]
+  # Redis is deliberately ABSENT in this phase. Its only consumer is the DPS session store, and
+  # sharing sessions between instances is the problem it solves — which does not exist while the
+  # whole platform is one task definition running one DPS. The DPS falls back to in-memory Caffeine
+  # sessions whenever dps.session-store is not `redis`, so this needs no override, just no variable.
+  #
+  # WHAT THIS COSTS, so it is a known trade and not a surprise: sessions live in the DPS heap, so a
+  # task restart or redeploy logs every signed-in user out. Bring Redis (or ElastiCache) back before
+  # running more than one DPS, or the same users get logged out at random as requests land on
+  # different instances — SessionStoreConfig logs this at startup.
+
+  # -------------------------------------------------------------------------
+  # DAO — the monolith persistence API. Serves HTTPS with a self-signed cert.
+  # -------------------------------------------------------------------------
+  dao:
+    <<: *service-base
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.service
+      args:
+        MODULE: InfluencerDAO
+    image: influencrm/dao:dev
+    container_name: influencrm-dao
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      <<: *service-env
+      DAO_DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}?stringtype=unspecified
+      DAO_DB_USER: ${POSTGRES_USER}
+      DAO_DB_PASSWORD: ${POSTGRES_PASSWORD}
+      # The keystore is bind-mounted below rather than decoded from an env var, so the file path
+      # is set directly. The B64 path is the AWS one; both are supported by the same entrypoint.
+      DAO_KEYSTORE: file:/run/certs/keystore.p12
+      DAO_KEYSTORE_PASSWORD: changeit
+      # Must match web-experience.dao-service-token on the BFF, or every DAO call 403s. Both read
+      # the same variable so they cannot drift. Falls back to the committed development default when
+      # no --env-file is supplied, which keeps `docker compose up` working with no setup.
+      DAO_SERVICE_TOKEN: ${DAO_SERVICE_TOKEN:-wdZcoE9N3fhGST9heyi4QAXRTiFGWC5jKHhdyl05Pk8}
+      # Makes the SIGNED tenant id available to the DAO — the check that closes the optional-brandId
+      # IDOR. Unset means the DAO accepts the legacy static token alone and logs a WARN per call.
+      DAO_WORKLOAD_SIGNING_KEY: ${WEBE_WORKLOAD_SIGNING_KEY:-}
     volumes:
-      - redis_data:/data
+      - service_logs:/mnt/logs
+      # Read-only: the service needs to read its key, never to modify it.
+      - ./docker/certs/keystore.p12:/run/certs/keystore.p12:ro
     ports:
-      - "6379:6379"
+      - "8443:8443"
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
+      # /health, not /actuator/health: the DAO maps it there so the path already exempted from the
+      # service token by DaoSecurityConfig and both filters keeps matching. An orchestrator cannot
+      # present a service token, so a healthcheck against any other path would 403.
+      #
+      # -k because the certificate is self-signed and curl inside the container has no truststore.
+      # This checks liveness, not trust; the BFF is what actually verifies the certificate.
+      test: ["CMD-SHELL", "curl -fsk https://localhost:8443/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      # The DAO runs Hibernate against a large schema; on a cold start it is comfortably slower
+      # than the interval above. start_period stops those first slow checks from counting as
+      # failures and restarting a container that is merely still booting.
+      start_period: 90s
+
+  # -------------------------------------------------------------------------
+  # BFF — the only service the browser talks to for API calls.
+  # -------------------------------------------------------------------------
+  web-experience:
+    <<: *service-base
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.service
+      args:
+        MODULE: InfluencerWebExperience
+    image: influencrm/web-experience:dev
+    container_name: influencrm-web-experience
+    depends_on:
+      dao:
+        condition: service_healthy
+    environment:
+      <<: *service-env
+      # `dao` is the compose service name, and it is one of the certificate's SANs — which is why
+      # TLS verification below can stay ON. Pointing this at an IP or a name not in the SAN list
+      # would fail the handshake, and the temptation would then be to disable verification.
+      WEBE_DAO_BASE_URL: https://dao:8443
+      WEBE_AGENT_BASE_URL: http://agent:8000
+      WEBE_DPS_BASE_URL: http://dps:8090
+      WORKFLOW_SERVICE_URL: http://workflow:8444
+      # Left at the host-facing origins: these are what a browser on the host uses, and they end
+      # up in redirects and CORS headers, so they must be reachable from OUTSIDE this network.
+      WEBE_UI_BASE_URL: http://localhost:5173
+      WEBE_PUBLIC_BASE_URL: http://localhost:8081
+      WEBE_DAO_TLS_VERIFICATION: "true"
+      # REQUIRED — the BFF refuses to start without it. JwtService/SigningKeySet reject an ephemeral
+      # key rather than issue access tokens that a second instance (or a restart) could not verify:
+      # tokens would then fail intermittently, which is far harder to diagnose than not booting.
+      #
+      # `allow-ephemeral-jwt-key=true` exists as a single-process escape hatch and is deliberately
+      # NOT used here — a container is exactly the case the guard is protecting, and taking the
+      # shortcut locally would mean the first real deployment is the first time this path runs.
+      #
+      # Generated by docker/certs/generate-dev-secrets.sh (gitignored, local-only). In Fargate this
+      # is a Secrets Manager entry injected under the same variable name.
+      WEBE_JWT_SIGNING_KEY: ${WEBE_JWT_SIGNING_KEY:?run docker/certs/generate-dev-secrets.sh first}
+      # Same value the DAO reads, from the same variable — see the DAO block.
+      DAO_SERVICE_TOKEN: ${DAO_SERVICE_TOKEN:-wdZcoE9N3fhGST9heyi4QAXRTiFGWC5jKHhdyl05Pk8}
+      WORKFLOW_SERVICE_TOKEN: ${WORKFLOW_SERVICE_TOKEN:-wdZcoE9N3fhGST9heyi4QAXRTiFGWC5jKHhdyl05Pk8}
+      WEBE_WORKLOAD_SIGNING_KEY: ${WEBE_WORKLOAD_SIGNING_KEY:-}
+      # Verifies the DPS's workload token. Symmetric for now, so this is the same key the DPS signs
+      # with — every verifier is also a forger, which is why the Ed25519 pair is the next step.
+      WEBE_WORKLOAD_DPS_KEY: ${WEBE_WORKLOAD_DPS_KEY:-}
+      WEBE_MARKETPLACE_CREDENTIAL_KEY: ${WEBE_MARKETPLACE_CREDENTIAL_KEY:-}
+      # Must be a writable MOUNT. The adapter's ./asset-store default resolves to /app, which is
+      # root-owned, so the BFF failed to start; and container-local disk would lose every upload on
+      # redeploy. In AWS this is a second EFS access point.
+      WEBE_ASSET_ROOT: /mnt/assets
+    volumes:
+      - service_logs:/mnt/logs
+      - asset_store:/mnt/assets
+    ports:
+      - "8081:8081"
+      - "9081:9081"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:9081/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+
+  # -------------------------------------------------------------------------
+  # DPS — session and auth entry point for the micro-frontends.
+  # -------------------------------------------------------------------------
+  dps:
+    <<: *service-base
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.service
+      args:
+        MODULE: InfluencerPresentationService
+    image: influencrm/dps:dev
+    container_name: influencrm-dps
+    depends_on:
+      web-experience:
+        condition: service_healthy
+    environment:
+      <<: *service-env
+      DPS_BFF_URL: http://web-experience:8081
+      DPS_UI_BASE_URL: http://localhost:5173
+      # DPS_SESSION_STORE is deliberately unset — see the Redis note above. Unset means in-memory
+      # Caffeine sessions, which is correct for a single DPS and wrong for more than one.
+      DPS_SERVICE_TOKEN: ${DPS_SERVICE_TOKEN:-wdZcoE9N3fhGST9heyi4QAXRTiFGWC5jKHhdyl05Pk8}
+      # Signs the token the DPS presents to the BFF, so "the DPS relayed this" becomes a checkable
+      # fact rather than an assumption. Must match WEBE_WORKLOAD_DPS_KEY above.
+      DPS_WORKLOAD_SIGNING_KEY: ${DPS_WORKLOAD_SIGNING_KEY:-}
+    ports:
+      - "8090:8090"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:8090/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+
+  # -------------------------------------------------------------------------
+  # Extracted context services. Each connects as its own svc_ role, so a query against
+  # another context's tables fails at the database rather than at review.
+  # -------------------------------------------------------------------------
+  identity:
+    <<: *context-service
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.service
+      args:
+        MODULE: InfluencerIdentityService
+    image: influencrm/identity:dev
+    container_name: influencrm-identity
+    environment:
+      <<: *service-env
+      IDENTITY_DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}?stringtype=unspecified
+    ports:
+      - "8445:8445"
+    healthcheck:
+      <<: *context-healthcheck
+      test: ["CMD-SHELL", "curl -fs http://localhost:8445/health || exit 1"]
+
+  creator:
+    <<: *context-service
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.service
+      args:
+        MODULE: InfluencerCreatorService
+    image: influencrm/creator:dev
+    container_name: influencrm-creator
+    environment:
+      <<: *service-env
+      CREATOR_DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}?stringtype=unspecified
+    ports:
+      - "8446:8446"
+    healthcheck:
+      <<: *context-healthcheck
+      test: ["CMD-SHELL", "curl -fs http://localhost:8446/health || exit 1"]
+
+  campaign:
+    <<: *context-service
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.service
+      args:
+        MODULE: InfluencerCampaignService
+    image: influencrm/campaign:dev
+    container_name: influencrm-campaign
+    environment:
+      <<: *service-env
+      CAMPAIGN_DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}?stringtype=unspecified
+      # This service is the one that calls its siblings directly.
+      CREATOR_SERVICE_URL: http://creator:8446
+      IDENTITY_SERVICE_URL: http://identity:8445
+    ports:
+      - "8447:8447"
+    healthcheck:
+      <<: *context-healthcheck
+      test: ["CMD-SHELL", "curl -fs http://localhost:8447/health || exit 1"]
+
+  attribution:
+    <<: *context-service
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.service
+      args:
+        MODULE: InfluencerAttributionService
+    image: influencrm/attribution:dev
+    container_name: influencrm-attribution
+    environment:
+      <<: *service-env
+      ATTRIBUTION_DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}?stringtype=unspecified
+    ports:
+      - "8448:8448"
+    healthcheck:
+      <<: *context-healthcheck
+      test: ["CMD-SHELL", "curl -fs http://localhost:8448/health || exit 1"]
+
+  finance:
+    <<: *context-service
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.service
+      args:
+        MODULE: InfluencerFinanceService
+    image: influencrm/finance:dev
+    container_name: influencrm-finance
+    environment:
+      <<: *service-env
+      FINANCE_DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}?stringtype=unspecified
+    ports:
+      - "8449:8449"
+    healthcheck:
+      <<: *context-healthcheck
+      test: ["CMD-SHELL", "curl -fs http://localhost:8449/health || exit 1"]
+
+  content:
+    <<: *context-service
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.service
+      args:
+        MODULE: InfluencerContentService
+    image: influencrm/content:dev
+    container_name: influencrm-content
+    environment:
+      <<: *service-env
+      CONTENT_DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}?stringtype=unspecified
+    ports:
+      - "8450:8450"
+    healthcheck:
+      <<: *context-healthcheck
+      test: ["CMD-SHELL", "curl -fs http://localhost:8450/health || exit 1"]
+
+  workflow:
+    <<: *context-service
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.service
+      args:
+        MODULE: InfluencerWorkflowService
+    image: influencrm/workflow:dev
+    container_name: influencrm-workflow
+    environment:
+      <<: *service-env
+      WORKFLOW_DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}?stringtype=unspecified
+    ports:
+      - "8444:8444"
+    healthcheck:
+      <<: *context-healthcheck
+      test: ["CMD-SHELL", "curl -fs http://localhost:8444/health || exit 1"]
+
+  # -------------------------------------------------------------------------
+  # Agent — FastAPI metadata mapping. Python, so it does not share the Java base.
+  # -------------------------------------------------------------------------
+  agent:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.agent
+    image: influencrm/agent:dev
+    container_name: influencrm-agent
+    restart: unless-stopped
+    networks: [influencrm]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      # Carries OPENAI_API_KEY and the model/retrieval settings. In Fargate these come from
+      # Secrets Manager instead; the variable names are the same.
+      - .env
+    environment:
+      LOG_DIR: /mnt/logs
+      TZ: UTC
+      # Overrides the .env value, which points at localhost and cannot resolve from a container.
+      # This is a libpq URL, not JDBC — the agent uses psycopg, not Hibernate.
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+    volumes:
+      - service_logs:/mnt/logs
+    ports:
+      - "8000:8000"
+    healthcheck:
+      # Python images have no curl; the interpreter is already here and needs no extra layer.
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/docs').status==200 else 1)\""]
+      interval: 15s
       timeout: 5s
       retries: 5
+      start_period: 30s
+
+networks:
+  # An explicit network so service names resolve as hostnames and the DAO's certificate SANs
+  # (localhost, dao, influencer-dao) actually match what the BFF dials.
+  influencrm:
+    name: influencrm
 
 volumes:
   postgres_data:
     name: influencercrm_postgres_data
-  redis_data:
-    name: influencercrm_redis_data
+  # The local stand-in for the EFS access point. One volume shared by every service, mounted at
+  # the same /mnt/logs path, so `rid` correlation across services is exercised here exactly as it
+  # will be in AWS — and so is the uid/gid 1001 agreement between the Java and Python images.
+  service_logs:
+    name: influencrm_service_logs
+  # Uploaded assets. Separate from the log volume because the lifecycles differ: logs roll and are
+  # capped, assets must never be deleted by a rolling policy. In AWS this is a second EFS access
+  # point — also with uid/gid 1001, or every upload fails at runtime after a clean startup.
+  asset_store:
+    name: influencrm_asset_store

@@ -1,0 +1,43 @@
+# The build context is the repo root (every service needs the Commons sibling module), so without
+# this file Docker would upload the entire tree — including ShopifyApp's 23k vendored files and
+# every UI's node_modules — to the daemon on every build.
+
+# Never send secrets to the build daemon. Keystores hold PRIVATE keys; they come from Secrets
+# Manager at runtime and are never baked into an image.
+*.p12
+*.jks
+# ...except the truststore, which is re-admitted deliberately. It contains only the DAO's PUBLIC
+# certificate (docs/keystore-rotation.md: "Only the public certificate goes in the truststore"),
+# it is committed for that reason, and the BFF loads it from `classpath:dao-truststore.p12`.
+# Excluding it would leave the BFF image with no truststore, and BFF -> DAO TLS verification would
+# fail closed at the first call — the negation keeps the blanket rule above safe without breaking
+# the one file the rule was never meant to catch.
+!**/dao-truststore.p12
+!**/*truststore*.jks
+.env
+**/application-local.properties
+**/oauthclient.txt
+
+# Build outputs. These are rebuilt inside the image; copying host artifacts in would make the
+# image depend on whatever happened to be on the machine that built it.
+**/target/
+**/dist/
+**/node_modules/
+
+# Deferred Shopify scaffold — a separate repository, and nothing here builds from it.
+ShopifyApp/
+
+# Local runtime noise
+*.log
+logs/
+snapshots/
+asset-store/
+tests/e2e/artifacts/
+tests/e2e/node_modules/
+*.mp4
+
+# VCS and tooling
+.git/
+.github/
+.claude/
+.vscode/
