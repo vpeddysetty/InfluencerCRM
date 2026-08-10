@@ -1,16 +1,16 @@
 output "public_address" {
   description = <<-EOT
-    Where the platform answers from outside. The ALB's DNS name when use_alb is true, otherwise the
-    Elastic IP that Caddy serves on.
+    Where the platform answers from outside: the Elastic IP that Caddy serves on. Stable across Spot
+    replacements, because the replacement instance re-associates it to itself at boot.
 
     An IP is a smoke-test address only: OAuth providers reject an IP as a redirect URI and Let's Encrypt
     cannot certify one, so sign-in needs api_domain pointed at this address.
   EOT
-  value       = var.use_alb ? aws_lb.main[0].dns_name : (local.caddy_enabled ? aws_eip.app[0].public_ip : "none")
+  value       = aws_eip.app.public_ip
 }
 
 output "application_url" {
-  description = "Where the API actually answers, accounting for whether a custom domain and certificate are configured."
+  description = "Where the API actually answers, accounting for whether a custom domain is configured."
   value       = local.public_base_url
 }
 
@@ -25,8 +25,8 @@ output "ecr_registry" {
 }
 
 output "database_endpoint" {
-  description = "RDS endpoint. Reachable only from inside the VPC - the task's security group is the only ingress."
-  value       = var.use_rds ? aws_db_instance.main[0].address : "localhost (container in the task)"
+  description = "RDS endpoint. Reachable only from inside the VPC - the platform instance's security group is the only ingress."
+  value       = var.use_rds ? aws_db_instance.main[0].address : "no database (use_rds is false)"
 }
 
 output "efs_file_system_id" {
@@ -34,19 +34,18 @@ output "efs_file_system_id" {
   value       = aws_efs_file_system.main.id
 }
 
-output "cluster_name" {
-  description = "ECS cluster name, for `aws ecs` commands and ECS Exec."
-  value       = aws_ecs_cluster.main.name
+output "autoscaling_group_name" {
+  description = <<-EOT
+    The ASG holding the single platform instance. Deploying a new image tag is an instance refresh on
+    this group, because the compose file and the image tag are baked into the launch template's user
+    data - so `terraform apply` followed by a refresh is the deploy.
+  EOT
+  value = aws_autoscaling_group.compose.name
 }
 
-output "service_name" {
-  description = "ECS service name."
-  value       = aws_ecs_service.main.name
-}
-
-output "task_definition_arn" {
-  description = "The revision currently deployed. Note the revision number - it is what a rollback targets."
-  value       = aws_ecs_task_definition.main.arn
+output "deploy_command" {
+  description = "Roll the instance to pick up a new image tag or compose file, after `terraform apply`."
+  value       = "aws autoscaling start-instance-refresh --auto-scaling-group-name ${aws_autoscaling_group.compose.name} --region ${var.aws_region}"
 }
 
 output "ui_bucket" {
@@ -100,10 +99,21 @@ output "secrets_requiring_values" {
 
 output "logs_command" {
   description = "Tail the platform's CloudWatch logs."
-  value       = "aws logs tail ${aws_cloudwatch_log_group.ecs.name} --follow --region ${var.aws_region}"
+  value       = "aws logs tail ${aws_cloudwatch_log_group.platform.name} --follow --region ${var.aws_region}"
 }
 
-output "exec_command_example" {
-  description = "Open a shell in a running container (container names: dao, web-experience, dps, agent, identity, …)."
-  value       = "aws ecs execute-command --cluster ${aws_ecs_cluster.main.name} --task <task-id> --container dao --interactive --command /bin/sh --region ${var.aws_region}"
+output "shell_command" {
+  description = <<-EOT
+    Open a shell ON THE INSTANCE via SSM Session Manager - there is no SSH key and no inbound 22. From
+    there, `docker compose -f /opt/influencrm/docker-compose.yml ps` and
+    `docker exec -it influencrm-dao-1 /bin/sh` reach the containers.
+
+    This replaces `aws ecs execute-command`: without a control plane, the way in is the host.
+  EOT
+  value = "aws ssm start-session --target <instance-id> --region ${var.aws_region}"
+}
+
+output "boot_log_command" {
+  description = "Read the boot script's output when the platform never comes up. Works even before SSM is running."
+  value       = "aws ec2 get-console-output --instance-id <instance-id> --query Output --output text --region ${var.aws_region}"
 }

@@ -320,3 +320,43 @@ variable "log_retention_days" {
   type        = number
   default     = 30
 }
+
+# ---------------------------------------------------------------------------
+# Compose deployment
+# ---------------------------------------------------------------------------
+
+variable "workflow_service_enabled" {
+  description = <<-EOT
+    Whether the BFF routes workflow traffic to the extracted workflow service instead of serving it from
+    the monolith DAO.
+
+    FALSE by default and it should stay false until a dual-run soak says otherwise: flipping it is a
+    deliberate act, and it is the rollback too. Seconds either way.
+
+    TRUE also requires the `contexts` compose profile to be running, or the BFF routes to a service that
+    is not there.
+  EOT
+  type        = bool
+  default     = false
+}
+
+variable "dao_certificate_has_service_san" {
+  description = <<-EOT
+    Whether the DAO's keystore carries `dao` as a subject alternative name.
+
+    THIS IS A MIGRATION FLAG, and it exists because leaving ECS changed the network shape. In the ECS
+    task every container shared one network namespace, so the BFF reached the DAO at
+    https://localhost:8443 and the committed keystore's `localhost` SAN matched. Under Compose they are
+    separate containers on a bridge network, so the URL is https://dao:8443 — and a certificate carrying
+    only `localhost` fails hostname verification on every single call.
+
+    FALSE therefore sets WEBE_DAO_TLS_VERIFICATION=false, which keeps the connection encrypted but stops
+    verifying who is on the other end. That is a REAL reduction in the zero-trust chain and is acceptable
+    only because both ends are containers on one host's private bridge.
+
+    Set this TRUE once the keystore is reissued with `dao` (and ideally `localhost`) as SANs. That is the
+    correct end state and should not be left undone.
+  EOT
+  type        = bool
+  default     = false
+}

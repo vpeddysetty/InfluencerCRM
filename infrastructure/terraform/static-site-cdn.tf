@@ -3,6 +3,14 @@
 # Split from static-site.tf only to keep each file readable; they are one logical unit and the header
 # comment in static-site.tf explains WHY this is one-origin-per-remote rather than one-prefix-per-remote.
 
+locals {
+  # The public app origin used by the browser for the API and DPS endpoints. The Terraform module
+  # already infers the externally reachable base URL from the deployment mode, so the same value can
+  # drive both the service config and the CloudFront proxy behavior.
+  cloudfront_backend_origin_domain = local.public_base_url != "" ? replace(replace(local.public_base_url, "https://", ""), "http://", "") : ""
+  cloudfront_backend_origin_policy = local.public_base_url != "" ? (startswith(local.public_base_url, "https://") ? "https-only" : "http-only") : "http-only"
+}
+
 # SPA routing.
 #
 # Each micro-frontend is a single-page app: a deep link like /boards/42 is a client-side route with no
@@ -124,6 +132,53 @@ resource "aws_cloudfront_distribution" "ui" {
     origin_path = "/${each.key}"
   }
 
+  origin {
+    domain_name = local.cloudfront_backend_origin_domain
+    origin_id   = "api-origin"
+
+    custom_origin_config {
+      http_port              = 80
+      https_port             = 443
+      origin_protocol_policy = local.cloudfront_backend_origin_policy
+      # An ARGUMENT, not a block, in provider v5 — a nested block here fails validation with
+      # "Blocks of type origin_ssl_protocols are not expected here".
+      origin_ssl_protocols = ["TLSv1.2"]
+    }
+  }
+
+  ordered_cache_behavior {
+    path_pattern     = "/api/*"
+    target_origin_id = "api-origin"
+
+    viewer_protocol_policy = "redirect-to-https"
+    allowed_methods         = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
+    cached_methods          = ["GET", "HEAD", "OPTIONS"]
+    compress                = true
+    cache_policy_id         = "4135ea2d-6df8-4f0b-9f0d-979c4b3c8d9a"
+  }
+
+  ordered_cache_behavior {
+    path_pattern     = "/dps"
+    target_origin_id = "api-origin"
+
+    viewer_protocol_policy = "redirect-to-https"
+    allowed_methods         = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
+    cached_methods          = ["GET", "HEAD", "OPTIONS"]
+    compress                = true
+    cache_policy_id         = "4135ea2d-6df8-4f0b-9f0d-979c4b3c8d9a"
+  }
+
+  ordered_cache_behavior {
+    path_pattern     = "/dps/*"
+    target_origin_id = "api-origin"
+
+    viewer_protocol_policy = "redirect-to-https"
+    allowed_methods         = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
+    cached_methods          = ["GET", "HEAD", "OPTIONS"]
+    compress                = true
+    cache_policy_id         = "4135ea2d-6df8-4f0b-9f0d-979c4b3c8d9a"
+  }
+
   default_cache_behavior {
     target_origin_id       = "ui-bucket"
     viewer_protocol_policy = "redirect-to-https"
@@ -228,8 +283,14 @@ resource "aws_route53_record" "ui" {
   }
 }
 
-# The BFF's hostname. An ALIAS to the ALB rather than a CNAME, so an apex would also work and there is
-# no extra DNS lookup on every request.
+# The BFF's hostname: an A record to the Elastic IP that Caddy serves on. There is no ALB to ALIAS to
+# any more, and the EIP is stable across Spot replacements — the replacement instance re-associates it
+# to itself at boot — so a plain A record is correct rather than merely adequate.
+#
+# THIS RECORD IS WHAT MAKES TLS POSSIBLE. Caddy requests a Let's Encrypt certificate for api_domain via
+# the HTTP-01 challenge, which only succeeds once this name already resolves to the instance. On a first
+# apply the record and the instance appear together, so the first certificate attempt may fail and retry
+# — Caddy retries with backoff and gets there, but the platform serves plain HTTP until it does.
 resource "aws_route53_record" "api" {
   count = var.api_domain != "" ? 1 : 0
 
@@ -237,17 +298,8 @@ resource "aws_route53_record" "api" {
   name    = var.api_domain
   type    = "A"
 
-  # An ALIAS to the ALB, or an A record to the Elastic IP when Caddy replaces it. The record type is A
-  # either way, which is why one resource can serve both.
-  dynamic "alias" {
-    for_each = var.use_alb ? [1] : []
-    content {
-      name                   = aws_lb.main[0].dns_name
-      zone_id                = aws_lb.main[0].zone_id
-      evaluate_target_health = true
-    }
-  }
-
-  records = var.use_alb ? null : [aws_eip.app[0].public_ip]
-  ttl     = var.use_alb ? null : 60
+  records = [aws_eip.app.public_ip]
+  # 60s, deliberately short. The address does not normally change, but when it does — a new EIP, a move
+  # to an ALB — a long TTL is the difference between a minute of downtime and an hour of it.
+  ttl = 60
 }

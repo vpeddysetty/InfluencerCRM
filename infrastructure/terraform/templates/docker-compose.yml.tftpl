@@ -1,0 +1,369 @@
+# Docker Compose for the whole platform. Rendered by Terraform, written to /opt/influencrm by the boot
+# script, and run by the influencrm.service systemd unit.
+#
+# THIS REPLACES THE ECS TASK DEFINITION. The container set, the ports, the dependency ordering and the
+# health checks are the same ones ECS ran; what is gone is the cluster, the agent, the capacity provider
+# and the ASG-managed scaling that between them deadlocked two instances over one EBS volume.
+#
+# WHY COMPOSE AND NOT ECS: ECS's capacity provider wants to manage instance count, and this deployment
+# has exactly one instance by design (in-heap DPS sessions, a single Elastic IP). Removing the component
+# that wants to scale removes the class of failure entirely.
+#
+# THE TEN-CONTAINER LIMIT IS GONE. ECS caps a task at ten containers, which is why the seven extracted
+# context services were dropped. Compose has no such cap, so they are all here — see `profiles` below for
+# how they stay off until the BFF is told to route to them.
+#
+# NETWORKING: network_mode is not set, so every service joins the default compose bridge network and
+# reaches the others by SERVICE NAME, not localhost. That is the one real difference from the ECS task,
+# where a shared network namespace made localhost work. Every URL below is updated accordingly.
+
+name: influencrm
+
+# YAML anchors for what every Spring service shares. Compose merges these with `<<:`, so a change to the
+# log driver or the EFS mount is made once rather than eleven times.
+x-common-env: &common-env
+  LOG_DIR: /mnt/logs
+  TZ: UTC
+  # Container-aware heap sizing. Each JVM measures MaxRAMPercentage against ITS OWN limit (set per
+  # service under deploy.resources), not the host's memory — the same reason ECS needed per-container
+  # memory.
+  JAVA_OPTS: "-XX:MaxRAMPercentage=75.0 -XX:+UseContainerSupport"
+
+x-logging: &logging
+  driver: awslogs
+  options:
+    awslogs-region: ${region}
+    awslogs-group: ${log_group}
+    awslogs-stream-prefix: influencrm
+    # Without this the daemon creates the stream only if the group exists; the group is Terraform's, so
+    # this is belt-and-braces for a first boot that races the apply.
+    awslogs-create-group: "true"
+
+x-common-volumes: &common-volumes
+  # Both EFS mounts, bind-mounted from where the boot script mounts them on the host. Genuinely shared:
+  # every service appends to the log directory so `rid` ties one browser action across the chain.
+  - /mnt/logs:/mnt/logs
+  - /mnt/assets:/mnt/assets
+
+x-restart: &restart
+  # unless-stopped, not always: a deliberate `docker compose stop` should stay stopped, but a crash or a
+  # host reboot must bring the service back. This is what replaces ECS's task-level restart.
+  restart: unless-stopped
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # Schema migration
+  # ---------------------------------------------------------------------------
+  # Runs to completion and exits 0. Every application service waits on `service_completed_successfully`,
+  # which is Compose's exact equivalent of ECS's `dependsOn: [{ migrate: SUCCESS }]` — a failed migration
+  # stops the deploy rather than producing services that fail later on a missing table.
+  #
+  # restart: "no" and it matters: a restarting migration would loop forever after its successful exit.
+  migrate:
+    image: ${ecr_registry}/influencrm/migrate:${image_tag}
+    restart: "no"
+    environment:
+      PGHOST: ${db_host}
+      PGDATABASE: ${db_name}
+      PGUSER: ${db_user}
+      PGPASSWORD: $${DB_PASSWORD}
+    logging: *logging
+
+  # ---------------------------------------------------------------------------
+  # DAO — the monolith data-access tier
+  # ---------------------------------------------------------------------------
+  dao:
+    image: ${ecr_registry}/influencrm/dao:${image_tag}
+    <<: *restart
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      <<: *common-env
+      DAO_DB_URL: "jdbc:postgresql://${db_host}:5432/${db_name}?stringtype=unspecified"
+      DAO_DB_USER: ${db_user}
+      DAO_DB_PASSWORD: $${DB_PASSWORD}
+      # /dev/shm is tmpfs: the private key is decoded there by the entrypoint and never touches a disk.
+      DAO_KEYSTORE: file:/dev/shm/influencrm/keystore.p12
+      DAO_KEYSTORE_B64: $${DAO_KEYSTORE_B64}
+      DAO_KEYSTORE_PASSWORD: $${DAO_KEYSTORE_PASSWORD}
+      DAO_SERVICE_TOKEN: $${DAO_SERVICE_TOKEN}
+      # Verifies the workload tokens the BFF presents — the signed tenant id that closes the
+      # optional-brandId IDOR. Same secret on both sides.
+      DAO_WORKLOAD_SIGNING_KEY: $${WORKLOAD_SIGNING_KEY}
+    volumes: *common-volumes
+    healthcheck:
+      # /health, not /actuator/health: DaoSecurityConfig and both filters exempt that exact path from the
+      # service token, and a health check cannot present one. -k because the certificate is self-signed;
+      # this checks liveness, not trust — the BFF is what verifies the certificate.
+      test: ["CMD-SHELL", "curl -fsk https://localhost:8443/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      # Hibernate against this schema is slower than the interval on a cold start. Without this the first
+      # checks fail and the container is restarted while it was only still booting.
+      start_period: 120s
+    deploy:
+      resources:
+        limits:
+          # 45 JPA repositories, the whole schema — the heaviest JVM here.
+          memory: 896M
+    logging: *logging
+
+  # ---------------------------------------------------------------------------
+  # BFF — every outbound integration
+  # ---------------------------------------------------------------------------
+  web-experience:
+    image: ${ecr_registry}/influencrm/web-experience:${image_tag}
+    <<: *restart
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      # The BFF must not accept traffic before the DAO can answer, or its first calls fail.
+      dao:
+        condition: service_healthy
+    environment:
+      <<: *common-env
+      # SERVICE NAME, not localhost — these are separate containers on the compose bridge now. The DAO's
+      # certificate must therefore carry `dao` as a SAN for verification to stay on; see the note in
+      # compose-migration.md. Verification stays TRUE and the SAN is the thing that changes.
+      WEBE_DAO_BASE_URL: https://dao:8443
+      WEBE_DAO_TLS_VERIFICATION: "${dao_tls_verification}"
+      WEBE_AGENT_BASE_URL: http://agent:8000
+      WEBE_DPS_BASE_URL: http://dps:8090
+      WORKFLOW_SERVICE_URL: http://workflow:8444
+      # Externally reachable origins. These end up in redirects and CORS headers, so they must be what a
+      # BROWSER can reach — not a service name.
+      WEBE_PUBLIC_BASE_URL: ${public_base_url}
+      WEBE_UI_BASE_URL: ${ui_base_url}
+      # Uploaded assets live on the EFS mount: a container's own filesystem does not survive a deploy.
+      WEBE_ASSET_ROOT: /mnt/assets
+      WEBE_EMAIL_FROM: ${ses_from_address}
+      AWS_SES_REGION: ${region}
+      # The workflow service exists and is healthy, but the cutover flag stays OFF: flipping it is a
+      # deliberate act after a dual-run soak, and it is the rollback too.
+      WORKFLOW_SERVICE_ENABLED: "${workflow_service_enabled}"
+      # Without a stable signing key the BFF REFUSES TO START, deliberately: tokens signed by an
+      # ephemeral key cannot be verified after a restart, which presents as intermittent auth failures.
+      WEBE_JWT_SIGNING_KEY: $${JWT_SIGNING_KEY}
+      WEBE_WORKLOAD_SIGNING_KEY: $${WORKLOAD_SIGNING_KEY}
+      WEBE_WORKLOAD_DPS_KEY: $${WORKLOAD_SIGNING_KEY}
+      WEBE_MARKETPLACE_CREDENTIAL_KEY: $${MARKETPLACE_CREDENTIAL_KEY}
+      DAO_SERVICE_TOKEN: $${DAO_SERVICE_TOKEN}
+      WORKFLOW_SERVICE_TOKEN: $${WORKFLOW_SERVICE_TOKEN}
+      GOOGLE_OAUTH_CLIENT_ID: $${GOOGLE_OAUTH_CLIENT_ID}
+      GOOGLE_OAUTH_CLIENT_SECRET: $${GOOGLE_OAUTH_CLIENT_SECRET}
+      FACEBOOK_OAUTH_CLIENT_ID: $${FACEBOOK_OAUTH_CLIENT_ID}
+      FACEBOOK_OAUTH_CLIENT_SECRET: $${FACEBOOK_OAUTH_CLIENT_SECRET}
+      STRIPE_SECRET_KEY: $${STRIPE_SECRET_KEY}
+      WEBE_BILLING_WEBHOOK_SECRET: $${BILLING_WEBHOOK_SECRET}
+      YOUTUBE_API_KEY: $${YOUTUBE_API_KEY}
+      # STILL KEY-BASED. The instance role already holds ses:SendEmail, but SesEmailSender reads explicit
+      # access keys from configuration, so the role alone would not be used.
+      AWS_SES_ACCESS_KEY_ID: $${SES_ACCESS_KEY_ID}
+      AWS_SES_SECRET_ACCESS_KEY: $${SES_SECRET_ACCESS_KEY}
+    volumes: *common-volumes
+    healthcheck:
+      # 9081 is the separate management port. Operational endpoints deliberately do not share the
+      # public-facing one, so exposing the app does not expose its internals by the same route.
+      test: ["CMD-SHELL", "curl -fs http://localhost:9081/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
+    deploy:
+      resources:
+        limits:
+          memory: 896M
+    logging: *logging
+
+  # ---------------------------------------------------------------------------
+  # DPS — sessions and the OAuth callbacks
+  # ---------------------------------------------------------------------------
+  dps:
+    image: ${ecr_registry}/influencrm/dps:${image_tag}
+    <<: *restart
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      web-experience:
+        condition: service_healthy
+    environment:
+      <<: *common-env
+      DPS_BFF_URL: http://web-experience:8081
+      DPS_UI_BASE_URL: ${ui_base_url}
+      # Secure cookies over HTTPS only. With a certificate this must be true, or the session cookie
+      # travels in clear text; without one it must be false, or the browser silently never sends the
+      # cookie and every request looks unauthenticated.
+      DPS_COOKIE_SECURE: "${cookie_secure}"
+      # Cross-origin micro-frontends need SameSite=None, which the spec only permits alongside Secure.
+      DPS_COOKIE_SAME_SITE: "${cookie_same_site}"
+      DPS_ALLOWED_ORIGINS: ${ui_base_url}
+      # DPS_SESSION_STORE deliberately unset: in-memory Caffeine. Correct for one instance, wrong for
+      # more than one — which is why this deployment is pinned to a single instance.
+      DPS_SERVICE_TOKEN: $${DPS_SERVICE_TOKEN}
+      DPS_WORKLOAD_SIGNING_KEY: $${WORKLOAD_SIGNING_KEY}
+    volumes: *common-volumes
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:8090/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
+    deploy:
+      resources:
+        limits:
+          # Holds sessions in-heap while Redis is out of scope.
+          memory: 640M
+    logging: *logging
+
+  # ---------------------------------------------------------------------------
+  # Agent — Python, FastAPI, langgraph
+  # ---------------------------------------------------------------------------
+  agent:
+    image: ${ecr_registry}/influencrm/agent:${image_tag}
+    <<: *restart
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      LOG_DIR: /mnt/logs
+      TZ: UTC
+      # libpq, not JDBC — the agent uses psycopg. Same database, different URL grammar. The password
+      # comes from PGPASSWORD rather than the URL, keeping it out of the process's connection string.
+      DATABASE_URL: "postgresql://${db_user}@${db_host}:5432/${db_name}"
+      PGPASSWORD: $${DB_PASSWORD}
+      OPENAI_API_KEY: $${OPENAI_API_KEY}
+      OPENAI_MODEL: gpt-4.1-mini
+      OPENAI_EMBEDDING_MODEL: text-embedding-3-small
+      RETRIEVAL_TOP_K: "3"
+      REVIEW_THRESHOLD: "0.7"
+    volumes: *common-volumes
+    healthcheck:
+      # Python images ship no curl, and the interpreter is already here. /docs is FastAPI's own endpoint
+      # and needs no application state, so it answers as soon as uvicorn is listening.
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/docs').status==200 else 1)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          # Python + openai + langgraph; largest resident set of the non-JVM containers.
+          memory: 768M
+    logging: *logging
+
+  # ---------------------------------------------------------------------------
+  # The seven extracted context services
+  # ---------------------------------------------------------------------------
+  # UNDER A PROFILE, so `docker compose up -d` does NOT start them and the default footprint stays the
+  # measured ~4.7GB that fits an 8GB instance. They are written out because Compose has no ten-container
+  # limit — the reason they were dropped from the ECS task — so re-enabling one is now
+  # `--profile contexts` plus the BFF's routing flag, not a new task definition and a service mesh.
+  #
+  # Starting all seven adds ~2.7GB and does NOT fit alongside the rest on a t3a.large. Enable them with
+  # a larger instance type, or one at a time.
+%{ for name, cfg in context_services ~}
+  ${name}:
+    image: ${ecr_registry}/influencrm/${name}:${image_tag}
+    profiles: ["contexts"]
+    <<: *restart
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      <<: *common-env
+      # Username and password are left at their application defaults (svc_${name} / change-me-${name}),
+      # created by the context-roles migration. Reachable only from inside the compose network.
+      ${cfg.env_prefix}_DB_URL: "jdbc:postgresql://${db_host}:5432/${db_name}?stringtype=unspecified"
+      WORKLOAD_SIGNING_KEY: $${WORKLOAD_SIGNING_KEY}
+    volumes: *common-volumes
+    healthcheck:
+      # /health, not /actuator/health: these services exempt that exact path from their service token and
+      # nothing else. /actuator/health returns 401 and would fail every check.
+      test: ["CMD-SHELL", "curl -fs http://localhost:${cfg.port}/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
+    deploy:
+      resources:
+        limits:
+          memory: ${cfg.memory}M
+    logging: *logging
+%{ endfor ~}
+
+  # ---------------------------------------------------------------------------
+  # Caddy — TLS terminator and reverse proxy, replacing the ALB
+  # ---------------------------------------------------------------------------
+  caddy:
+    image: caddy:2-alpine
+    <<: *restart
+    # LAST, and the only service published to the internet. Both upstreams must be healthy before Caddy
+    # accepts traffic, or the first requests 502.
+    depends_on:
+      web-experience:
+        condition: service_healthy
+      dps:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      # Without a real hostname Caddy serves on :80 only, because Let's Encrypt cannot issue a
+      # certificate for an IP address.
+      SITE_ADDRESS: "${site_address}"
+      ACME_EMAIL: ${acme_email}
+    volumes:
+      # Certificates on EFS, NOT on the instance. This is the change EFS buys: a Spot replacement keeps
+      # its certificates with no volume to attach and no sequencing, and Let's Encrypt's rate limit
+      # (5 per domain per week) is never approached.
+      - /mnt/caddy:/data
+    command:
+      - sh
+      - -c
+      - |
+        cat > /etc/caddy/Caddyfile <<'CADDY'
+        {
+          email {$$ACME_EMAIL}
+          storage file_system /data
+        }
+
+        {$$SITE_ADDRESS} {
+          encode gzip
+
+          # The DPS owns sessions and the OAuth callbacks. SessionController is @RequestMapping("/dps")
+          # and ApiProxyController is @RequestMapping("/dps/api"), so one prefix covers every DPS route.
+          handle /dps/* {
+            reverse_proxy dps:8090
+          }
+
+          # Everything else is the BFF, including /api/*.
+          handle {
+            reverse_proxy web-experience:8081
+          }
+
+          header {
+            Strict-Transport-Security "max-age=31536000; includeSubDomains"
+            X-Content-Type-Options nosniff
+            X-Frame-Options DENY
+            -Server
+          }
+        }
+        CADDY
+        exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
+    healthcheck:
+      # Caddy's admin API on 2019, which answers as soon as the config loads. Checking :80 would follow
+      # the redirect to :443 and fail before a certificate exists.
+      test: ["CMD-SHELL", "wget -q -O- http://localhost:2019/config/ >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+    logging: *logging

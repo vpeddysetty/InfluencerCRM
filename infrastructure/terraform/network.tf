@@ -142,116 +142,18 @@ locals {
 # Security groups
 # ---------------------------------------------------------------------------
 
-resource "aws_security_group" "alb" {
-  count = var.use_alb ? 1 : 0
-
-  name_prefix = "${local.name_prefix}-alb-"
-  description = "ALB: public ingress on 80/443."
-  vpc_id      = aws_vpc.main.id
-
-  lifecycle {
-    # name_prefix + this: a rule change that forces replacement would otherwise fail because the
-    # old group is still attached to the load balancer.
-    create_before_destroy = true
-  }
-
-  tags = { Name = "${local.name_prefix}-alb-sg" }
-}
-
-resource "aws_vpc_security_group_ingress_rule" "alb_http" {
-  for_each = var.use_alb ? toset(var.alb_ingress_cidrs) : toset([])
-
-  security_group_id = aws_security_group.alb[0].id
-  cidr_ipv4         = each.value
-  from_port         = 80
-  to_port           = 80
-  ip_protocol       = "tcp"
-  description       = "HTTP. Redirects to HTTPS when a certificate is configured."
-}
-
-resource "aws_vpc_security_group_ingress_rule" "alb_https" {
-  # Only opened when there is a certificate to terminate with; an open 443 with no listener is a
-  # rule that says something is served there when nothing is.
-  for_each = var.use_alb && var.acm_certificate_arn != "" ? toset(var.alb_ingress_cidrs) : toset([])
-
-  security_group_id = aws_security_group.alb[0].id
-  cidr_ipv4         = each.value
-  from_port         = 443
-  to_port           = 443
-  ip_protocol       = "tcp"
-  description       = "HTTPS"
-}
-
-resource "aws_vpc_security_group_egress_rule" "alb_to_task" {
-  # No ALB, no rule. Gated separately from the group itself because Terraform evaluates the reference
-  # even when the group is an empty tuple — which is the error this catches.
-  count = var.use_alb ? 1 : 0
-
-  security_group_id            = aws_security_group.alb[0].id
-  referenced_security_group_id = aws_security_group.task.id
-  ip_protocol                  = "-1"
-  description                  = "To the task only - the ALB has no reason to reach anything else."
-}
-
-resource "aws_security_group" "task" {
-  name_prefix = "${local.name_prefix}-task-"
-  description = "ECS task: inbound ONLY from the ALB, despite having a public IP."
-  vpc_id      = aws_vpc.main.id
-
-  lifecycle {
-    create_before_destroy = true
-  }
-
-  tags = { Name = "${local.name_prefix}-task-sg" }
-}
-
-# THE RULE THAT MAKES A PUBLIC SUBNET SAFE.
+# The ALB security group and the ECS task security group are GONE, with the ALB and the task themselves.
+# The platform instance is now the edge: aws_security_group.compose_instance in compose-ec2.tf opens 80
+# and 443 to the internet for Caddy, and nothing else.
 #
-# Only the two browser-facing ports are reachable, and only from the ALB's security group — not from
-# a CIDR, so it stays correct if the ALB's addresses change. The other nine services listen on
-# 8443-8450 and are NOT here: they are reachable only over the task's loopback interface, because
-# every container in a single task definition shares one network namespace. There is no rule to
-# write for localhost, which is precisely why the single-task shape is defensible without a mesh.
-resource "aws_vpc_security_group_ingress_rule" "task_from_alb_bff" {
-  count = var.use_alb ? 1 : 0
-
-  security_group_id            = aws_security_group.task.id
-  referenced_security_group_id = aws_security_group.alb[0].id
-  from_port                    = 8081
-  to_port                      = 8081
-  ip_protocol                  = "tcp"
-  description                  = "BFF (web-experience) from the ALB."
-}
-
-resource "aws_vpc_security_group_ingress_rule" "task_from_alb_dps" {
-  count = var.use_alb ? 1 : 0
-
-  security_group_id            = aws_security_group.task.id
-  referenced_security_group_id = aws_security_group.alb[0].id
-  from_port                    = 8090
-  to_port                      = 8090
-  ip_protocol                  = "tcp"
-  description                  = "DPS from the ALB."
-}
-
-resource "aws_vpc_security_group_egress_rule" "task_all" {
-  security_group_id = aws_security_group.task.id
-  cidr_ipv4         = "0.0.0.0/0"
-  ip_protocol       = "-1"
-  # A SINGLE LINE, not a heredoc. EC2 rejects newlines in a rule description — the permitted set is
-  # a-zA-Z0-9._-:/()#,@[]+=&;{}!$* and nothing else, so a multi-line description fails with
-  # "InvalidParameterValue: Invalid rule description". The reasoning that was here has moved to the
-  # comment, which has no such constraint.
-  #
-  # Unrestricted egress is genuinely needed: ECR and Secrets Manager before the app starts at all, then
-  # Google and Facebook OAuth, the OpenAI API and SES. Those are public endpoints, so this cannot be
-  # narrowed to a VPC endpoint list.
-  description = "Egress for ECR, Secrets Manager, OAuth providers, OpenAI and SES."
-}
+# THE NINE SERVICE PORTS NEED NO RULES AT ALL. Under ECS they were reachable only on the task's loopback
+# interface; under Compose they are reachable only on the bridge network, which is internal to the
+# instance and has no route from outside. That is why this file no longer carries a rule per service —
+# not because the ports were opened, but because there is nothing to open them to.
 
 resource "aws_security_group" "database" {
   name_prefix = "${local.name_prefix}-db-"
-  description = "RDS: 5432 from the task only."
+  description = "RDS: 5432 from the platform instance only."
   vpc_id      = aws_vpc.main.id
 
   lifecycle {
@@ -261,18 +163,9 @@ resource "aws_security_group" "database" {
   tags = { Name = "${local.name_prefix}-db-sg" }
 }
 
-resource "aws_vpc_security_group_ingress_rule" "database_from_task" {
-  security_group_id            = aws_security_group.database.id
-  referenced_security_group_id = aws_security_group.task.id
-  from_port                    = 5432
-  to_port                      = 5432
-  ip_protocol                  = "tcp"
-  description                  = "Postgres from the ECS task."
-}
-
 resource "aws_security_group" "efs" {
   name_prefix = "${local.name_prefix}-efs-"
-  description = "EFS: NFS from the task only."
+  description = "EFS: NFS from the platform instance only."
   vpc_id      = aws_vpc.main.id
 
   lifecycle {
@@ -282,11 +175,6 @@ resource "aws_security_group" "efs" {
   tags = { Name = "${local.name_prefix}-efs-sg" }
 }
 
-resource "aws_vpc_security_group_ingress_rule" "efs_from_task" {
-  security_group_id            = aws_security_group.efs.id
-  referenced_security_group_id = aws_security_group.task.id
-  from_port                    = 2049
-  to_port                      = 2049
-  ip_protocol                  = "tcp"
-  description                  = "NFS from the ECS task. Without this the task hangs on mount and the whole task times out, rather than starting without logs."
-}
+# The ingress rules for both groups live in compose-ec2.tf, next to the security group they admit —
+# database_from_compose and efs_from_compose. Without them the platform cannot reach its own database,
+# and every EFS mount hangs until it times out.
