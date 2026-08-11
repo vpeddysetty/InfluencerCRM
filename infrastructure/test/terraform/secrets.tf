@@ -182,6 +182,19 @@ locals {
     jwt-signing-key              = "RSA JWK (private) signing access tokens. Unset: the BFF REFUSES TO START. Generate with infrastructure/scripts/generate-jwt-key.sh."
     dao-keystore-b64             = "base64 of the DAO's PKCS12 keystore. Unset: the DAO refuses to start, because server.ssl.key-store points at a file that is not there."
     dao-keystore-password        = "Password for the keystore above."
+    # THE OTHER HALF OF THE SAME CERTIFICATE, and it lives here for a reason learned the hard way.
+    #
+    # The truststore holds only the DAO's PUBLIC certificate, so it was previously shipped on the BFF's
+    # classpath rather than as a secret. That made the two halves of one keypair rotate by different
+    # mechanisms: the keystore by updating a secret, the truststore by rebuilding an image. On
+    # 2026-08-10 they were regenerated together, only the keystore reached Secrets Manager, and every
+    # BFF image kept anchoring a superseded certificate -- so TLS verification could not be turned on
+    # at all, and the recorded cause ("the cert lacks a dao SAN") was wrong for a day.
+    #
+    # Symmetric now: regenerating the pair updates two secrets and needs no rebuild. Unset, the BFF
+    # falls back to classpath:dao-truststore.p12, which is the committed copy -- so this is additive
+    # and an empty secret changes nothing.
+    dao-truststore-b64           = "base64 of the PKCS12 truststore holding the DAO's public certificate. Unset: the BFF falls back to the copy committed on its classpath, which only matches if the image was rebuilt after the last certificate rotation."
     google-oauth-client-id       = "Unset: Google sign-in is unavailable; the rest of the platform works."
     google-oauth-client-secret   = "Unset: as above."
     facebook-oauth-client-id     = "Unset: Facebook sign-in is unavailable."

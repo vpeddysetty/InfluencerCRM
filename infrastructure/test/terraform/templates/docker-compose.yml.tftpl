@@ -153,6 +153,14 @@ services:
       # compose-migration.md. Verification stays TRUE and the SAN is the thing that changes.
       WEBE_DAO_BASE_URL: https://dao:8443
       WEBE_DAO_TLS_VERIFICATION: "${dao_tls_verification}"
+      # The DAO's public certificate, from Secrets Manager rather than the image. The entrypoint decodes
+      # it to /dev/shm and points WEBE_DAO_TRUST_STORE at the result; when the secret is empty the
+      # entrypoint does nothing and Spring falls back to classpath:dao-truststore.p12.
+      #
+      # This is what keeps the two halves of the keypair rotating together. Previously the keystore was
+      # a secret and the truststore was baked into the image, so regenerating the pair updated one and
+      # silently left the other pointing at a certificate that no longer existed.
+      WEBE_DAO_TRUST_STORE_B64: $${DAO_TRUSTSTORE_B64}
       WEBE_AGENT_BASE_URL: http://agent:8000
       WEBE_DPS_BASE_URL: http://dps:8090
       WORKFLOW_SERVICE_URL: http://workflow:8444

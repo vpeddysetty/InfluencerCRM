@@ -50,32 +50,72 @@ echo
 echo "==> generating the DAO keystore"
 KEYSTORE_PASSWORD="$(openssl rand -base64 24 | tr -d '\n/+=' | head -c 24)"
 
-docker run --rm -v "${WORK}:/certs" eclipse-temurin:17-jdk sh -c "
-    set -e
-    keytool -genkeypair -alias influencerdao \
-        -keyalg RSA -keysize 2048 -validity 825 \
-        -storetype PKCS12 -keystore /certs/keystore.p12 -storepass '${KEYSTORE_PASSWORD}' \
-        -dname 'CN=influencer-dao,OU=platform,O=influencrm,C=US' \
-        -ext 'SAN=dns:localhost,dns:dao,dns:influencer-dao'
-    keytool -exportcert -alias influencerdao -keystore /certs/keystore.p12 \
-        -storetype PKCS12 -storepass '${KEYSTORE_PASSWORD}' -file /certs/dao-cert.crt
-    keytool -importcert -noprompt -alias influencerdao -file /certs/dao-cert.crt \
-        -keystore /certs/dao-truststore.p12 -storetype PKCS12 -storepass changeit
-" >/dev/null
+mkdir -p "${WORK}/certs"
+KEYSTORE_FILE="${WORK}/certs/keystore.p12"
+CERT_FILE="${WORK}/certs/dao-cert.crt"
+TRUSTSTORE_FILE="${WORK}/certs/dao-truststore.p12"
+
+# keytool comes from a local JDK if one is on PATH (or KEYTOOL_BIN points at it), and from a container
+# otherwise. Neither is hardcoded: an absolute path like C:/Program Files/Java/jdk-26/bin/keytool.exe
+# works on exactly one machine, and a Docker-only path fails on any host without a daemon.
+if [ -n "${KEYTOOL_BIN:-}" ]; then
+    keytool_run() { "${KEYTOOL_BIN}" "$@"; }
+elif command -v keytool >/dev/null 2>&1; then
+    keytool_run() { keytool "$@"; }
+elif command -v docker >/dev/null 2>&1; then
+    # MSYS_NO_PATHCONV: Git Bash rewrites /certs into a Windows path before docker sees it.
+    keytool_run() {
+        MSYS_NO_PATHCONV=1 docker run --rm -v "${WORK}/certs:/certs" \
+            --entrypoint keytool eclipse-temurin:21-jdk "$@"
+    }
+    # The paths below are host paths; inside the container they are under /certs.
+    KEYSTORE_FILE=/certs/keystore.p12
+    CERT_FILE=/certs/dao-cert.crt
+    TRUSTSTORE_FILE=/certs/dao-truststore.p12
+else
+    echo "ERROR: need a JDK (keytool on PATH or KEYTOOL_BIN set) or docker to generate the keystore." >&2
+    exit 1
+fi
+
+keytool_run -genkeypair -alias influencerdao \
+    -keyalg RSA -keysize 2048 -validity 825 \
+    -storetype PKCS12 -keystore "${KEYSTORE_FILE}" -storepass "${KEYSTORE_PASSWORD}" \
+    -dname 'CN=influencer-dao,OU=platform,O=influencrm,C=US' \
+    -ext 'SAN=dns:localhost,dns:dao,dns:influencer-dao' >/dev/null
+keytool_run -exportcert -alias influencerdao -keystore "${KEYSTORE_FILE}" \
+    -storetype PKCS12 -storepass "${KEYSTORE_PASSWORD}" -file "${CERT_FILE}" >/dev/null
+keytool_run -importcert -noprompt -alias influencerdao -file "${CERT_FILE}" \
+    -keystore "${TRUSTSTORE_FILE}" -storetype PKCS12 -storepass changeit >/dev/null
+
+# Back to host paths for everything after this point.
+KEYSTORE_FILE="${WORK}/certs/keystore.p12"
+TRUSTSTORE_FILE="${WORK}/certs/dao-truststore.p12"
+
+if [[ ! -f "${KEYSTORE_FILE}" ]]; then
+    echo "keystore file was not created: ${KEYSTORE_FILE}" >&2
+    exit 1
+fi
 
 # -w0: base64 must be one line. A wrapped value survives the round-trip through Secrets Manager but
 # the entrypoint's `base64 -d` is fine with newlines while some shells are not — one line removes the
 # question entirely.
-put "dao-keystore-b64" "$(base64 -w0 "${WORK}/keystore.p12")"
+put "dao-keystore-b64" "$(base64 -w0 "${KEYSTORE_FILE}")"
 put "dao-keystore-password" "$KEYSTORE_PASSWORD"
 
-# THE TRUSTSTORE IS PART OF THE IMAGE, NOT A SECRET. The BFF loads it from
-# classpath:dao-truststore.p12, so a new keystore means rebuilding and redeploying the BFF image —
-# otherwise it still trusts the OLD certificate and every DAO call fails verification, fail-closed.
-cp "${WORK}/dao-truststore.p12" \
+# THE TRUSTSTORE IS A SECRET TOO, and that is the point: it is the other half of the keypair above, so
+# it must rotate by the SAME mechanism. It used to ship only on the BFF's classpath, which meant a
+# regeneration updated the keystore secret and left the truststore to a rebuild that might never happen.
+# That is exactly what occurred on 2026-08-10 — the pair was regenerated, only the keystore reached
+# Secrets Manager, and the BFF spent a day anchoring a certificate the DAO had stopped serving.
+put "dao-truststore-b64" "$(base64 -w0 "${TRUSTSTORE_FILE}")"
+
+# Still copied into the source tree, but now as the FALLBACK rather than the delivery mechanism: it is
+# what a local `docker run` with no secrets uses, and what the BFF loads if dao-truststore-b64 is empty.
+# Committing it is good hygiene; forgetting to no longer breaks the deployment.
+cp "${TRUSTSTORE_FILE}" \
    "${REPO_ROOT}/InfluencerWebExperience/src/main/resources/dao-truststore.p12"
-echo "    installed dao-truststore.p12 into the BFF resources"
-echo "    >>> COMMIT IT AND REBUILD THE BFF IMAGE, or BFF -> DAO calls will fail verification."
+echo "    stored dao-truststore-b64 and refreshed the committed fallback copy"
+echo "    >>> restart the platform to pick up both halves; no image rebuild needed."
 
 # ---------------------------------------------------------------------------
 # 2. The BFF's access-token signing key

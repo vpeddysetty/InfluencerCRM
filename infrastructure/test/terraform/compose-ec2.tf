@@ -320,6 +320,7 @@ locals {
     DAO_SERVICE_TOKEN            = local.secret_arns["dao-service-token"]
     DAO_KEYSTORE_B64             = local.secret_arns["dao-keystore-b64"]
     DAO_KEYSTORE_PASSWORD        = local.secret_arns["dao-keystore-password"]
+    DAO_TRUSTSTORE_B64           = local.secret_arns["dao-truststore-b64"]
     WORKLOAD_SIGNING_KEY         = local.secret_arns["workload-signing-key"]
     JWT_SIGNING_KEY              = local.secret_arns["jwt-signing-key"]
     MARKETPLACE_CREDENTIAL_KEY   = local.secret_arns["marketplace-credential-key"]
