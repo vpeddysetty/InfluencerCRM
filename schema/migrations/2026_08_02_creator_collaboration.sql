@@ -13,7 +13,7 @@
 create extension if not exists "pgcrypto";
 
 -- ---- 1) share_tokens (Phase 1) ----
-create table if not exists share_tokens (
+create table if not exists public.share_tokens (
     id           uuid primary key default gen_random_uuid(),
     user_id      uuid not null references users(id) on delete cascade,
     campaign_id  uuid not null references campaigns(id) on delete cascade,
@@ -37,7 +37,7 @@ create index if not exists idx_share_tokens_user on share_tokens(user_id);
 create index if not exists idx_share_tokens_campaign on share_tokens(campaign_id);
 
 -- ---- 2) content_review_notes (Phase 2) ----
-create table if not exists content_review_notes (
+create table if not exists public.content_review_notes (
     id              uuid primary key default gen_random_uuid(),
     user_id         uuid not null references users(id) on delete cascade,
     campaign_id     uuid not null references campaigns(id) on delete cascade,

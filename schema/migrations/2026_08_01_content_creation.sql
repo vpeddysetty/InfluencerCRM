@@ -14,7 +14,7 @@
 create extension if not exists "pgcrypto";
 
 -- ---- 1) campaign_briefs (Content Phase 1) ----
-create table if not exists campaign_briefs (
+create table if not exists public.campaign_briefs (
     id               uuid primary key default gen_random_uuid(),
     user_id          uuid not null references users(id) on delete cascade,
     campaign_id      uuid not null references campaigns(id) on delete cascade,
@@ -37,7 +37,7 @@ end $$;
 create index if not exists idx_campaign_briefs_user on campaign_briefs(user_id);
 
 -- ---- 2) landing_templates (Content Phase 2) ----
-create table if not exists landing_templates (
+create table if not exists public.landing_templates (
     id           uuid primary key default gen_random_uuid(),
     user_id      uuid not null references users(id) on delete cascade,
     campaign_id  uuid not null references campaigns(id) on delete cascade,
@@ -80,7 +80,7 @@ begin
 end $$;
 
 -- ---- 4) landing_page_views (Content Phase 2 attribution tie-in) ----
-create table if not exists landing_page_views (
+create table if not exists public.landing_page_views (
     id                uuid primary key default gen_random_uuid(),
     user_id           uuid not null references users(id) on delete cascade,
     campaign_code_id  uuid references influencer_campaign_codes(id) on delete cascade,

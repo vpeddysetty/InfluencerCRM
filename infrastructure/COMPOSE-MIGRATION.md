@@ -34,7 +34,7 @@ because this deployment can only ever have one instance:
 | | Before | After |
 |---|---|---|
 | Orchestration | ECS cluster + service + task definition + capacity provider | `docker compose` under systemd |
-| Postgres | Container on an attached EBS volume | **RDS** `db.t4g.micro` |
+| Postgres | Container on an attached EBS volume | **RDS** `db.t4g.small` |
 | Shared logs / assets | EFS (2 access points) | EFS, unchanged |
 | Caddy certificates | Host path on the EBS volume | **EFS** (new access point) |
 | Instance count | min 1 / desired 2 / max 2 | min 1 / desired 1 / **max 1** |
@@ -50,24 +50,26 @@ now stateless, which is the entire point of running it on Spot.
 ## Files
 
 **Added**
-- `terraform/compose-ec2.tf` — instance role, security group, launch template, ASG, log group, Caddy EFS access point
-- `terraform/templates/docker-compose.yml.tftpl` — all 13 services
-- `terraform/templates/compose-boot.sh.tftpl` — EFS mounts, EIP claim, secret fetch, systemd units
+- `test/terraform/compose-ec2.tf` — instance role, security group, launch template, ASG, log group, Caddy EFS access point
+- `test/terraform/templates/docker-compose.yml.tftpl` — all 13 services
+- `test/terraform/templates/compose-boot.sh.tftpl` — EFS mounts, EIP claim, secret fetch, systemd units
 
 **Deleted**
-- `terraform/ecs.tf`, `ecs-ec2-spot.tf`, `ecs-containers-extra.tf`, `postgres-ebs.tf`, `alb.tf`
-- `terraform/templates/instance-boot.sh.tftpl`
+- `test/terraform/ecs.tf`, `ecs-ec2-spot.tf`, `ecs-containers-extra.tf`, `postgres-ebs.tf`, `alb.tf`
+- `test/terraform/templates/instance-boot.sh.tftpl`
 
 **Rewritten**
-- `terraform/iam.tf` — now a comment explaining where the execution and task roles went
-- `terraform/compose-support.tf` (was `alb-toggle.tf`) — EIP, `use_rds`, spot variables, `acme_email`
+- `test/terraform/iam.tf` — now a comment explaining where the execution and task roles went
+- `test/terraform/compose-support.tf` (was `alb-toggle.tf`) — EIP, `use_rds`, spot variables, `acme_email`
 
-## BLOCKER: the migration is not idempotent
+## FIXED: the migration was not idempotent
 
-**Found by the smoke test, and it will take the platform down on your next deploy.**
+**Found by the smoke test; fixed and verified on 2026-08-10.** Left in full because the failure mode is
+subtle and worth understanding — every one of these passed on an empty database and failed on a
+populated one.
 
-The ECS config asserted "every migration in this repo is idempotent," and it is not. On a second run
-against an already-built schema, `migrate` fails:
+The ECS config asserted "every migration in this repo is idempotent." It was not. On a second run against
+an already-built schema, `migrate` failed:
 
 ```
 psql:/schema/influencer_crm_schema.sql:34: ERROR:  relation "users" already exists
@@ -75,20 +77,97 @@ FATAL: influencer_crm_schema.sql failed. The schema is INCOMPLETE; do not start 
 ```
 
 Because every application service declares `depends_on: migrate: service_completed_successfully`, a
-failed migration means **nothing starts at all**. The first deploy works (empty database); every
-subsequent one takes the whole platform down. This is not caused by the move off ECS — ECS would have
-hit it identically on the second deploy — but the move is what surfaced it.
+failed migration meant **nothing started at all**. The first deploy worked (empty database); every
+subsequent one took the whole platform down. Not caused by the move off ECS — ECS would have hit it
+identically on its second deploy — but the move is what surfaced it.
 
-`schema/influencer_crm_schema.sql` uses bare `CREATE TABLE`. The extension creation is already guarded
-with `IF NOT EXISTS`, so the pattern is established; the table and type DDL just needs the same
-treatment. Until that is fixed, a redeploy needs:
+It took four separate fixes, and they are worth listing because they are four different ways to write
+something that only breaks the second time:
+
+| Defect | Fix | Why it hid on deploy 1 |
+|---|---|---|
+| Bare `create table`, `create type`, `add constraint` in `influencer_crm_schema.sql` | `if not exists` on 12 tables and 31 indexes; `do $$ … exception when duplicate_object` around 7 enums and the FK | Nothing exists yet on an empty database |
+| `missing := missing \|\| 'literal'` on a `text[]` | `::text` cast — an untyped literal makes Postgres resolve `array \|\| array` and fail with `malformed array literal` | The append only runs when an index is found missing |
+| Guards filtering `schemaname = 'public'` (phase 2, phase 4) | Dropped the filter — phase-5 moves those tables into `creator`, `attribution`, `shared`, so a public-only lookup finds nothing | On a fresh run the objects genuinely are in `public` |
+| `if moved <> 24` (phase 5) and `count(*) = 3` (phase 2) | `>= 24`, and `count(distinct indexname)` | Later migrations add tables; a re-run recreates indexes in `public` alongside the relocated copies, so the raw count doubles |
+
+### The actual root cause: `if not exists` is per-schema, not per-database
+
+Everything below was a symptom of one thing, and it took a rebuild to see it clearly.
+
+The application role runs with:
+
+```
+search_path = identity, creator, campaign, workflow, attribution, finance, content, mapping, shared, public
+```
+
+An **unqualified** `create table if not exists users` checks only the *first* entry — `identity` — finds
+nothing there, and creates a table. After phase-5 has moved the real `users` into its context schema,
+every re-run therefore creates a **shadow** in `identity` that takes precedence over the real one.
+
+Three re-runs against the deployed database produced **21 shadow tables and 7 shadow enum types**.
+`identity.creators` had 33 columns against the real `creator.creators`'s 45, so `/api/creators` returned
+502 on `column c1_0.classification_at does not exist` — while `migrate` reported success and every
+container reported healthy.
+
+The fix is schema-qualified DDL everywhere:
+
+| File | Qualified |
+|---|---|
+| `influencer_crm_schema.sql` | 12 tables, 37 indexes, 7 enums, 7 triggers, 1 FK |
+| `migrations/*.sql` (9 files) | 20 tables |
+| `mapping_examples_vector.sql` | 1 table, 4 indexes |
+
+Plus three guards that were asking the wrong question:
+
+- **Enum guards** now use `to_regtype('public.X')`. Unqualified, it resolves through `search_path` and
+  finds a relocated copy — concluding the type exists when it does not exist *here*.
+- **Phase-2 legacy constraints** are dropped by constraint name wherever they live, not via unqualified
+  `alter table` which hits exactly one of the two copies.
+- **Phase-5's mover** now handles an occupied destination. Checking only that the source exists fails
+  with `relation "users" already exists in schema "identity"`; when the destination is taken, the
+  `public` copy is a leftover and is dropped instead.
+
+**Verified end to end:** the test database was rebuilt from scratch (snapshot
+`influencrm-prod-pre-rebuild-20260810` taken first), then redeployed **twice** against the populated
+result. Both clean, **zero duplicate tables, zero duplicate types**, and the full smoke test passes
+including `/api/creators`.
+
+### The symptom that made this visible
+
+The first four fixes made `migrate` exit 0 on a re-run. Deploying that to the live environment then
+returned **HTTP 500 on every signup**:
+
+```
+column "role" is of type public.user_role but expression is of type user_role
+```
+
+The guard I had used was `exception when duplicate_object` — which only fires when the type already
+exists **in the schema the CREATE targets**. Production's DB role has `search_path =
+identity,creator,...,public`, so on a re-run `create type user_role` resolved to `identity` (empty),
+did not raise, and created a *second* `user_role` there. `identity.users.role` was still typed
+`public.user_role`, so every insert produced the wrong type.
+
+Fixed by guarding with `to_regtype('user_role') is null` instead, which resolves through `search_path`
+and finds the type wherever it lives.
+
+**This one is worth internalising: the migration reported success, the containers all reported healthy,
+and the platform was broken.** Health checks do not exercise writes.
+
+The live database was repaired by dropping the shadow types — but only after checking which copies had
+dependent columns. The obvious move (drop the `public.*` duplicates) would have **destroyed the schema**:
+ten columns reference them. Only `identity.user_role` had zero dependants, and `drop type` without
+CASCADE refuses if that reading is wrong, which is why the repair was written that way.
+
+**Verified** by running the real migrate image three times against the same database — including once
+under production's exact `search_path` — all exit 0, object counts stable (66 context tables, 8 `svc_*`
+roles), and **no enum in more than one schema**.
+
+The manual recovery that was needed before the fix, kept here in case a future migration regresses:
 
 ```bash
 docker compose --env-file /run/influencrm/platform.env up -d --no-deps dao web-experience dps agent caddy
 ```
-
-which is what the smoke test used to recover, and is exactly the sort of manual step this deployment
-should not need.
 
 ## Two things you must do
 
@@ -126,12 +205,12 @@ worth it at one instance; both become worth it at more than one, alongside Redis
   container; it does not cover a wedged one.
 - **Secrets on disk.** Root-only, mode 0600, on tmpfs (`/run`), so they do not survive a reboot and are
   re-fetched each boot. ECS never wrote them down at all.
-- **RDS `db.t4g.micro`** adds ~$13/month. In exchange: automated backups, PITR, and a stateless instance.
+- **RDS `db.t4g.small`** adds ~$13/month. In exchange: automated backups, PITR, and a stateless instance.
 
 ## Deploying
 
 ```bash
-cd infrastructure/terraform
+cd infrastructure/test/terraform
 terraform plan -var=image_tag=v1.0.0 -out=compose.tfplan
 terraform apply compose.tfplan
 ```

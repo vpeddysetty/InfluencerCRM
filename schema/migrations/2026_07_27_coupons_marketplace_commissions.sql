@@ -57,7 +57,7 @@ begin
 end $$;
 
 -- ---- 2) marketplace_connections ----
-create table if not exists marketplace_connections (
+create table if not exists public.marketplace_connections (
     id                    uuid primary key default gen_random_uuid(),
     user_id               uuid not null references users(id) on delete cascade,
     provider_key          text not null,                          -- "shopify", "mock", ...
@@ -85,7 +85,7 @@ begin
 end $$;
 
 -- ---- 3) influencer_commissions (accrued per attributed sale) ----
-create table if not exists influencer_commissions (
+create table if not exists public.influencer_commissions (
     id                uuid primary key default gen_random_uuid(),
     user_id           uuid not null references users(id) on delete cascade,
     attribution_id    uuid references influencer_sale_attributions(id) on delete set null,
@@ -108,7 +108,7 @@ create index if not exists idx_ic_attribution on influencer_commissions(attribut
 create index if not exists idx_ic_payout on influencer_commissions(payout_id);
 
 -- ---- 4) influencer_payouts (batch settlement to one creator) ----
-create table if not exists influencer_payouts (
+create table if not exists public.influencer_payouts (
     id            uuid primary key default gen_random_uuid(),
     user_id       uuid not null references users(id) on delete cascade,
     creator_id    uuid not null references creators(id) on delete cascade,
@@ -141,7 +141,7 @@ begin
 end $$;
 
 -- ---- 5) daily_attribution_stats (dashboard rollup) ----
-create table if not exists daily_attribution_stats (
+create table if not exists public.daily_attribution_stats (
     id           uuid primary key default gen_random_uuid(),
     user_id      uuid not null references users(id) on delete cascade,
     day          date not null,

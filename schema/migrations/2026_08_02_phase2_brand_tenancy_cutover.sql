@@ -41,17 +41,27 @@ do $$
 declare
     missing text[] := '{}';
 begin
-    if not exists (select 1 from pg_indexes where schemaname = 'public'
-                    and indexname = 'uq_creators_brand_platform_handle') then
-        missing := missing || 'uq_creators_brand_platform_handle';
+    -- The ::text casts below are NOT decoration. `text[] || 'literal'` is ambiguous: an unadorned string
+    -- literal is untyped, so Postgres resolves the operator to array || array and tries to parse the
+    -- literal AS an array — failing with `malformed array literal: "uq_creators_brand_platform_handle"`.
+    -- The cast picks the array || element overload instead.
+    --
+    -- This only fires on a RE-RUN, because on a fresh database the indexes are missing and the appends
+    -- never execute. That is exactly why it survived the first deploy and broke the second.
+    --
+    -- NO `schemaname = 'public'` FILTER, deliberately. These indexes are created in public by the Phase 1
+    -- migration, but the later phase-5 schema-per-context migration MOVES their tables into `creator` and
+    -- `attribution`. On a re-run the indexes therefore exist under those schemas, a public-only lookup
+    -- finds nothing, and this guard aborts the deploy claiming Phase 1 never ran. The question it means
+    -- to ask is "does this index exist", and index names are unique enough here to ask it directly.
+    if not exists (select 1 from pg_indexes where indexname = 'uq_creators_brand_platform_handle') then
+        missing := missing || 'uq_creators_brand_platform_handle'::text;
     end if;
-    if not exists (select 1 from pg_indexes where schemaname = 'public'
-                    and indexname = 'uq_icc_brand_code') then
-        missing := missing || 'uq_icc_brand_code';
+    if not exists (select 1 from pg_indexes where indexname = 'uq_icc_brand_code') then
+        missing := missing || 'uq_icc_brand_code'::text;
     end if;
-    if not exists (select 1 from pg_indexes where schemaname = 'public'
-                    and indexname = 'uq_das_grain_brand') then
-        missing := missing || 'uq_das_grain_brand';
+    if not exists (select 1 from pg_indexes where indexname = 'uq_das_grain_brand') then
+        missing := missing || 'uq_das_grain_brand'::text;
     end if;
 
     if array_length(missing, 1) > 0 then
@@ -62,14 +72,29 @@ begin
     end if;
 end $$;
 
-alter table creators
-    drop constraint if exists creators_user_id_platform_handle_key;
-
-alter table influencer_campaign_codes
-    drop constraint if exists uq_influencer_campaign_codes_user_code;
-
-alter table daily_attribution_stats
-    drop constraint if exists uq_das_grain;
+-- Dropped by CONSTRAINT NAME wherever it lives, not by `alter table <unqualified>`.
+--
+-- An unqualified `alter table creators` resolves through search_path and hits exactly one table. On a
+-- re-run the base schema recreates `public.creators` — inline `unique (user_id, platform, handle)` and
+-- all — while the live table sits in `creator`. The unqualified form then drops the constraint from
+-- whichever one it found and leaves the other, and the verification block below fails with
+-- "1 legacy user-keyed constraint(s) still present" on a database that is otherwise correct.
+do $$
+declare r record;
+begin
+    for r in
+        select n.nspname as sch, t.relname as tbl, c.conname
+          from pg_constraint c
+          join pg_class t on t.oid = c.conrelid
+          join pg_namespace n on n.oid = t.relnamespace
+         where c.conname in ('creators_user_id_platform_handle_key',
+                             'uq_influencer_campaign_codes_user_code',
+                             'uq_das_grain')
+    loop
+        execute format('alter table %I.%I drop constraint %I', r.sch, r.tbl, r.conname);
+        raise notice 'dropped legacy constraint %.%.%', r.sch, r.tbl, r.conname;
+    end loop;
+end $$;
 
 -- =============================================================
 -- 2) Relax the NOT NULL on the legacy tenancy column
@@ -104,20 +129,26 @@ do $$
 declare
     leftover bigint;
 begin
-    -- The legacy constraints must be gone, or agencies still cannot share a creator.
+    -- The legacy constraints must be gone, or agencies still cannot share a creator. Unfiltered by
+    -- schema: this asserts an ABSENCE, and a public-only check would report success simply because
+    -- phase-5 had relocated a constraint that is in fact still there.
     select count(*) into leftover from pg_indexes
-     where schemaname = 'public'
-       and indexname in ('creators_user_id_platform_handle_key',
+     where indexname in ('creators_user_id_platform_handle_key',
                          'uq_influencer_campaign_codes_user_code',
                          'uq_das_grain');
     if leftover > 0 then
         raise exception 'Phase 2: % legacy user-keyed constraint(s) still present', leftover;
     end if;
 
-    -- The brand-keyed replacements must still be in force.
-    select count(*) into leftover from pg_indexes
-     where schemaname = 'public'
-       and indexname in ('uq_creators_brand_platform_handle',
+    -- The brand-keyed replacements must still be in force. No schemaname filter, for the same reason as
+    -- the guard at the top of this file: phase-5 moves these tables into the `creator` and `attribution`
+    -- schemas, so a public-only count returns 0 on a re-run and aborts a deploy that is actually fine.
+    -- DISTINCT on the name, not a raw row count. On a re-run the Phase 1 migration recreates these in
+    -- `public` while phase-5's relocated copies still exist in the context schemas, so the same three
+    -- names appear twice and a plain count(*) returns 6 — failing an assertion that is actually
+    -- satisfied. The question is "are all three present", so count the names.
+    select count(distinct indexname) into leftover from pg_indexes
+     where indexname in ('uq_creators_brand_platform_handle',
                          'uq_icc_brand_code',
                          'uq_das_grain_brand');
     if leftover <> 3 then

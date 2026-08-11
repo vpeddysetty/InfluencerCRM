@@ -12,7 +12,7 @@
 create extension if not exists "pgcrypto";
 create extension if not exists vector;
 
-create table if not exists mapping_examples (
+create table if not exists public.mapping_examples (
     id                  uuid primary key default gen_random_uuid(),
     user_id             uuid references users(id) on delete set null,
     template_name       text,

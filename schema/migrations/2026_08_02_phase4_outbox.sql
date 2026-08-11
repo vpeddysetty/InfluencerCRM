@@ -18,7 +18,7 @@
 -- Idempotent by design (safe to re-run).
 -- =============================================================
 
-create table if not exists domain_events (
+create table if not exists public.domain_events (
     id             uuid primary key default gen_random_uuid(),
 
     -- Which context emitted this, and about which aggregate. Kept as plain text +
@@ -66,13 +66,17 @@ create index if not exists idx_domain_events_aggregate
 -- =============================================================
 do $$
 begin
+    -- NEITHER CHECK FILTERS ON `public`. This migration creates domain_events there, but the later
+    -- phase-5 schema-per-context migration moves it to the `shared` schema. On a re-run a public-only
+    -- lookup finds nothing and aborts the deploy claiming the table was never created — when it exists,
+    -- one schema over.
     if not exists (select 1 from information_schema.tables
-                    where table_schema = 'public' and table_name = 'domain_events') then
+                    where table_name = 'domain_events') then
         raise exception 'Phase 4: domain_events was not created';
     end if;
 
     if not exists (select 1 from pg_indexes
-                    where schemaname = 'public' and indexname = 'idx_domain_events_pending') then
+                    where indexname = 'idx_domain_events_pending') then
         raise exception 'Phase 4: the pending-events index is missing; the relay would table-scan';
     end if;
 

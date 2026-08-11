@@ -29,7 +29,7 @@
 #   - Secrets are written to a root-only file on tmpfs rather than injected by an execution role.
 #   - Containers share a bridge network instead of one namespace, so service-to-service calls go by
 #     service name and the DAO certificate needs a `dao` SAN. See dao_tls_verification below.
-#   - RDS db.t4g.micro adds ~$13/month against the Postgres container it replaces.
+#   - RDS db.t4g.small adds ~$13/month against the Postgres container it replaces.
 
 # ---------------------------------------------------------------------------
 # Instance IAM role
