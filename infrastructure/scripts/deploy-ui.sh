@@ -123,7 +123,14 @@ PY
     # the free tier and is pointless for content-hashed assets, which can never be stale.
     dist_id="$(python -c "import json,sys; print(json.loads(sys.argv[1]).get(sys.argv[2],''))" "$DIST_IDS_JSON" "$prefix")"
     if [ -n "$dist_id" ]; then
-        aws cloudfront create-invalidation \
+        # MSYS_NO_PATHCONV=1 is REQUIRED under Git Bash on Windows, which rewrites any argument that
+        # looks like a Unix path into a Windows one before the process sees it. "/index.html" arrives at
+        # the AWS CLI as "C:/Program Files/Git/index.html", and CloudFront rejects the request with
+        # `InvalidArgument: Your request contains one or more invalid invalidation paths` — an error that
+        # names the paths but not the cause, and which does not reproduce under WSL or Linux CI.
+        #
+        # Harmless everywhere else: the variable is simply ignored off MSYS.
+        MSYS_NO_PATHCONV=1 aws cloudfront create-invalidation \
             --distribution-id "$dist_id" \
             --paths "/index.html" "/remoteEntry.js" "/" \
             --region "$REGION" \
