@@ -263,14 +263,18 @@ variable "manage_static_site" {
   description = <<-EOT
     Whether this configuration creates the S3 bucket and CloudFront distribution for the UIs.
 
-    IMPORTANT: `www.tejdux.com` is ALREADY DEPLOYED and is NOT managed by Terraform — bucket
-    `tejdux-legal-static`, distribution `ESJ9LTY0C74G0`, built by hand on 2026-08-05 and documented
-    in docs/infrastructure/static-site-deployment-log.md.
+    Distribution `ESJ9LTY0C74G0` (bucket `tejdux-legal-static`, built by hand on 2026-08-05, see
+    docs/infrastructure/static-site-deployment-log.md) is NOT managed by Terraform. This configuration
+    creates a SEPARATE app bucket and its own distributions for the micro-frontends rather than trying
+    to adopt it: importing the hand-built distribution would mean reconstructing its exact current
+    state in code first, and getting that wrong takes pages linked from an app store listing down.
 
-    This configuration therefore creates a SEPARATE app bucket and its own distributions for the
-    micro-frontends rather than trying to adopt the existing one. Importing the hand-built
-    distribution would mean reconstructing its exact current state in code first; getting that wrong
-    takes the live legal pages down, and those are linked from an app store listing.
+    HISTORY, because the previous note here was wrong in a way that caused an outage. It said
+    www.tejdux.com was served by that legal distribution and must stay untouched. In fact the legal
+    distribution never claimed www as an alias — it held the certificate but no hostname, while DNS for
+    both the apex and www aliased to the SHELL distribution, which claimed neither the hostnames nor
+    the certificate. The result was a site that resolved but failed Chrome's SAN check. Both names are
+    now aliases of the shell distribution and are managed here; see var.shell_serves_apex.
   EOT
   type        = bool
   default     = true
@@ -281,8 +285,56 @@ variable "manage_static_site" {
 # the root of its own origin — see the header of static-site.tf. The subdomains are defined in
 # local.micro_frontends, and hostnames appear only when static_site_certificate_arn is also set.
 #
-# www.tejdux.com is deliberately untouched: it already serves the hand-built legal site from a
-# different bucket and distribution, and two distributions cannot claim one CNAME.
+# The APEX and www are separate from that, and are governed by var.shell_serves_apex below rather than
+# by static_site_certificate_arn — see the comment on that variable for why the two cannot share one
+# certificate.
+
+variable "shell_serves_apex" {
+  description = <<-EOT
+    Whether the apex (tejdux.com) and www.tejdux.com resolve to the SHELL distribution and are claimed
+    as its aliases.
+
+    WHY THIS IS SEPARATE FROM static_site_certificate_arn. That variable wants a WILDCARD covering the
+    seven micro-frontend subdomains. The apex is not covered by a wildcard — *.tejdux.com does not
+    match tejdux.com — so the two hostname sets need two different certificates and cannot be gated on
+    one flag. Gating them together is what left the apex on the default *.cloudfront.net certificate
+    while DNS already pointed at it, which is the outage this variable exists to prevent:
+
+      - DNS resolved (an A ALIAS to the shell distribution existed)
+      - the shell distribution declared no aliases and served the default certificate
+      - so Chrome failed the SAN check with ERR_CERT_COMMON_NAME_INVALID, and CloudFront would have
+        answered 403 for an unclaimed Host even with a valid certificate
+
+    Both halves — the alias on the distribution and the certificate that covers it — must move
+    together, which is why one flag drives both.
+
+    Set apex_certificate_arn alongside this. Turning this on without it is rejected at plan time.
+  EOT
+  type        = bool
+  default     = true
+}
+
+variable "apex_certificate_arn" {
+  description = <<-EOT
+    ACM certificate in us-east-1 covering BOTH tejdux.com and www.tejdux.com, for the shell
+    distribution when shell_serves_apex is true.
+
+    us-east-1 regardless of var.aws_region — a CloudFront requirement.
+
+    d38a2767-198a-491b-892c-3da19aed9ef0 is the live one: SANs www.tejdux.com + tejdux.com, DNS
+    validated, expires 2027-02-19. It is NOT a wildcard, so it cannot serve the micro-frontend
+    subdomains — that is what static_site_certificate_arn is for.
+  EOT
+  type        = string
+  default     = "arn:aws:acm:us-east-1:099933382956:certificate/d38a2767-198a-491b-892c-3da19aed9ef0"
+
+  validation {
+    # A certificate for a CloudFront alias MUST be us-east-1. Catching it here turns a slow, confusing
+    # apply-time failure into an immediate one.
+    condition     = var.apex_certificate_arn == "" || can(regex("^arn:aws:acm:us-east-1:", var.apex_certificate_arn))
+    error_message = "apex_certificate_arn must be an ACM certificate in us-east-1 (CloudFront requirement)."
+  }
+}
 
 variable "api_domain" {
   description = <<-EOT

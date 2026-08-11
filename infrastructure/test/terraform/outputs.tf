@@ -40,7 +40,7 @@ output "autoscaling_group_name" {
     this group, because the compose file and the image tag are baked into the launch template's user
     data - so `terraform apply` followed by a refresh is the deploy.
   EOT
-  value = aws_autoscaling_group.compose.name
+  value       = aws_autoscaling_group.compose.name
 }
 
 output "deploy_command" {
@@ -110,7 +110,7 @@ output "shell_command" {
 
     This replaces `aws ecs execute-command`: without a control plane, the way in is the host.
   EOT
-  value = "aws ssm start-session --target <instance-id> --region ${var.aws_region}"
+  value       = "aws ssm start-session --target <instance-id> --region ${var.aws_region}"
 }
 
 output "boot_log_command" {

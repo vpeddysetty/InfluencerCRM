@@ -22,6 +22,42 @@ locals {
 
   cloudfront_backend_origin_domain = local.cloudfront_backend_is_hostname ? local.cloudfront_backend_origin_host : ""
   cloudfront_backend_origin_policy = startswith(local.public_base_url, "https://") ? "https-only" : "http-only"
+
+  # Does the shell claim the apex and www? Needs the certificate as well as the flag: claiming an alias
+  # without a certificate covering it is rejected by CloudFront at apply time.
+  apex_on_shell = local.static_enabled && var.shell_serves_apex && var.apex_certificate_arn != "" && var.root_domain != ""
+
+  # Certificate per distribution, "" meaning CloudFront's default.
+  #
+  # The shell prefers the apex certificate because the apex is the name a user types; the wildcard does
+  # not cover it. When both are set the shell claims app., tejdux.com AND www.tejdux.com, so the
+  # certificate it uses must cover all three — hence the precondition below.
+  distribution_certificate = {
+    for k, cfg in local.micro_frontends :
+    k => (
+      k == "shell" && local.apex_on_shell ? var.apex_certificate_arn :
+      local.static_aliased ? var.static_site_certificate_arn :
+      ""
+    )
+  }
+}
+
+# Fails the plan on a combination CloudFront would reject at apply time, after it had already spent
+# fifteen minutes deploying. The shell cannot claim app.tejdux.com under the apex certificate unless
+# that certificate also covers app. — so the two alias sets are mutually exclusive here until a
+# certificate covering both exists.
+check "apex_and_wildcard_are_not_both_on_the_shell" {
+  assert {
+    condition     = !(local.apex_on_shell && local.static_aliased)
+    error_message = <<-EOT
+      shell_serves_apex and static_site_certificate_arn are both set, which makes the shell claim
+      app.${var.root_domain}, ${var.root_domain} and www.${var.root_domain} under a single certificate.
+
+      The live apex certificate covers only ${var.root_domain} and www.${var.root_domain}, so CloudFront
+      would reject the app. alias. Issue one certificate covering all three names and set both variables
+      to it, or leave static_site_certificate_arn empty.
+    EOT
+  }
 }
 
 # SPA routing.
@@ -133,7 +169,15 @@ resource "aws_cloudfront_distribution" "ui" {
   default_root_object = "index.html"
   price_class         = "PriceClass_100"
 
-  aliases = local.static_aliased ? ["${each.value.subdomain}.${var.root_domain}"] : []
+  # The subdomain when there is a wildcard certificate, PLUS the apex and www on the shell only.
+  #
+  # A distribution serves a hostname only if it is listed here: CloudFront answers 403 for a Host it
+  # does not claim, even when the certificate is valid for that name. So this list and the certificate
+  # below must always agree — see var.shell_serves_apex.
+  aliases = concat(
+    local.static_aliased ? ["${each.value.subdomain}.${var.root_domain}"] : [],
+    local.apex_on_shell && each.key == "shell" ? [var.root_domain, "www.${var.root_domain}"] : [],
+  )
 
   origin {
     domain_name              = aws_s3_bucket.ui[0].bucket_regional_domain_name
@@ -211,11 +255,19 @@ resource "aws_cloudfront_distribution" "ui" {
     }
   }
 
+  # Which certificate, chosen per distribution rather than globally.
+  #
+  # The apex certificate is NOT a wildcard and the wildcard does NOT cover the apex, so the shell can
+  # need a different certificate from the other six. Resolved in local.distribution_certificate so the
+  # precedence is stated once; a distribution with no alias keeps CloudFront's default certificate,
+  # which is correct — a default certificate is only wrong when a real hostname points at it.
   viewer_certificate {
-    cloudfront_default_certificate = !local.static_aliased
-    acm_certificate_arn            = local.static_aliased ? var.static_site_certificate_arn : null
-    ssl_support_method             = local.static_aliased ? "sni-only" : null
-    minimum_protocol_version       = local.static_aliased ? "TLSv1.2_2021" : null
+    cloudfront_default_certificate = local.distribution_certificate[each.key] == ""
+    acm_certificate_arn            = local.distribution_certificate[each.key] != "" ? local.distribution_certificate[each.key] : null
+    ssl_support_method             = local.distribution_certificate[each.key] != "" ? "sni-only" : null
+    # TLS 1.2 minimum. The apex was left on "TLSv1" by the hand-built configuration this replaced;
+    # 1.0/1.1 are deprecated and browsers warn on them.
+    minimum_protocol_version = local.distribution_certificate[each.key] != "" ? "TLSv1.2_2021" : null
   }
 
   restrictions {
@@ -266,9 +318,9 @@ resource "aws_s3_bucket_policy" "ui" {
 # registrar publishes, and nothing resolves.
 
 locals {
-  # Needed by either the UI records or the API record, so the lookup cannot be gated on one alone —
-  # setting only api_domain would otherwise index a zero-length data source and fail at plan time.
-  need_dns_zone = local.static_aliased || var.api_domain != ""
+  # Needed by the UI records, the apex records, or the API record, so the lookup cannot be gated on one
+  # alone — setting only api_domain would otherwise index a zero-length data source and fail at plan time.
+  need_dns_zone = local.static_aliased || local.apex_on_shell || var.api_domain != ""
 }
 
 data "aws_route53_zone" "root" {
@@ -288,6 +340,37 @@ resource "aws_route53_record" "ui" {
   alias {
     name                   = aws_cloudfront_distribution.ui[each.key].domain_name
     zone_id                = aws_cloudfront_distribution.ui[each.key].hosted_zone_id
+    evaluate_target_health = false
+  }
+}
+
+# The apex and www, both pointing at the shell distribution.
+#
+# A *and* AAAA. The distributions set is_ipv6_enabled = true, so CloudFront answers on IPv6 and a
+# client on an IPv6-only network needs the AAAA to reach it at all. An A-only apex is not broken for
+# most users, which is exactly what makes the omission easy to miss.
+#
+# ALIAS rather than CNAME. DNS forbids a CNAME at a zone apex (it cannot coexist with the zone's own SOA
+# and NS records), so www could be a CNAME but the apex could not — and an ALIAS works for both, costs
+# nothing to resolve, and needs no TTL. That is why the CNAME www -> apex you might expect is not here:
+# chaining www through the apex adds a resolution hop and gains nothing over aliasing both directly.
+resource "aws_route53_record" "apex" {
+  # One record per (name, type) pair: the apex and www, in A and AAAA.
+  for_each = local.apex_on_shell ? {
+    "apex-a"    = { name = var.root_domain, type = "A" }
+    "apex-aaaa" = { name = var.root_domain, type = "AAAA" }
+    "www-a"     = { name = "www.${var.root_domain}", type = "A" }
+    "www-aaaa"  = { name = "www.${var.root_domain}", type = "AAAA" }
+  } : {}
+
+  zone_id = data.aws_route53_zone.root[0].zone_id
+  name    = each.value.name
+  type    = each.value.type
+
+  alias {
+    name    = aws_cloudfront_distribution.ui["shell"].domain_name
+    zone_id = aws_cloudfront_distribution.ui["shell"].hosted_zone_id
+    # A CloudFront distribution has no health check to evaluate; setting this true is rejected.
     evaluate_target_health = false
   }
 }

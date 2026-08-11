@@ -25,6 +25,15 @@ ui_base_url         = ""
 
 static_site_certificate_arn = ""
 
+# The apex. ON by default in variables.tf, so it applies without being set here: tejdux.com and
+# www.tejdux.com are aliases of the SHELL distribution, A and AAAA, under the certificate below.
+#
+# VERIFIED 2026-08-10, not assumed: certificate d38a2767 has SANs www.tejdux.com and tejdux.com only —
+# it is NOT a wildcard. So it cannot serve app./workflow./… and static_site_certificate_arn above needs
+# a different (wildcard) certificate. Setting both at once trips the check block in static-site-cdn.tf.
+# shell_serves_apex    = true
+# apex_certificate_arn = "arn:aws:acm:us-east-1:099933382956:certificate/d38a2767-198a-491b-892c-3da19aed9ef0"
+
 # ---------------------------------------------------------------------------
 # Phase 2 — real hostnames. Set all of these together.
 # ---------------------------------------------------------------------------
@@ -44,8 +53,8 @@ static_site_certificate_arn = ""
 # # CloudFront certificate: MUST be in us-east-1 whatever aws_region says, and should be a WILDCARD
 # # (*.tejdux.com) — there are seven subdomains, and a SAN list means a reissue every time one is added.
 # #
-# # The existing certificate d38a2767-198a-491b-892c-3da19aed9ef0 covers tejdux.com and www.tejdux.com.
-# # Check whether it is a wildcard before reusing it; a name it does not cover fails at APPLY.
+# # d38a2767 is NOT reusable here — verified 2026-08-10: its SANs are tejdux.com and www.tejdux.com
+# # only, and *.tejdux.com would not cover the apex anyway. Issue a wildcard for this one.
 # static_site_certificate_arn = "arn:aws:acm:us-east-1:099933382956:certificate/REPLACE-ME"
 
 # ---------------------------------------------------------------------------
