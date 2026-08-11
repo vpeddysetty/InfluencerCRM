@@ -18,11 +18,38 @@ environment = "prod"
 # provider, and neither Google nor Meta will accept an ALB's default hostname. So expect to do phase 2
 # before anyone can log in.
 
-api_domain          = ""
-acm_certificate_arn = ""
-public_base_url     = ""
-ui_base_url         = ""
+# ---------------------------------------------------------------------------
+# HTTPS and OAuth — enabled 2026-08-10
+# ---------------------------------------------------------------------------
+# api_domain is what unlocks all three of: TLS, OAuth sign-in, and /api routing through CloudFront.
+# Everything below follows from it.
+api_domain = "api.tejdux.com"
 
+# NO ACM CERTIFICATE, and that is not an omission. Caddy runs on the instance and obtains its own
+# certificate from Let's Encrypt via the HTTP-01 challenge — which is why there is no ALB here to
+# terminate TLS and no certificate to buy or renew. acm_certificate_arn stays empty; it exists for the
+# ALB path, which this deployment does not use.
+#
+# The existing certificate d38a2767 covers tejdux.com and www.tejdux.com ONLY (verified, not assumed —
+# it is not a wildcard), so it could not cover api.tejdux.com even if an ALB were wanted.
+acm_certificate_arn = ""
+
+# Where the BROWSER reaches the API. This is what ends up in OAuth redirect URIs and CORS headers, so it
+# must be the public https:// name, not a service name and not the Elastic IP.
+public_base_url = "https://api.tejdux.com"
+
+# Where the SHELL is served. The apex, because shell_serves_apex is on by default and tejdux.com already
+# aliases the shell distribution under certificate d38a2767.
+#
+# ONE origin, not seven, and this is worth being precise about: the six remotes are Module Federation
+# modules that the shell FETCHES and executes in its own page. They run on the shell's origin, and none
+# of them contains a reference to VITE_BFF_URL or VITE_DPS_URL (verified). So the DPS only ever sees
+# requests from this one origin, and DPS_ALLOWED_ORIGINS is correct as a single value.
+ui_base_url = "https://tejdux.com"
+
+# Still empty: this would give app./workflow./campaigns./… their own hostnames, and needs a WILDCARD
+# certificate. d38a2767 is not one. The micro-frontends keep serving on their *.cloudfront.net names,
+# which works because the shell is told each remote's origin at build time.
 static_site_certificate_arn = ""
 
 # The apex. ON by default in variables.tf, so it applies without being set here: tejdux.com and

@@ -228,7 +228,23 @@ resource "aws_cloudfront_distribution" "ui" {
       allowed_methods        = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
       cached_methods         = ["GET", "HEAD", "OPTIONS"]
       compress               = true
-      cache_policy_id        = "4135ea2d-6df8-4f0b-9f0d-979c4b3c8d9a"
+      # Managed-CachingDisabled. The id is exact and was WRONG here (…-6df8-4f0b-9f0d-979c4b3c8d9a),
+      # which CloudFront rejects with `NoSuchCachePolicy` — a 404 that reads like the distribution is
+      # missing rather than the policy. Verified against `aws cloudfront list-cache-policies`.
+      #
+      # Caching disabled is right for /api/* and /dps/*: these are authenticated, per-user responses, and
+      # caching them would serve one tenant's data to another.
+      cache_policy_id = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad"
+
+      # WITHOUT THIS EVERY API CALL THROUGH CLOUDFRONT RETURNS 401. A cache policy governs what forms the
+      # cache key; an ORIGIN REQUEST policy governs what is forwarded at all. With none set, CloudFront
+      # strips the Authorization header and cookies — so the BFF sees an anonymous request and the DPS
+      # never receives its session cookie.
+      #
+      # AllViewerExceptHostHeader, not AllViewer: the Host header must remain api.tejdux.com so Caddy
+      # matches its site block and serves the right certificate. Forwarding the VIEWER's Host
+      # (tejdux.com) would make Caddy fall through to its default and answer with the wrong cert.
+      origin_request_policy_id = "b689b0a8-53d0-40ab-baf2-68738e2966ac"
     }
   }
 
