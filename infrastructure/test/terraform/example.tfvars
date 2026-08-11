@@ -70,6 +70,15 @@ static_site_certificate_arn = ""
 # EARLIER image reinstates the failure.
 dao_certificate_has_service_san = true
 
+# ---------------------------------------------------------------------------
+# Alerting — added 2026-08-11
+# ---------------------------------------------------------------------------
+# Where the DAO certificate-expiry alarm sends its notification. AWS emails a confirmation link the
+# first time this is applied, and NOTHING IS DELIVERED until that link is clicked — an SNS email
+# subscription sits in PendingConfirmation indefinitely otherwise, looking wired up and delivering
+# nothing.
+alert_email = "vijay.peddysetty@kmpsglobal.com"
+
 # The apex. ON by default in variables.tf, so it applies without being set here: tejdux.com and
 # www.tejdux.com are aliases of the SHELL distribution, A and AAAA, under the certificate below.
 #

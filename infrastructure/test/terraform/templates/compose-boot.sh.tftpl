@@ -293,4 +293,77 @@ systemctl daemon-reload
 systemctl enable --now influencrm-spot-watch.service >/dev/null 2>&1 \
   && echo "  spot watcher started"
 
+# ---------------------------------------------------------------------------
+# 6. Certificate expiry metric
+# ---------------------------------------------------------------------------
+# The DAO's TLS certificate is self-signed and NOTHING renews it. Caddy's public certificate renews
+# itself; this internal one expires silently, and when it does the BFF fails every call to the DAO.
+#
+# READ FROM THE LIVE ENDPOINT rather than from the secret, deliberately: the question worth alarming on
+# is what the DAO is actually serving. Reading the secret would report health for a certificate that had
+# been rotated but never reached the container -- the exact drift that went unnoticed on 2026-08-10.
+cat > /usr/local/bin/influencrm-cert-metric.sh <<'CERT'
+#!/bin/bash
+# Publish days-until-expiry for the certificate the DAO is currently serving.
+set -uo pipefail
+REGION="__REGION__"
+
+# RUN INSIDE THE DAO CONTAINER, not on the host. Port 8443 is published to the compose bridge only --
+# nothing binds it on the host -- so `openssl s_client -connect localhost:8443` from here is refused,
+# and the script would fail silently every hour while the alarm read "missing" as breaching.
+#
+# -servername dao: the certificate carries dns:dao, and SNI has to match or openssl reports the wrong
+# chain on a server that ever serves more than one name.
+END=$(docker exec influencrm-dao-1 sh -c \
+        'echo | openssl s_client -connect localhost:8443 -servername dao 2>/dev/null | openssl x509 -noout -enddate' \
+      2>/dev/null | cut -d= -f2)
+
+if [ -z "$END" ]; then
+    # No metric rather than a zero. The alarm treats missing data as breaching, so a DAO that is down or
+    # unreachable raises the alarm instead of quietly reporting a healthy number.
+    logger -t influencrm-cert "could not read the DAO certificate; publishing nothing"
+    exit 1
+fi
+
+DAYS=$(( ( $(date -d "$END" +%s) - $(date +%s) ) / 86400 ))
+aws cloudwatch put-metric-data --region "$REGION" \
+    --namespace "InfluenCRM/TLS" \
+    --metric-name "DaoCertificateDaysRemaining" \
+    --value "$DAYS" --unit Count >/dev/null 2>&1 \
+  && logger -t influencrm-cert "DAO certificate expires in $DAYS days ($END)" \
+  || logger -t influencrm-cert "FAILED to publish the expiry metric"
+CERT
+sed -i "s|__REGION__|${region}|" /usr/local/bin/influencrm-cert-metric.sh
+chmod 0750 /usr/local/bin/influencrm-cert-metric.sh
+
+cat > /etc/systemd/system/influencrm-cert-metric.service <<'UNIT'
+[Unit]
+Description=Publish the DAO certificate expiry metric
+After=influencrm.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/influencrm-cert-metric.sh
+UNIT
+
+cat > /etc/systemd/system/influencrm-cert-metric.timer <<'UNIT'
+[Unit]
+Description=Hourly DAO certificate expiry check
+
+[Timer]
+# 10 minutes after boot so the DAO has finished starting, then hourly. Persistent=true so an instance
+# that was down over its scheduled run publishes on the next boot rather than waiting a full hour --
+# which matters because the alarm treats missing data as breaching.
+OnBootSec=10min
+OnUnitActiveSec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+UNIT
+
+systemctl daemon-reload
+systemctl enable --now influencrm-cert-metric.timer >/dev/null 2>&1 \
+  && echo "  certificate expiry metric scheduled hourly"
+
 echo "=== boot complete $(date -u +%FT%TZ) ==="

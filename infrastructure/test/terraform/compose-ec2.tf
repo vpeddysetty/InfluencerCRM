@@ -166,6 +166,22 @@ data "aws_iam_policy_document" "compose_instance" {
     ]
     resources = ["${aws_cloudwatch_log_group.platform.arn}:*"]
   }
+
+  # The certificate-expiry metric the instance publishes hourly. PutMetricData takes no resource, so it
+  # cannot be scoped by ARN; the namespace condition is the available substitute and confines this to
+  # the platform's own metrics rather than letting it write anywhere in CloudWatch.
+  statement {
+    sid       = "PublishTlsMetric"
+    effect    = "Allow"
+    actions   = ["cloudwatch:PutMetricData"]
+    resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "cloudwatch:namespace"
+      values   = ["InfluenCRM/TLS"]
+    }
+  }
 }
 
 resource "aws_iam_role_policy" "compose_instance" {
