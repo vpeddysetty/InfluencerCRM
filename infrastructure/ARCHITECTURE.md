@@ -109,10 +109,15 @@ they are separate containers on a bridge network and reach each other **by servi
 | BFF | agent | `agent:8000` |
 | DPS | BFF | `web-experience:8081` |
 
-**This is why TLS verification is currently off.** The committed DAO keystore carries only a `localhost`
-SAN, so `https://dao:8443` fails hostname verification. `dao_certificate_has_service_san` defaults false,
-which sets `WEBE_DAO_TLS_VERIFICATION=false` — encrypted but not authenticated. Reissue the keystore with
-a `dao` SAN and flip the variable.
+TLS verification between the BFF and the DAO is **ON** as of 2026-08-11 (`v1.0.4`). It was off before
+that, and the recorded reason — "the DAO certificate only has a `localhost` SAN" — was wrong: the cert
+carries `DNS:localhost, DNS:dao, DNS:influencer-dao`.
+
+The actual blocker was a **stale truststore**. Keystore and truststore were regenerated together at
+14:12 on 2026-08-10, but only the keystore reached Secrets Manager; the truststore stayed uncommitted,
+so images kept being built from a copy anchoring a *different* self-signed cert issued at 00:49 the same
+day — same subject, same SANs, different key. The BFF held an anchor for a certificate the DAO had
+stopped serving, and no SAN change would ever have fixed it.
 
 Only 80 and 443 are open to the internet. The nine service ports have **no** security-group rules at all
 — they are reachable only on the bridge, which has no route from outside.
@@ -155,8 +160,11 @@ Two AWS limits shape this:
 - No SSH, no port 22, no bastion. Shell access is SSM Session Manager only.
 - Secrets in Secrets Manager under a customer-managed KMS key, scoped by ARN.
 - KMS-encrypted EBS, RDS, EFS, S3.
-- Zero-trust service chain intact: the DAO rejects a request with no service token (verified — 401), and
-  unauthenticated API calls are refused (verified — 401).
+- Zero-trust service chain intact: the DAO rejects a request with no service token (verified — 401),
+  unauthenticated API calls are refused (verified — 401), and the BFF **verifies** the DAO's certificate
+  rather than accepting any certificate on port 8443 (v1.0.4+).
+- HTTPS on api.tejdux.com via Let's Encrypt, obtained and renewed by Caddy; certificates live on EFS so a
+  Spot replacement reuses them rather than re-issuing into the 5-per-domain-per-week rate limit.
 
 **What does not, and is not a bug you can file:**
 
@@ -166,8 +174,7 @@ Two AWS limits shape this:
    owns. Bounded by the hop limit and by the fact that the secrets are already in the container's
    environment — this widens reach, it does not create a new path.
 2. **Secrets touch disk.** `/run/influencrm/platform.env`, root-only, tmpfs. ECS never wrote them down.
-3. **TLS verification off between BFF and DAO** (§5).
-4. **No WAF**, no alerting, no NAT gateway, no remote Terraform state.
+3. **No WAF**, no alerting, no NAT gateway, no remote Terraform state.
 
 ## 9. What the smoke test found
 

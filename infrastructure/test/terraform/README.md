@@ -68,11 +68,17 @@ production needs S3 + DynamoDB **before** its first apply.
 
 Both are documented in [../../COMPOSE-MIGRATION.md](../../COMPOSE-MIGRATION.md) and neither is fixed:
 
-- **`dao_certificate_has_service_san = false`.** Under Compose the BFF reaches the DAO at `https://dao:8443`
-  rather than `localhost`, and the committed keystore only carries a `localhost` SAN — so TLS
-  verification is **off**. Encrypted, but not authenticated. Reissue the keystore with a `dao` SAN and
-  flip the variable.
-- **`api_domain` is unset.** Caddy therefore serves plain HTTP on the Elastic IP: no Let's Encrypt
-  certificate (an IP cannot be certified), no OAuth sign-in (providers reject an IP redirect URI), and
-  the CloudFront distributions serve the UI only — `/api/*` and `/dps/*` do not route through them,
-  because CloudFront rejects an IP as an origin.
+Both of the items that used to be listed here are now **closed**:
+
+- **HTTPS and OAuth** — `api_domain = api.tejdux.com`. Caddy holds a Let's Encrypt certificate and
+  Google sign-in returns a 302 to Google. `/api/*` and `/dps/*` route through CloudFront, so the shell
+  calls the API same-origin.
+- **BFF → DAO TLS verification** — on since `v1.0.4`. The blocker was never the certificate's SANs (it
+  has carried `DNS:dao` all along) but a truststore that was regenerated and never committed, so images
+  anchored a superseded certificate.
+
+What remains open:
+
+- **Facebook OAuth** — its two secrets are still placeholders, so those endpoints answer 400.
+- **`static_site_certificate_arn` is unset**, so the micro-frontends serve on `*.cloudfront.net` names
+  rather than `app.`/`workflow.`/… — that needs a wildcard certificate, and `d38a2767` is not one.
