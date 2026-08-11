@@ -52,6 +52,24 @@ ui_base_url = "https://tejdux.com"
 # which works because the shell is told each remote's origin at build time.
 static_site_certificate_arn = ""
 
+# ---------------------------------------------------------------------------
+# BFF -> DAO certificate verification — enabled 2026-08-11
+# ---------------------------------------------------------------------------
+# TRUE, so the BFF verifies the DAO's certificate instead of accepting any certificate presented on
+# port 8443. The variable is badly named in hindsight: the DAO cert has carried DNS:dao since it was
+# regenerated, and the SAN was never what blocked this.
+#
+# What blocked it was a STALE TRUSTSTORE. The keystore and truststore were regenerated together at
+# 14:12 on 2026-08-10, but only the keystore reached Secrets Manager — the truststore stayed
+# uncommitted, so images kept being built from the committed copy, which anchors a DIFFERENT
+# self-signed cert issued at 00:49 that day. Same subject, same SANs, different key. The BFF therefore
+# held an anchor for a certificate the DAO had stopped serving.
+#
+# Fixed in image v1.0.4, which is the first build to contain the 14:12 truststore (verified by
+# extracting BOOT-INF/classes/dao-truststore.p12 from the built jar). Setting this true against any
+# EARLIER image reinstates the failure.
+dao_certificate_has_service_san = true
+
 # The apex. ON by default in variables.tf, so it applies without being set here: tejdux.com and
 # www.tejdux.com are aliases of the SHELL distribution, A and AAAA, under the certificate below.
 #
