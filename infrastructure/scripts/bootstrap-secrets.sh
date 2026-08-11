@@ -1,7 +1,20 @@
 #!/usr/bin/env bash
 # Populate the secrets Terraform creates EMPTY, because it cannot generate them.
 #
-#   ./infrastructure/scripts/bootstrap-secrets.sh prod us-east-1
+#   ./infrastructure/scripts/bootstrap-secrets.sh                    # everything (first run)
+#   ./infrastructure/scripts/bootstrap-secrets.sh prod us-east-1     # explicit env and region
+#   ./infrastructure/scripts/bootstrap-secrets.sh prod us-east-1 tls # ONLY the TLS keypair
+#   ./infrastructure/scripts/bootstrap-secrets.sh prod us-east-1 jwt # ONLY the signing key
+#
+# THE THIRD ARGUMENT MATTERS FOR ROTATION, and it is not a convenience. Running this script whole to
+# rotate a certificate also regenerates jwt-signing-key, and THAT INVALIDATES EVERY LIVE SESSION:
+# access tokens signed by the old key stop verifying, so every signed-in user is logged out. The two
+# have completely different blast radii and should not be forced to rotate together:
+#
+#   tls  — regenerates the DAO keypair and both stores. Needs a platform restart; no user impact.
+#   jwt  — regenerates the access-token signing key. Logs everyone out. Do it deliberately.
+#   all  — both, plus the instructions for the credentials only you can supply. The default, and
+#          right for a first run into an empty environment.
 #
 # WHAT MUST BE SET OR NOTHING RUNS:
 #   jwt-signing-key         the BFF refuses to start without it (an ephemeral key cannot be verified
@@ -20,7 +33,23 @@ set -euo pipefail
 
 ENVIRONMENT="${1:-prod}"
 REGION="${2:-${AWS_REGION:-us-east-1}}"
+SECTION="${3:-all}"
 PREFIX="influencrm-${ENVIRONMENT}"
+
+case "$SECTION" in
+    all|tls|jwt) ;;
+    *)
+        echo "ERROR: unknown section '${SECTION}'. Use one of: all (default), tls, jwt." >&2
+        exit 1
+        ;;
+esac
+
+# Rotating the signing key is the destructive one, so say so before doing it rather than after.
+if [ "$SECTION" = "jwt" ] || [ "$SECTION" = "all" ]; then
+    echo "NOTE: this run regenerates jwt-signing-key, which LOGS OUT every signed-in user."
+    echo "      Use '${0##*/} ${ENVIRONMENT} ${REGION} tls' to rotate only the DAO certificate."
+    echo
+fi
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 WORK="$(mktemp -d)"
@@ -44,9 +73,11 @@ echo
 # ---------------------------------------------------------------------------
 # 1. The DAO's TLS keystore, and the BFF truststore that must match it
 # ---------------------------------------------------------------------------
-# SANs: `localhost` is the one that matters in a single task definition — every container shares one
-# network namespace, so the BFF dials https://localhost:8443 and the certificate must be valid for
-# that name. The others cover a future split into separate tasks.
+# SANs: `dao` is the one that matters now. Under Compose each service is its own container on a bridge
+# network, so the BFF dials https://dao:8443 and the certificate must be valid for THAT name.
+# `localhost` remains for local runs and for the single-namespace deployment this replaced;
+# `influencer-dao` covers addressing by container name.
+if [ "$SECTION" = "all" ] || [ "$SECTION" = "tls" ]; then
 echo "==> generating the DAO keystore"
 KEYSTORE_PASSWORD="$(openssl rand -base64 24 | tr -d '\n/+=' | head -c 24)"
 
@@ -63,12 +94,21 @@ if [ -n "${KEYTOOL_BIN:-}" ]; then
 elif command -v keytool >/dev/null 2>&1; then
     keytool_run() { keytool "$@"; }
 elif command -v docker >/dev/null 2>&1; then
-    # MSYS_NO_PATHCONV: Git Bash rewrites /certs into a Windows path before docker sees it.
+    # The bind mount needs a path the DOCKER DAEMON can resolve, which under Git Bash is not what
+    # mktemp -d returns: /tmp/tmp.XXXX is an MSYS path with no meaning to a Windows daemon, so the
+    # mount silently produces an empty directory and the keystore appears never to be written.
+    # `cygpath -w` converts it; elsewhere the path is already absolute and usable as-is.
+    if command -v cygpath >/dev/null 2>&1; then
+        MOUNT_SRC="$(cygpath -w "${WORK}/certs")"
+    else
+        MOUNT_SRC="${WORK}/certs"
+    fi
+    # MSYS_NO_PATHCONV: Git Bash also rewrites the CONTAINER side (/certs) into a Windows path.
     keytool_run() {
-        MSYS_NO_PATHCONV=1 docker run --rm -v "${WORK}/certs:/certs" \
+        MSYS_NO_PATHCONV=1 docker run --rm -v "${MOUNT_SRC}:/certs" \
             --entrypoint keytool eclipse-temurin:21-jdk "$@"
     }
-    # The paths below are host paths; inside the container they are under /certs.
+    # Container-side paths while keytool runs; switched back to host paths immediately after.
     KEYSTORE_FILE=/certs/keystore.p12
     CERT_FILE=/certs/dao-cert.crt
     TRUSTSTORE_FILE=/certs/dao-truststore.p12
@@ -116,12 +156,18 @@ cp "${TRUSTSTORE_FILE}" \
    "${REPO_ROOT}/InfluencerWebExperience/src/main/resources/dao-truststore.p12"
 echo "    stored dao-truststore-b64 and refreshed the committed fallback copy"
 echo "    >>> restart the platform to pick up both halves; no image rebuild needed."
+fi
 
 # ---------------------------------------------------------------------------
 # 2. The BFF's access-token signing key
 # ---------------------------------------------------------------------------
 # An RSA JWK including the private key — SigningKeySet parses it with nimbus and rejects a key with
 # no private half, because it signs.
+#
+# ROTATING THIS LOGS EVERYONE OUT. Tokens signed by the previous key no longer verify, so every active
+# session ends the moment the BFF restarts. That is why it is skippable — a certificate rotation has no
+# business ending user sessions.
+if [ "$SECTION" = "all" ] || [ "$SECTION" = "jwt" ]; then
 echo
 echo "==> generating the JWT signing key"
 openssl genrsa 2048 2>/dev/null > "${WORK}/jwt.pem"
@@ -148,10 +194,21 @@ print(json.dumps({
 PY
 )"
 put "jwt-signing-key" "$JWK"
+fi
 
 # ---------------------------------------------------------------------------
 # 3. What only you can supply
 # ---------------------------------------------------------------------------
+# Only on a full run: a targeted rotation does not need the list of credentials to paste in, and
+# printing it every time trains people to skip the output.
+if [ "$SECTION" != "all" ]; then
+    echo
+    echo "==> ${SECTION} secrets rotated. Restart the platform to pick them up:"
+    echo "      aws ssm start-session --target <instance-id> --region ${REGION}"
+    echo "      sudo systemctl restart influencrm-secrets influencrm"
+    exit 0
+fi
+
 cat <<EOF
 
 ==============================================================
