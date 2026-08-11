@@ -98,13 +98,31 @@ begin
             ('domain_events',                'shared')
         ) as t(table_name, target_schema)
     loop
+        -- BOTH conditions, and the second one is what makes this re-runnable. Checking only that the
+        -- source exists is not enough: on a re-run the base schema has recreated the table in `public`
+        -- while the real one is already in its context schema, and `set schema` then fails with
+        -- `relation "users" already exists in schema "identity"`.
+        --
+        -- When the destination is occupied, the `public` copy is a leftover from that recreation — the
+        -- live table is the one already moved — so it is DROPPED rather than moved. It is empty by
+        -- construction (nothing writes to `public` once search_path puts the context schemas first), and
+        -- `drop table` without CASCADE refuses if anything has come to depend on it.
         if exists (
             select 1 from pg_tables
              where schemaname = 'public' and tablename = target.table_name
         ) then
-            execute format('alter table public.%I set schema %I',
-                           target.table_name, target.target_schema);
-            raise notice 'moved % -> %', target.table_name, target.target_schema;
+            if exists (
+                select 1 from pg_tables
+                 where schemaname = target.target_schema and tablename = target.table_name
+            ) then
+                execute format('drop table public.%I', target.table_name);
+                raise notice 'dropped leftover public.% (already in %)',
+                             target.table_name, target.target_schema;
+            else
+                execute format('alter table public.%I set schema %I',
+                               target.table_name, target.target_schema);
+                raise notice 'moved % -> %', target.table_name, target.target_schema;
+            end if;
         end if;
     end loop;
 end $$;
@@ -166,8 +184,12 @@ begin
      where schemaname in ('identity','creator','campaign','workflow',
                           'attribution','finance','content','mapping','shared');
 
-    if moved <> 24 then
-        raise exception 'Phase 5: expected 24 tables across context schemas, found %', moved;
+    -- AT LEAST 24, not exactly 24. This migration moves 24 tables, but every migration that runs AFTER
+    -- it creates its own tables directly in a context schema — so on a re-run the count is whatever the
+    -- schema has grown to (66 at the time of writing), and an equality check turns every future table
+    -- into a deploy failure. The invariant worth asserting is that nothing went MISSING.
+    if moved < 24 then
+        raise exception 'Phase 5: expected at least 24 tables across context schemas, found %', moved;
     end if;
 
     -- Unqualified resolution must still work, or every query in the app breaks.

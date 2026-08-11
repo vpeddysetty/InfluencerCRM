@@ -5,7 +5,7 @@
 
 create extension if not exists vector;
 
-create table if not exists mapping_examples (
+create table if not exists public.mapping_examples (
     id                 uuid primary key default gen_random_uuid(),
     user_id            uuid references users(id) on delete set null,
     template_name      text,
@@ -23,16 +23,16 @@ create table if not exists mapping_examples (
 );
 
 create index if not exists idx_mapping_examples_active
-    on mapping_examples(is_active);
+    on public.mapping_examples(is_active);
 
 create index if not exists idx_mapping_examples_user
-    on mapping_examples(user_id);
+    on public.mapping_examples(user_id);
 
 create index if not exists idx_mapping_examples_quality
-    on mapping_examples(quality_score desc);
+    on public.mapping_examples(quality_score desc);
 
 create index if not exists idx_mapping_examples_embedding_cos
-    on mapping_examples using ivfflat (signature_embedding vector_cosine_ops)
+    on public.mapping_examples using ivfflat (signature_embedding vector_cosine_ops)
     with (lists = 100);
 
 do $$

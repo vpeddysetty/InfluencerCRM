@@ -14,7 +14,7 @@
 
 create extension if not exists "pgcrypto";
 
-create table if not exists workflow_boards (
+create table if not exists public.workflow_boards (
     id          uuid primary key default gen_random_uuid(),
     user_id     uuid not null references users(id) on delete cascade,
     name        text not null,
@@ -29,7 +29,7 @@ create table if not exists workflow_boards (
 create index if not exists idx_workflow_boards_user
     on workflow_boards(user_id, position);
 
-create table if not exists workflow_board_stages (
+create table if not exists public.workflow_board_stages (
     id          uuid primary key default gen_random_uuid(),
     user_id     uuid not null references users(id) on delete cascade,
     board_id    uuid not null references workflow_boards(id) on delete cascade,

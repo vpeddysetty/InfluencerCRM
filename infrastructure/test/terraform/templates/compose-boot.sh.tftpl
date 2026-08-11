@@ -1,0 +1,249 @@
+#!/bin/bash
+# Instance boot script for the Compose deployment. Runs on EVERY launch, including the replacement after
+# a Spot reclamation — so it must be idempotent and must not assume a clean slate.
+#
+# WHAT THIS REPLACES: the ECS variant of this script attached an EBS volume, waited for a device to
+# appear, then joined an ECS cluster. All three are gone:
+#   - Postgres is on RDS, so there is no data volume to attach and no device to discover. That entire
+#     sequence — and the deadlock where a second instance waited forever for a volume the first one held
+#     — cannot happen because there is nothing to hold.
+#   - Shared state is on EFS, which is an NFS mount available from every AZ at once. No attach, no
+#     detach, no sequencing.
+#   - There is no ECS agent, so nothing races the mounts to start containers.
+#
+# It does four things:
+#   1. Mount the EFS access points.
+#   2. Claim the Elastic IP, so DNS keeps resolving after a replacement.
+#   3. Fetch secrets from Secrets Manager into a root-only env file.
+#   4. Start the compose stack under systemd.
+#
+# Logs to /var/log/influencrm-boot.log AND the console, so `aws ec2 get-console-output` shows it when the
+# instance never gets far enough to run the SSM agent.
+set -uo pipefail
+exec > >(tee -a /var/log/influencrm-boot.log | logger -t influencrm-boot -s 2>/dev/console) 2>&1
+
+echo "=== influencrm compose boot $(date -u +%FT%TZ) ==="
+
+REGION="${region}"
+TOKEN=$(curl -sX PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 300")
+IID=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/instance-id)
+echo "instance $IID in $REGION"
+
+# ---------------------------------------------------------------------------
+# 0. Packages
+# ---------------------------------------------------------------------------
+# The ECS-optimized AMI ships Docker and the SSM agent but NOT the compose plugin or the EFS mount
+# helper, and AL2023 has no `amazon-efs-utils` in its default repos for every version — so the helper is
+# installed if available and the script falls back to a plain NFS mount if not.
+echo "--- installing packages ---"
+dnf install -y docker amazon-efs-utils nfs-utils >/dev/null 2>&1 \
+  || dnf install -y docker nfs-utils >/dev/null 2>&1 \
+  || echo "  WARNING: package install returned non-zero; continuing on what the AMI already has"
+
+# The compose plugin as a CLI plugin, which is what makes `docker compose` (not `docker-compose`) work.
+COMPOSE_DIR=/usr/local/lib/docker/cli-plugins
+if [ ! -x "$COMPOSE_DIR/docker-compose" ]; then
+  echo "  installing the compose plugin"
+  mkdir -p "$COMPOSE_DIR"
+  curl -fsSL "https://github.com/docker/compose/releases/download/v2.29.7/docker-compose-linux-x86_64" \
+       -o "$COMPOSE_DIR/docker-compose" \
+    && chmod 0755 "$COMPOSE_DIR/docker-compose" \
+    || echo "  WARNING: compose plugin download failed; the stack cannot start"
+fi
+
+systemctl enable --now docker >/dev/null 2>&1 || systemctl restart docker
+
+# ---------------------------------------------------------------------------
+# 1. EFS
+# ---------------------------------------------------------------------------
+# Three access points on ONE filesystem: logs, assets and Caddy's certificate store. Each is mounted by
+# its access point id rather than by path, so the uid/gid enforcement on the access point applies — the
+# containers run as uid 1001 and a mount shadows in-image ownership.
+#
+# `_netdev` in fstab so systemd orders the mount after the network is up; without it a reboot tries to
+# mount NFS before there is a route and the unit fails.
+echo "--- mounting EFS ---"
+FS_ID="${efs_id}"
+
+mount_ap() {
+  local ap_id="$1" target="$2" label="$3"
+  mkdir -p "$target"
+
+  # tls: the mount is encrypted in transit, which the access point's IAM policy requires. iam: the
+  # instance role is what authorises the mount, so no filesystem policy exemption is needed.
+  local opts="tls,iam,accesspoint=$ap_id,_netdev"
+
+  grep -q " $target " /etc/fstab || echo "$FS_ID:/ $target efs $opts 0 0" >> /etc/fstab
+
+  if mountpoint -q "$target"; then
+    echo "  $label already mounted"
+    return 0
+  fi
+
+  for i in $(seq 1 10); do
+    if mount -t efs -o "$opts" "$FS_ID:/" "$target" 2>/dev/null; then
+      echo "  $label mounted at $target"
+      return 0
+    fi
+    echo "  $label mount attempt $i/10 failed, retrying"
+    sleep 6
+  done
+
+  echo "  WARNING: $label never mounted. The stack will start and write to the instance disk instead," >&2
+  echo "  which means logs and uploads do not survive this instance." >&2
+  return 1
+}
+
+mount_ap "${efs_ap_logs}"   /mnt/logs   "logs"
+mount_ap "${efs_ap_assets}" /mnt/assets "assets"
+mount_ap "${efs_ap_caddy}"  /mnt/caddy  "caddy certificates"
+
+%{ if eip_enabled == "true" ~}
+# ---------------------------------------------------------------------------
+# 2. The Elastic IP
+# ---------------------------------------------------------------------------
+# Claimed by the instance itself rather than by Terraform, because the instance Terraform knows about is
+# not the instance that exists after a Spot replacement. Found by tag so replacing the address does not
+# require a new launch template.
+echo "--- associating Elastic IP ---"
+ALLOC=$(aws ec2 describe-addresses --region "$REGION" \
+        --filters "Name=tag:Role,Values=influencrm-app-eip" \
+        --query 'Addresses[0].AllocationId' --output text 2>/dev/null)
+if [ -n "$ALLOC" ] && [ "$ALLOC" != "None" ]; then
+  aws ec2 associate-address --region "$REGION" --instance-id "$IID" \
+      --allocation-id "$ALLOC" --allow-reassociation >/dev/null \
+    && echo "  associated $ALLOC" \
+    || echo "  WARNING: could not associate $ALLOC - the platform will be unreachable by DNS"
+else
+  echo "  WARNING: no EIP tagged Role=influencrm-app-eip found"
+fi
+%{ endif ~}
+
+# ---------------------------------------------------------------------------
+# 3. Secrets
+# ---------------------------------------------------------------------------
+# ECS resolved `secrets` entries in the task definition; without ECS the instance fetches them itself.
+# They land in an env file that compose reads via `env_file`-equivalent (--env-file), owned by root and
+# mode 0600 — readable by the daemon that starts the containers and by nothing else.
+#
+# THIS IS THE ONE PLACE THE SECRETS EXIST ON DISK. The ECS execution role injected them straight into the
+# container environment and never wrote them down, which was strictly better; this is the cost of leaving
+# ECS. /run is tmpfs, so the file does not survive a reboot and is re-fetched on every boot.
+echo "--- fetching secrets ---"
+ENV_DIR=/run/influencrm
+ENV_FILE="$ENV_DIR/platform.env"
+mkdir -p "$ENV_DIR"
+chmod 0700 "$ENV_DIR"
+
+: > "$ENV_FILE"
+chmod 0600 "$ENV_FILE"
+
+fetch_secret() {
+  local var_name="$1" secret_id="$2"
+  local value
+  value=$(aws secretsmanager get-secret-value --region "$REGION" \
+          --secret-id "$secret_id" --query SecretString --output text 2>/dev/null)
+  if [ -z "$value" ] || [ "$value" = "None" ]; then
+    echo "  WARNING: $var_name ($secret_id) is empty; the service that needs it will fail" >&2
+    return 1
+  fi
+  # printf %s with no interpretation: a secret containing a backslash must not be mangled on its way
+  # into the env file.
+  printf '%s=%s\n' "$var_name" "$value" >> "$ENV_FILE"
+}
+
+%{ for var_name, secret_arn in secret_env ~}
+fetch_secret "${var_name}" "${secret_arn}"
+%{ endfor ~}
+echo "  wrote $(grep -c '=' "$ENV_FILE") secrets to $ENV_FILE"
+
+# ---------------------------------------------------------------------------
+# 4. The compose stack
+# ---------------------------------------------------------------------------
+echo "--- starting the platform ---"
+APP_DIR=/opt/influencrm
+mkdir -p "$APP_DIR"
+
+# The compose file comes from S3 rather than from user data: at ~23KB it does not fit in user data's
+# 16KB budget. etag ${compose_etag} — referenced only so a changed file changes this script, and
+# therefore the launch template version an instance refresh rolls to.
+#
+# A FAILURE HERE IS FATAL and must not be swallowed: without the compose file there is no platform, and
+# starting the systemd unit against a missing file produces a confusing error much later.
+if ! aws s3 cp "s3://${compose_bucket}/${compose_key}" "$APP_DIR/docker-compose.yml" --region "$REGION" >/dev/null 2>&1; then
+  echo "FATAL: could not fetch the compose file from s3://${compose_bucket}/${compose_key}." >&2
+  echo "Check the instance role has s3:GetObject on it, and that the object exists." >&2
+  exit 1
+fi
+chmod 0644 "$APP_DIR/docker-compose.yml"
+echo "  fetched $(wc -c < "$APP_DIR/docker-compose.yml") bytes of compose config"
+
+# Log in to ECR. The instance role carries the pull permissions; this exchanges them for a docker
+# credential, and it must happen before the first `compose up` or every pull is denied.
+aws ecr get-login-password --region "$REGION" \
+  | docker login --username AWS --password-stdin "${ecr_registry}" >/dev/null 2>&1 \
+  && echo "  authenticated to ECR" \
+  || echo "  WARNING: ECR login failed; image pulls will be denied"
+
+# A systemd unit rather than a bare `compose up`, so the stack comes back after a reboot and so
+# `systemctl status influencrm` is the one place to look. This is what replaces the ECS agent.
+cat > /etc/systemd/system/influencrm.service <<'UNIT'
+[Unit]
+Description=InfluenCRM platform (docker compose)
+Requires=docker.service
+After=docker.service network-online.target
+# The EFS mounts are not Requires=: a failed mount must not stop the platform from starting, because a
+# running platform writing logs to the instance disk is better than no platform at all. The boot script
+# has already warned if a mount failed.
+After=mnt-logs.mount mnt-assets.mount mnt-caddy.mount
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/influencrm
+EnvironmentFile=/run/influencrm/platform.env
+# --env-file so compose substitutes $${VAR} in the YAML from the same file systemd reads.
+ExecStartPre=/usr/bin/docker compose --env-file /run/influencrm/platform.env pull --quiet
+ExecStart=/usr/bin/docker compose --env-file /run/influencrm/platform.env up -d --remove-orphans
+ExecStop=/usr/bin/docker compose --env-file /run/influencrm/platform.env down
+# Ten JVMs is a slow boot and `pull` is slower still on a cold instance.
+TimeoutStartSec=900
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+systemctl daemon-reload
+systemctl enable --now influencrm.service \
+  && echo "  influencrm.service started" \
+  || echo "  WARNING: influencrm.service failed; check journalctl -u influencrm"
+
+# ---------------------------------------------------------------------------
+# 5. Spot interruption handling
+# ---------------------------------------------------------------------------
+# ECS_ENABLE_SPOT_INSTANCE_DRAINING did this before. Without the agent, a poller watches the metadata
+# endpoint for the two-minute notice and stops the stack gracefully, so Spring shuts down cleanly
+# instead of being killed mid-request. `curl -f` succeeds only on the 200 that means termination is
+# coming; the normal answer is a 404.
+#
+# INLINE IN THE UNIT rather than a separate script file, because user data is capped at 16384 bytes
+# after base64 encoding and this script was over it. Terse here is a size constraint, not a style.
+cat > /etc/systemd/system/influencrm-spot-watch.service <<'UNIT'
+[Unit]
+Description=InfluenCRM Spot interruption watcher
+After=influencrm.service
+
+[Service]
+ExecStart=/bin/bash -c 'while true; do T=$(curl -sX PUT http://169.254.169.254/latest/api/token -H "X-aws-ec2-metadata-token-ttl-seconds: 60"); if curl -sf -o /dev/null -H "X-aws-ec2-metadata-token: $T" http://169.254.169.254/latest/meta-data/spot/instance-action; then logger -t influencrm-spot "interruption notice; stopping the stack"; systemctl stop influencrm.service; exit 0; fi; sleep 5; done'
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+systemctl daemon-reload
+systemctl enable --now influencrm-spot-watch.service >/dev/null 2>&1 \
+  && echo "  spot watcher started"
+
+echo "=== boot complete $(date -u +%FT%TZ) ==="

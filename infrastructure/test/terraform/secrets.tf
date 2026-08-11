@@ -80,8 +80,9 @@ data "aws_iam_policy_document" "kms_key" {
     principals {
       type = "AWS"
       identifiers = [
-        # The instance role, which is what calls AttachVolume from the boot script.
-        aws_iam_role.instance[0].arn,
+        # The instance role. There is no data volume to attach any more (Postgres is on RDS), but the
+        # instance's ROOT volume is encrypted with this key, and a launch cannot decrypt it without this.
+        aws_iam_role.compose_instance.arn,
         # The account root, so Terraform and an operator can manage encrypted volumes too.
         "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root",
       ]

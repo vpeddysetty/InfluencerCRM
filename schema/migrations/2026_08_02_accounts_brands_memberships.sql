@@ -59,7 +59,7 @@ end $$;
 -- 2) Core tenancy tables
 -- =============================================================
 
-create table if not exists accounts (
+create table if not exists public.accounts (
     id           uuid primary key default gen_random_uuid(),
     name         text not null,
     account_type text not null default 'brand' check (account_type in ('brand','agency')),
@@ -72,7 +72,7 @@ create table if not exists accounts (
 comment on table accounts is
     'The paying entity. account_type=brand is a solo brand; account_type=agency manages many brands.';
 
-create table if not exists brands (
+create table if not exists public.brands (
     id                uuid primary key default gen_random_uuid(),
     account_id        uuid not null references accounts(id) on delete cascade,
     name              text not null,
@@ -87,7 +87,7 @@ create table if not exists brands (
 comment on table brands is
     'A managed brand. THE tenancy key for every domain table from Phase 2 onward.';
 
-create table if not exists memberships (
+create table if not exists public.memberships (
     id         uuid primary key default gen_random_uuid(),
     account_id uuid not null references accounts(id) on delete cascade,
     user_id    uuid not null references users(id)    on delete cascade,
@@ -105,7 +105,7 @@ comment on table memberships is
 -- Scopes a member to specific brands. A membership with NO rows here whose role is
 -- OWNER or ADMIN implicitly has access to ALL brands in the account; that keeps the
 -- common "agency owner sees everything" case from requiring N rows per new brand.
-create table if not exists brand_access (
+create table if not exists public.brand_access (
     id            uuid primary key default gen_random_uuid(),
     membership_id uuid not null references memberships(id) on delete cascade,
     brand_id      uuid not null references brands(id)      on delete cascade,

@@ -25,7 +25,7 @@ begin
 end $$;
 
 -- ---- tables ------------------------------------------------
-create table if not exists influencer_campaign_codes (
+create table if not exists public.influencer_campaign_codes (
     id                  uuid primary key default gen_random_uuid(),
     user_id             uuid not null references users(id) on delete cascade,
     campaign_id         uuid not null references campaigns(id) on delete cascade,
@@ -42,7 +42,7 @@ create table if not exists influencer_campaign_codes (
     updated_at          timestamptz not null default now()
 );
 
-create table if not exists influencer_sale_attributions (
+create table if not exists public.influencer_sale_attributions (
     id                   uuid primary key default gen_random_uuid(),
     user_id              uuid not null references users(id) on delete cascade,
     campaign_code_id     uuid not null references influencer_campaign_codes(id) on delete cascade,
