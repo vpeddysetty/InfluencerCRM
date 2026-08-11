@@ -119,7 +119,9 @@ const STORAGE_KEY = 'tejdux_ui_state_v3'
 
 // Origin of the Digital Presentation Service, which owns federated sign-in end to end. Kept in
 // step with the same constant in shell/gateway/PresentationGateway.js.
-const DPS_BASE_URL = import.meta.env?.VITE_DPS_URL || 'http://localhost:8090'
+const DPS_BASE_URL =
+  import.meta.env?.VITE_DPS_URL ||
+  (typeof window !== 'undefined' && window.location?.origin ? window.location.origin : 'http://localhost:8090')
 const CAMPAIGN_TYPE_OPTIONS = [
   { value: 'product seeding', label: 'Product Seeding' },
   { value: 'sponsored content', label: 'Sponsored Content' },

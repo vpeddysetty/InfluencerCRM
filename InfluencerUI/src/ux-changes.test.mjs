@@ -1727,6 +1727,19 @@ test('the app asks the DPS for an existing session at boot', () => {
   assert.match(app, /useCookieSession\(DPS_BASE_URL\)/, 'a restored session must switch transport')
 })
 
+test('the app falls back to the browser origin when no DPS URL is provided', () => {
+  const app = read('App.jsx')
+
+  assert.match(app, /window\.location\.origin/, 'the shell should use the current browser origin by default')
+})
+
+test('the API transport uses the configured BFF base URL in production', () => {
+  const core = read('api/core.js')
+
+  assert.match(core, /VITE_BFF_URL/, 'the transport should read the build-time BFF URL')
+  assert.match(core, /resolveApiUrl|BFF_BASE_URL/, 'the transport should resolve API URLs against the BFF origin')
+})
+
 test('the restore runs once and cannot re-enter', () => {
   // A dependency on anything the restore itself sets would re-restore over a live session.
   const app = read('App.jsx')

@@ -76,6 +76,22 @@ export function getActiveBrandId() {
   return activeBrandId
 }
 
+function resolveApiUrl(path) {
+  if (!path || /^https?:\/\//i.test(path)) {
+    return path
+  }
+
+  const baseUrl =
+    import.meta?.env?.VITE_BFF_URL ||
+    (typeof window !== 'undefined' && window.location?.origin ? window.location.origin : '')
+
+  if (!baseUrl) {
+    return path
+  }
+
+  return new URL(path, baseUrl).toString()
+}
+
 function buildHeaders(token, extraHeaders = {}) {
   const headers = {
     ...extraHeaders,
@@ -182,7 +198,7 @@ export async function request(
       })
     }
 
-    return fetch(path, { method, headers: buildHeaders(bearer, extraHeaders), body: payload })
+    return fetch(resolveApiUrl(path), { method, headers: buildHeaders(bearer, extraHeaders), body: payload })
   }
 
   let response = await send(token)
