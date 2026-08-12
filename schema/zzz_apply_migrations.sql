@@ -45,3 +45,4 @@
 \i /docker-entrypoint-initdb.d/migrations/2026_08_07_m5_6_hosting_expiry_warnings.sql
 \i /docker-entrypoint-initdb.d/migrations/2026_08_07_m6_creator_platform_tokens.sql
 \i /docker-entrypoint-initdb.d/migrations/2026_08_09_m3_order_attribution_idempotency.sql
+\i /docker-entrypoint-initdb.d/migrations/2026_08_11_consent_records.sql

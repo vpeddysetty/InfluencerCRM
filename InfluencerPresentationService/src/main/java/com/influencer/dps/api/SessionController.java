@@ -87,12 +87,23 @@ public class SessionController {
     @GetMapping("/auth/oauth/{provider}/start")
     public ResponseEntity<Void> startOAuth(@PathVariable String provider,
                                            @RequestParam(required = false) String brandName,
-                                           @RequestParam(required = false) String displayName) {
+                                           @RequestParam(required = false) String displayName,
+                                           @RequestParam(required = false, defaultValue = "false") boolean acceptedTerms) {
         if (!SUPPORTED_PROVIDERS.contains(provider)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported provider: " + provider);
         }
 
-        StringBuilder target = new StringBuilder(properties.getBffBaseUrl())
+        // THE PUBLIC BFF URL, NOT dps.bff-base-url.
+        //
+        // This is a Location header: the BROWSER resolves it. bff-base-url is the server-to-server
+        // address, which in the deployed compose stack is http://web-experience:8081 — a hostname on
+        // the container bridge network that does not resolve anywhere else. Sending it here is what
+        // broke Google sign-in: the browser was redirected to a name it could not look up, and the
+        // landing page sat on "Connecting…" forever because the redirect that was supposed to
+        // replace the page never happened.
+        //
+        // Two URLs for two audiences, so neither can be quietly used for the other.
+        StringBuilder target = new StringBuilder(properties.requirePublicBffBaseUrl())
                 .append("/api/auth/oauth/").append(provider).append("/start");
         String separator = "?";
         if (brandName != null && !brandName.isBlank()) {
@@ -101,6 +112,12 @@ public class SessionController {
         }
         if (displayName != null && !displayName.isBlank()) {
             target.append(separator).append("displayName=").append(encode(displayName));
+            separator = "&";
+        }
+        // Forwarded rather than re-asked: the checkbox is on the landing page, and this leg is a
+        // redirect with nowhere to render one. The BFF re-checks it — see OAuthFlowService.startGoogle.
+        if (acceptedTerms) {
+            target.append(separator).append("acceptedTerms=true");
         }
         return ResponseEntity.status(HttpStatus.FOUND).location(URI.create(target.toString())).build();
     }

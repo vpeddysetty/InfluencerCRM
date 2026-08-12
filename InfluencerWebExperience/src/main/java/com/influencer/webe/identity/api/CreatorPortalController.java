@@ -1,11 +1,13 @@
 package com.influencer.webe.identity.api;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.influencer.webe.identity.application.ConsentService;
 import com.influencer.webe.identity.application.CreatorPortalService;
 import com.influencer.webe.identity.infrastructure.DaoCreatorIdentityClient;
 import com.influencer.webe.security.Permission;
 import com.influencer.webe.security.TenantContext;
 import com.influencer.webe.shared.application.RequestUserResolver;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
@@ -36,21 +38,46 @@ public class CreatorPortalController {
     private final CreatorPortalService portalService;
     private final DaoCreatorIdentityClient creatorIdentityClient;
     private final RequestUserResolver requestUserResolver;
+    private final ConsentService consentService;
 
     public CreatorPortalController(CreatorPortalService portalService,
                                    DaoCreatorIdentityClient creatorIdentityClient,
-                                   RequestUserResolver requestUserResolver) {
+                                   RequestUserResolver requestUserResolver,
+                                   ConsentService consentService) {
         this.portalService = portalService;
         this.creatorIdentityClient = creatorIdentityClient;
         this.requestUserResolver = requestUserResolver;
+        this.consentService = consentService;
     }
 
     // ------------------------------------------------------------------ creator side
 
+    /**
+     * Creator portal signup — a real authenticating account, not a CRM record.
+     *
+     * <p>Worth stating because the landing page long described creators as records a brand owns
+     * rather than people who sign in. Since the portal exists they are both, and a creator is the
+     * data subject whose personal data the platform is largely processing — so this is the surface
+     * where consent matters most, not least.
+     */
     @PostMapping("/auth/signup")
     @ResponseStatus(HttpStatus.CREATED)
-    public SessionView signup(@Valid @RequestBody CreatorSignupRequest request) {
-        return SessionView.of(portalService.signup(request.email(), request.password(), request.displayName()));
+    public SessionView signup(@Valid @RequestBody CreatorSignupRequest request,
+                              HttpServletRequest httpRequest) {
+        consentService.requireAccepted(request.acceptedTerms());
+
+        CreatorPortalService.CreatorSession session =
+                portalService.signup(request.email(), request.password(), request.displayName());
+
+        consentService.recordSignupConsent(
+                ConsentService.SUBJECT_CREATOR_IDENTITY,
+                session.creatorIdentityId(),
+                session.email(),
+                "creator_portal_signup",
+                httpRequest,
+                null);
+
+        return SessionView.of(session);
     }
 
     @PostMapping("/auth/login")
@@ -149,9 +176,14 @@ public class CreatorPortalController {
 
     // ------------------------------------------------------------------ payloads
 
+    /**
+     * @param acceptedTerms whether the consent checkbox was ticked. Boxed so that "absent" is not
+     *     silently reported as a deliberate refusal; either way ConsentService rejects it.
+     */
     public record CreatorSignupRequest(@Email @NotBlank String email,
                                        @NotBlank String password,
-                                       String displayName) {
+                                       String displayName,
+                                       Boolean acceptedTerms) {
     }
 
     public record CreatorLoginRequest(@Email @NotBlank String email, @NotBlank String password) {

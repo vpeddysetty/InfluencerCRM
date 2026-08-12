@@ -231,6 +231,10 @@ services:
     environment:
       <<: *common-env
       DPS_BFF_URL: http://web-experience:8081
+      # The same BFF, as the BROWSER must address it. DPS_BFF_URL above is the compose-network name
+      # and is unreachable from outside the task, so it cannot be used in a redirect — doing exactly
+      # that is what broke Google sign-in, which redirected the browser to http://web-experience:8081.
+      DPS_PUBLIC_BFF_URL: ${public_base_url}
       DPS_UI_BASE_URL: ${ui_base_url}
       # Secure cookies over HTTPS only. With a certificate this must be true, or the session cookie
       # travels in clear text; without one it must be false, or the browser silently never sends the

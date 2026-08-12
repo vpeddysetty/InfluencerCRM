@@ -6,10 +6,12 @@ import com.influencer.webe.security.Permission;
 import com.influencer.webe.security.TenantContext;
 import com.influencer.webe.shared.application.RequestUserResolver;
 import com.influencer.webe.identity.application.BulkMemberInvitationService;
+import com.influencer.webe.identity.application.ConsentService;
 import com.influencer.webe.identity.application.EntitlementService;
 import com.influencer.webe.identity.application.MemberInvitationService;
 import com.influencer.webe.identity.application.PlanPolicy;
 import com.influencer.webe.identity.application.SessionService;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
@@ -37,19 +39,22 @@ public class BrandsController {
     private final MemberInvitationService invitationService;
     private final BulkMemberInvitationService bulkInvitations;
     private final EntitlementService entitlements;
+    private final ConsentService consentService;
 
     public BrandsController(DaoTenancyClient tenancyClient,
                             RequestUserResolver requestUserResolver,
                             SessionService sessionService,
                             MemberInvitationService invitationService,
                             BulkMemberInvitationService bulkInvitations,
-                            EntitlementService entitlements) {
+                            EntitlementService entitlements,
+                            ConsentService consentService) {
         this.tenancyClient = tenancyClient;
         this.requestUserResolver = requestUserResolver;
         this.sessionService = sessionService;
         this.invitationService = invitationService;
         this.bulkInvitations = bulkInvitations;
         this.entitlements = entitlements;
+        this.consentService = consentService;
     }
 
     /** Every brand the caller may reach, with the role they hold on each. */
@@ -283,11 +288,33 @@ public class BrandsController {
      * caller is not yet a member. The token is the authorization, and the service additionally
      * checks it was issued to this user's email.
      */
+    /**
+     * <p>Consent is captured here as well as at signup because an invited teammate may never have
+     * seen the signup form: they arrive from an email, join someone else's account, and are bound by
+     * the same terms. Without this they would be the one class of user with no record of accepting
+     * anything.
+     */
     @PostMapping("/members/invitations/accept")
     public JsonNode acceptInvitation(@RequestHeader(value = "Authorization", required = false) String authorization,
-                                     @Valid @RequestBody AcceptInviteRequest request) {
+                                     @Valid @RequestBody AcceptInviteRequest request,
+                                     HttpServletRequest httpRequest) {
         TenantContext context = requestUserResolver.requireTenantContext(authorization);
-        return invitationService.accept(request.token(), context.userId(), context.email());
+        consentService.requireAccepted(request.acceptedTerms());
+
+        JsonNode result = invitationService.accept(request.token(), context.userId(), context.email());
+
+        // The unique index makes this a no-op for someone who already consented at signup and is now
+        // joining a second account — the same person, the same document version, one row. Accepting
+        // an invitation is still the moment to ASK, because it is a fresh agreement to be bound.
+        consentService.recordSignupConsent(
+                ConsentService.SUBJECT_USER,
+                context.userId(),
+                context.email(),
+                "invitation_accept",
+                httpRequest,
+                null);
+
+        return result;
     }
 
     @PutMapping("/members/{userId}")
@@ -372,7 +399,11 @@ public class BrandsController {
     public record InviteResponse(JsonNode invitation, String token, boolean emailDelivered) {
     }
 
-    public record AcceptInviteRequest(@NotBlank String token) {
+    /**
+     * @param acceptedTerms the invitee's acceptance. Boxed, as elsewhere, so an absent field is not
+     *     mistaken for a deliberate refusal — both are rejected, but only one is a client bug.
+     */
+    public record AcceptInviteRequest(@NotBlank String token, Boolean acceptedTerms) {
     }
 
     public record UpdateMemberRequest(@NotBlank String role) {

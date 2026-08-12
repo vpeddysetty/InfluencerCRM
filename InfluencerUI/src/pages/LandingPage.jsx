@@ -8,9 +8,16 @@ function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit, onSocialLogin, authE
   const navigate = useNavigate()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [socialProvider, setSocialProvider] = useState('')
-  // 'brand' | 'agency'. Creators are CRM records owned by a brand, not accounts that sign in,
-  // so they are deliberately not an option here — see docs/identity-signup-alignment.md.
+  // 'brand' | 'agency'. Creators are not an option HERE because this form creates a workspace and
+  // a creator does not own one — they sign in at the creator portal instead, which has its own
+  // signup. (This comment used to say creators "are CRM records, not accounts that sign in"; that
+  // stopped being true when the portal shipped in Stage 4.)
   const [accountType, setAccountType] = useState('brand')
+
+  // Unticked by default and never pre-ticked: a pre-ticked box is not the clear affirmative act
+  // GDPR Article 4(11) requires, so it would not be consent at all. The server rejects a signup
+  // without it regardless — this only keeps the user from a pointless round trip.
+  const [acceptedTerms, setAcceptedTerms] = useState(false)
 
   // Build-time, not state: the landing page is signed out and cannot ask the BFF which billing
   // provider is configured. Free-only until VITE_BILLING_LIVE=true.
@@ -51,7 +58,14 @@ function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit, onSocialLogin, authE
     // There is no result to await and no route to push: the redirect replaces this page. The
     // spinner stays on deliberately — it is the last thing rendered before the browser leaves.
     setSocialProvider(provider)
-    onSocialLogin(provider, { brandName, accountType: isSignUp ? accountType : '' })
+    onSocialLogin(provider, {
+      brandName,
+      accountType: isSignUp ? accountType : '',
+      // Consent has to leave WITH the redirect. After this the browser is at Google or Facebook and
+      // the callback returns straight into a signed-in session — there is no later moment at which
+      // a checkbox could be shown. Sign-in reuses this handler and has no checkbox, hence the guard.
+      acceptedTerms: isSignUp ? acceptedTerms : false,
+    })
   }
 
   return (
@@ -283,10 +297,38 @@ function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit, onSocialLogin, authE
               </div>
             ) : null}
 
+            {/* Sign-up only. Someone signing in agreed when they registered, and re-asking on every
+                login would train people to tick without reading — which is how consent becomes a
+                formality rather than a decision. */}
+            {isSignUp ? (
+              <label className="auth-consent">
+                <input
+                  type="checkbox"
+                  name="acceptedTerms"
+                  checked={acceptedTerms}
+                  onChange={(event) => setAcceptedTerms(event.target.checked)}
+                  required
+                />
+                <span>
+                  I agree to the{' '}
+                  <a href="https://www.tejdux.com/terms/" target="_blank" rel="noreferrer noopener">
+                    Terms of Service
+                  </a>{' '}
+                  and{' '}
+                  <a href="https://www.tejdux.com/privacy/" target="_blank" rel="noreferrer noopener">
+                    Privacy Policy
+                  </a>
+                  .
+                </span>
+              </label>
+            ) : null}
+
             <button
               type="submit"
               className={`primary-btn landing-cta-btn${isSubmitting ? ' submitting' : ''}`}
-              disabled={isSubmitting}
+              /* Disabled until ticked, so the requirement is visible before the click rather than
+                 as an error after it. The server enforces this too — the button is a courtesy. */
+              disabled={isSubmitting || (isSignUp && !acceptedTerms)}
               aria-busy={isSubmitting}
             >
               <span className="cta-label">
@@ -325,20 +367,26 @@ function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit, onSocialLogin, authE
           </div>
         </div>
 
-        {/* These were plain text: the page asked people to agree to terms it gave them no way
-            to read, which is a compliance problem as much as a UX one. The targets are the same
-            live pages registered with Meta and TikTok — see docs/platform-app-registration.md. */}
-        <p className="landing-footnote">
-          By continuing you agree to our{' '}
-          <a href="https://www.tejdux.com/terms/" target="_blank" rel="noreferrer noopener">
-            Terms of Service
-          </a>{' '}
-          and{' '}
-          <a href="https://www.tejdux.com/privacy/" target="_blank" rel="noreferrer noopener">
-            Privacy Policy
-          </a>
-          .
-        </p>
+        {/* Sign-in only, now that sign-up has an explicit checkbox above — repeating the links here
+            during sign-up would give the same page two different consent affordances.
+
+            These were once plain text: the page asked people to agree to terms it gave them no way
+            to read. The targets are the same live pages registered with Meta and TikTok — see
+            docs/platform-app-registration.md. Both 403'd from 2026-08-05 until the shell
+            distribution was given a route to them; see static-site-cdn.tf. */}
+        {!isSignUp ? (
+          <p className="landing-footnote">
+            Your use of Tejdux is governed by our{' '}
+            <a href="https://www.tejdux.com/terms/" target="_blank" rel="noreferrer noopener">
+              Terms of Service
+            </a>{' '}
+            and{' '}
+            <a href="https://www.tejdux.com/privacy/" target="_blank" rel="noreferrer noopener">
+              Privacy Policy
+            </a>
+            .
+          </p>
+        ) : null}
       </section>
     </main>
   )

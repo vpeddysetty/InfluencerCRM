@@ -275,9 +275,30 @@ variable "manage_static_site" {
     both the apex and www aliased to the SHELL distribution, which claimed neither the hostnames nor
     the certificate. The result was a site that resolved but failed Chrome's SAN check. Both names are
     now aliases of the shell distribution and are managed here; see var.shell_serves_apex.
+
+    SECOND CORRECTION (2026-08-11). Moving both names onto the shell fixed the SAN check and had a
+    consequence not noticed at the time: the legal pages at /privacy/, /terms/ and /data-deletion/
+    are objects in `tejdux-legal-static`, and with www pointing at the shell there was no route to
+    them. They answered S3's AccessDenied XML while `/privacy` WITHOUT the trailing slash returned a
+    200 SPA shell — so a status-code check looked healthy. They are linked from the signup form and
+    registered with Meta and TikTok. The shell now serves those three prefixes from that same bucket
+    as a second origin; see local.legal_on_shell in static-site-cdn.tf.
   EOT
   type        = bool
   default     = true
+}
+
+variable "legal_distribution_id" {
+  description = <<-EOT
+    The hand-built legal-pages distribution (bucket `tejdux-legal-static`).
+
+    Needed only so aws_s3_bucket_policy.legal can keep granting it read access while adding the app
+    shell alongside. Managing that bucket policy in Terraform REPLACES it, so the pre-existing
+    statement has to be reproduced, and this is the id it names. The distribution itself is still not
+    managed here.
+  EOT
+  type        = string
+  default     = "ESJ9LTY0C74G0"
 }
 
 # NOTE: there is no `static_site_domain` variable. Each micro-frontend gets its own SUBDOMAIN of

@@ -59,9 +59,24 @@ begin
         and u.email not like '%@example.test');
 
     if real_pages > 0 then
-        raise exception
-            'Aborting: % landing template(s) belong to non-test accounts. '
-            'Review them before clearing — see docs/landing-page-builder-roadmap.md §10.1.',
+        -- SKIP, not abort. Changed 2026-08-11, after this took production down.
+        --
+        -- `raise exception` was right for a migration run ONCE, by hand, on 2026-08-02: aborting cost
+        -- a conversation, and deleting a live page did not. But zzz_apply_migrations.sql re-runs every
+        -- migration on EVERY deploy, and this file is a one-time cleanup of pre-GrapesJS fixtures that
+        -- already succeeded. Real brands have published pages since, so from that point the guard
+        -- fired on every deploy: the migrate container exited non-zero, every service waits on
+        -- `service_completed_successfully`, and so NOTHING started. A deploy of unrelated services
+        -- took the whole platform down, and the error named landing templates — which is nowhere near
+        -- where anyone would look.
+        --
+        -- Skipping is not weaker. The deletes are in the SAME block as the re-check below and are
+        -- still never reached while real pages exist; what changes is that a finished cleanup no
+        -- longer reports itself as a failed deploy. A NOTICE keeps it visible in the logs.
+        raise notice
+            'Skipping landing-template cleanup: % template(s) belong to non-test accounts. '
+            'This is a one-time pre-GrapesJS fixture clear that has already run; real pages exist '
+            'now, so there is nothing left for it to do. See docs/landing-page-builder-roadmap.md §10.1.',
             real_pages;
     end if;
 end $$;
@@ -69,12 +84,46 @@ end $$;
 -- -------------------------------------------------------------
 -- Clear the fixtures.
 -- -------------------------------------------------------------
+-- INSIDE the same DO block as the guard, and that is load-bearing. These were previously two
+-- bare DELETE statements after the block. A plain `return` in the guard would have exited only
+-- the block and let them run unguarded — deleting exactly the real pages the guard exists to
+-- protect. The check and the deletion have to share a scope for the check to mean anything.
+--
 -- Views first: they reference campaign codes and brands, and keeping analytics for pages that
 -- no longer exist would leave the funnel reporting a denominator it cannot explain.
-delete from content.landing_page_views
- where brand_id in (select brand_id from content.landing_templates);
+do $$
+declare
+    real_pages integer;
+    cleared    integer;
+begin
+    select count(*)
+      into real_pages
+      from content.landing_templates lt
+      join identity.brands b   on b.id = lt.brand_id
+      join identity.accounts a on a.id = b.account_id
+      left join identity.users u on u.id = a.legacy_user_id
+     where u.email is null
+        or (u.email not like 'e2e/_%' escape '/'
+        and u.email not like 'ui/_%' escape '/'
+        and u.email not like 'demo.%'
+        and u.email not like 'solo.%'
+        and u.email not like '%@example.com'
+        and u.email not like '%@example.test');
 
-delete from content.landing_templates;
+    if real_pages > 0 then
+        return;
+    end if;
+
+    delete from content.landing_page_views
+     where brand_id in (select brand_id from content.landing_templates);
+
+    delete from content.landing_templates;
+    get diagnostics cleared = row_count;
+
+    if cleared > 0 then
+        raise notice 'Cleared % pre-GrapesJS landing template fixture(s).', cleared;
+    end if;
+end $$;
 
 commit;
 

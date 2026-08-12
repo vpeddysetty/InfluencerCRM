@@ -127,7 +127,14 @@ influencrm-e2e-journeys.mp4
 # every service token are in there. The JSON form (`terraform show -json`) is worse, because it is
 # greppable plaintext.
 *.tfplan
+# `-out=tfplan` produces a file with NO extension, which *.tfplan does not match. Named here
+# explicitly, plus the numbered variants a sequence of plans leaves behind (tfplan7, tfplan8).
+tfplan
+tfplan[0-9]*
 plan.json
 tfplan.json
+
+# A locally downloaded terraform binary. ~27MB, platform-specific, and not a project artifact.
+.tools/
 crash.log
 crash.*.log

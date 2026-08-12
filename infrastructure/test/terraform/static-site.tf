@@ -154,3 +154,60 @@ resource "aws_cloudfront_origin_access_control" "ui" {
   signing_protocol                  = "sigv4"
 }
 
+# A SECOND OAC, for the shell's legal-pages origin.
+#
+# An OAC is per (distribution, origin) pair, so the legal distribution's existing OAC (E1YGJV27KRKXI1)
+# cannot be reused here — the shell signs its own requests. The legal bucket's policy must therefore
+# allow BOTH distributions; see aws_s3_bucket_policy.legal below, which is the half of this fix that
+# is easy to miss and fails exactly like the bug being fixed.
+resource "aws_cloudfront_origin_access_control" "legal" {
+  count = local.legal_on_shell ? 1 : 0
+
+  name                              = "${local.name_prefix}-legal-oac"
+  description                       = "CloudFront (app shell) -> legal pages bucket"
+  origin_access_control_origin_type = "s3"
+  signing_behavior                  = "always"
+  signing_protocol                  = "sigv4"
+}
+
+# Let the shell distribution read the legal bucket, IN ADDITION to the legal distribution.
+#
+# This bucket predates Terraform and its policy currently names ESJ9LTY0C74G0 alone. Managing the
+# policy here REPLACES it wholesale, so the existing statement is reproduced verbatim alongside the
+# new one — dropping it would take the legal distribution's own copy of the pages offline, trading one
+# outage for another.
+resource "aws_s3_bucket_policy" "legal" {
+  count = local.legal_on_shell ? 1 : 0
+
+  bucket = local.legal_bucket
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "AllowCloudFrontServicePrincipalReadOnly"
+        Effect    = "Allow"
+        Principal = { Service = "cloudfront.amazonaws.com" }
+        Action    = "s3:GetObject"
+        Resource  = "arn:aws:s3:::${local.legal_bucket}/*"
+        Condition = {
+          StringEquals = {
+            "AWS:SourceArn" = "arn:aws:cloudfront::${data.aws_caller_identity.current.account_id}:distribution/${var.legal_distribution_id}"
+          }
+        }
+      },
+      {
+        Sid       = "AllowAppShellDistributionReadOnly"
+        Effect    = "Allow"
+        Principal = { Service = "cloudfront.amazonaws.com" }
+        Action    = "s3:GetObject"
+        Resource  = "arn:aws:s3:::${local.legal_bucket}/*"
+        Condition = {
+          StringEquals = {
+            "AWS:SourceArn" = aws_cloudfront_distribution.ui["shell"].arn
+          }
+        }
+      },
+    ]
+  })
+}
+

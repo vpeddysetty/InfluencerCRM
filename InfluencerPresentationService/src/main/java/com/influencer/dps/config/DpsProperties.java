@@ -8,8 +8,28 @@ import java.util.List;
 @ConfigurationProperties(prefix = "dps")
 public class DpsProperties {
 
-    /** The BFF the DPS brokers authentication and API calls through. */
+    /**
+     * The BFF the DPS brokers authentication and API calls through, SERVER TO SERVER.
+     *
+     * <p>In the deployed stack this is a container-network name — {@code http://web-experience:8081}
+     * — which resolves inside the compose bridge and nowhere else. Correct for calls the DPS makes
+     * itself; never put it in a {@code Location} header. See {@link #getPublicBffBaseUrl()}.
+     */
     private String bffBaseUrl = "http://localhost:8081";
+
+    /**
+     * The BFF address a BROWSER can reach, for redirects.
+     *
+     * <p>Separate from {@link #bffBaseUrl} because the two have different audiences and, in the
+     * deployed stack, different values. Using the internal one for a redirect is what took Google
+     * sign-in down: the browser was sent to {@code http://web-experience:8081}, a name it cannot
+     * resolve, and the sign-in silently never started.
+     *
+     * <p>Defaults to empty rather than to {@code bffBaseUrl}. A default that "works" in development
+     * and points at an unreachable host in production is precisely the failure being fixed, so this
+     * fails loudly instead — see {@link #requirePublicBffBaseUrl()}.
+     */
+    private String publicBffBaseUrl = "";
 
     /** Credential presented to the BFF, so it can distinguish the DPS from arbitrary traffic. */
     private String serviceToken;
@@ -69,6 +89,33 @@ public class DpsProperties {
 
     public void setBffBaseUrl(String bffBaseUrl) {
         this.bffBaseUrl = bffBaseUrl;
+    }
+
+    public String getPublicBffBaseUrl() {
+        return publicBffBaseUrl;
+    }
+
+    public void setPublicBffBaseUrl(String publicBffBaseUrl) {
+        this.publicBffBaseUrl = publicBffBaseUrl;
+    }
+
+    /**
+     * The browser-facing BFF URL, or a clear failure.
+     *
+     * <p>Unset, this throws rather than falling back to {@link #getBffBaseUrl()}. The fallback is
+     * the tempting option and it is the bug: in development both values are localhost so it looks
+     * fine, and in production it emits a redirect to a container hostname that no browser can
+     * resolve. A 500 naming the missing property is far easier to diagnose than a sign-in button
+     * that spins forever.
+     */
+    public String requirePublicBffBaseUrl() {
+        if (publicBffBaseUrl == null || publicBffBaseUrl.isBlank()) {
+            throw new IllegalStateException(
+                    "dps.public-bff-base-url is not set. It is the BFF address a BROWSER can reach "
+                            + "and is required for OAuth redirects; dps.bff-base-url is the internal "
+                            + "server-to-server address and must not be used for them.");
+        }
+        return publicBffBaseUrl;
     }
 
     public String getServiceToken() {

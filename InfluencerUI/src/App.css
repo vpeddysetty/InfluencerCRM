@@ -359,6 +359,43 @@
   color: var(--fg);
 }
 
+/* The signup consent checkbox.
+ *
+ * Variables rather than literal colours throughout: literals in this file already override the
+ * design system on specificity and break dark mode, so a hardcoded colour here would read fine in
+ * light and be unreadable in dark. */
+.auth-consent {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 4px 0 14px;
+  color: var(--fg-muted);
+  font-size: 0.8rem;
+  line-height: 1.45;
+  /* The label is the hit target, so the whole line is clickable, not just the 13px box. */
+  cursor: pointer;
+}
+
+.auth-consent input[type='checkbox'] {
+  /* Nudged down to sit on the first line's baseline rather than its box top. */
+  margin-top: 2px;
+  flex: none;
+  width: 15px;
+  height: 15px;
+  accent-color: var(--accent, currentColor);
+  cursor: pointer;
+}
+
+.auth-consent a {
+  color: var(--fg);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.auth-consent a:hover {
+  color: var(--accent, var(--fg));
+}
+
 .auth-switch {
   background: var(--surface-sunken);
   border: 1px solid var(--border);

@@ -3,9 +3,14 @@ package com.influencer.webe.creator.api;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.influencer.webe.creator.application.CreatorOnboardingService;
+// Consent capture lives in the identity context. Reaching it from here is allowed because
+// `application` is the published-port package — see ServiceBoundaryTest; its entities and
+// repositories are not reachable and are not used.
+import com.influencer.webe.identity.application.ConsentService;
 import com.influencer.webe.security.Permission;
 import com.influencer.webe.shared.application.RequestUserResolver;
 import com.influencer.webe.shared.infrastructure.DaoGatewayClient;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
@@ -32,10 +37,13 @@ public class CreatorOnboardingController {
     private final CreatorOnboardingService onboarding;
     private final RequestUserResolver requestUserResolver;
     private final DaoGatewayClient dao;
+    private final ConsentService consentService;
 
     public CreatorOnboardingController(CreatorOnboardingService onboarding,
                                        RequestUserResolver requestUserResolver,
-                                       DaoGatewayClient dao) {
+                                       DaoGatewayClient dao,
+                                       ConsentService consentService) {
+        this.consentService = consentService;
         this.onboarding = onboarding;
         this.requestUserResolver = requestUserResolver;
         this.dao = dao;
@@ -84,7 +92,9 @@ public class CreatorOnboardingController {
      */
     @PostMapping("/api/public/landing/{slug}/signup")
     @ResponseStatus(HttpStatus.CREATED)
-    public JsonNode publicSignup(@PathVariable String slug, @RequestBody ObjectNode payload) {
+    public JsonNode publicSignup(@PathVariable String slug,
+                                 @RequestBody ObjectNode payload,
+                                 HttpServletRequest httpRequest) {
         Map<String, String> query = new LinkedHashMap<>();
         query.put("publicSlug", slug);
         JsonNode templates = dao.get("/landing-templates", query);
@@ -115,8 +125,34 @@ public class CreatorOnboardingController {
         safe.put("leadSource", "landing_page");
         safe.put("landingTemplateId", template.get("id").asText());
 
+        // Consent, BEFORE the lead is created — a refusal must leave no personal data behind.
+        //
+        // This surface is different from the three account signups. Nobody is creating an account:
+        // a person hands their name and email to a brand's landing page, and the platform processes
+        // it as a third party. There is no login to attach the record to, so the subject is a `lead`
+        // keyed by email alone. That is exactly the case with the weakest paper trail and the one an
+        // erasure request is most likely to arrive about.
+        String leadEmail = safe.path("email").asText("");
+        consentService.requireAccepted(
+                payload.hasNonNull("acceptedTerms") ? payload.get("acceptedTerms").asBoolean() : null);
+
+        JsonNode created = onboarding.captureLead(brandId, null, safe);
+
+        // Only when an email was supplied: a consent record whose only identifier is blank cannot be
+        // produced on request, and would be evidence of nothing. The handle is kept in metadata so
+        // the record is still traceable to the submission.
+        if (!leadEmail.isBlank()) {
+            consentService.recordSignupConsent(
+                    ConsentService.SUBJECT_LEAD,
+                    null,
+                    leadEmail,
+                    "landing_page_lead",
+                    httpRequest,
+                    "{\"slug\":\"" + slug.replace("\"", "") + "\"}");
+        }
+
         // createdByUserId is null: no user performed this action, and attributing it to the
         // page's owner would misreport who added the creator.
-        return onboarding.captureLead(brandId, null, safe);
+        return created;
     }
 }

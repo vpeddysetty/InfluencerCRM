@@ -23,6 +23,30 @@ locals {
   cloudfront_backend_origin_domain = local.cloudfront_backend_is_hostname ? local.cloudfront_backend_origin_host : ""
   cloudfront_backend_origin_policy = startswith(local.public_base_url, "https://") ? "https-only" : "http-only"
 
+  # The legal pages, served by the shell distribution from the pre-existing hand-built bucket.
+  #
+  # WHY THIS IS HERE AT ALL. `aliases` below claims www.${var.root_domain} for the shell. A CNAME can
+  # only be attached to ONE distribution, so that claim silently TOOK IT AWAY from the legal site
+  # (ESJ9LTY0C74G0), whose Aliases are now empty. The static-site.tf header says that site is
+  # untouched; it was true of the bucket and the distribution, and false of the hostname. The pages
+  # went offline the moment the shell claimed the apex — /privacy/ and /terms/ answer with S3's
+  # AccessDenied XML, and they are linked from the signup form and registered with Meta and TikTok.
+  #
+  # WHY NOT JUST GIVE THE ALIAS BACK: www serves the app. Moving it back takes the whole app down.
+  #
+  # So the shell serves the legal paths itself, from the SAME bucket the legal distribution uses.
+  # Nothing is copied — one set of objects, two readers — so there is no second copy to drift.
+  legal_bucket        = "tejdux-legal-static"
+  legal_origin_domain = "${local.legal_bucket}.s3.${var.aws_region}.amazonaws.com"
+
+  # Exactly the three prefixes that exist in the bucket. Listed rather than wildcarded so a request
+  # for anything else keeps falling through to the SPA.
+  legal_path_patterns = ["/privacy/*", "/terms/*", "/data-deletion/*"]
+
+  # The shell is the only distribution that claims the hostname the policies are linked under, so it
+  # is the only one that needs the origin.
+  legal_on_shell = local.apex_on_shell
+
   # Does the shell claim the apex and www? Needs the certificate as well as the flag: claiming an alias
   # without a certificate covering it is rejected by CloudFront at apply time.
   apex_on_shell = local.static_enabled && var.shell_serves_apex && var.apex_certificate_arn != "" && var.root_domain != ""
@@ -212,6 +236,48 @@ resource "aws_cloudfront_distribution" "ui" {
         # An ARGUMENT, not a block, in provider v5 — a nested block here fails validation with
         # "Blocks of type origin_ssl_protocols are not expected here".
         origin_ssl_protocols = ["TLSv1.2"]
+      }
+    }
+  }
+
+  # The legal pages, on the shell only. See local.legal_on_shell for why the shell serves these at all.
+  dynamic "origin" {
+    for_each = local.legal_on_shell && each.key == "shell" ? [1] : []
+    content {
+      domain_name              = local.legal_origin_domain
+      origin_id                = "legal-bucket"
+      origin_access_control_id = aws_cloudfront_origin_access_control.legal[0].id
+      # No origin_path: the objects already live at privacy/index.html, terms/index.html and
+      # data-deletion/index.html, so the request URI maps to the key directly.
+    }
+  }
+
+  # /privacy/, /terms/, /data-deletion/ -> the legal bucket.
+  #
+  # These MUST be ordered_cache_behavior, not a change to the default: the default serves the SPA and
+  # is what every other route depends on. An ordered behavior matches first and leaves the rest alone.
+  dynamic "ordered_cache_behavior" {
+    for_each = local.legal_on_shell && each.key == "shell" ? local.legal_path_patterns : []
+    content {
+      path_pattern     = ordered_cache_behavior.value
+      target_origin_id = "legal-bucket"
+
+      viewer_protocol_policy = "redirect-to-https"
+      allowed_methods        = ["GET", "HEAD"]
+      cached_methods         = ["GET", "HEAD"]
+      compress               = true
+
+      # Managed-CachingOptimized, as for any other static document.
+      cache_policy_id = "658327ea-f89d-4fab-a63d-7e88639e58f6"
+
+      # The SAME rewrite the legal distribution's own tejdux-dir-index function performs: /privacy/
+      # is a directory, and S3 has no index-document behaviour behind an OAC. Without this the
+      # request asks for the key "privacy/" — which does not exist — and answers 403, which is the
+      # exact failure being fixed here. spa_router already does this for a trailing slash, and reusing
+      # it keeps one function rather than a near-duplicate.
+      function_association {
+        event_type   = "viewer-request"
+        function_arn = aws_cloudfront_function.spa_router[0].arn
       }
     }
   }

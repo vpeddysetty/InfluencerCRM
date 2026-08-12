@@ -752,13 +752,16 @@ function App() {
     // The landing page's workspace-type radio. Absent on the login tab, and defaulted rather
     // than sent blank so the server's own default stays the single source of that rule.
     const accountType = String(form.get('accountType') || 'brand')
+    // The consent checkbox. Only present on the sign-up tab, and sent as a real boolean rather
+    // than the string a form field yields — the server distinguishes true from everything else.
+    const acceptedTerms = form.get('acceptedTerms') === 'on'
 
     try {
       setAuthError('')
       setWorkspaceError('')
 
       const authResponse = isSignUp
-        ? await signup({ email, password, brandName: company, accountType })
+        ? await signup({ email, password, brandName: company, accountType, acceptedTerms })
         : await login({ email, password })
 
       // One path establishes a session. This used to repeat establishSession's body line for
@@ -895,7 +898,10 @@ function App() {
    * A full-page navigation also sidesteps popup blockers, and lands the user back on the shell
    * authenticated instead of on an intermediate page.
    */
-  const handleSocialLogin = (provider, { brandName: socialBrandName = '', accountType = '' } = {}) => {
+  const handleSocialLogin = (
+    provider,
+    { brandName: socialBrandName = '', accountType = '', acceptedTerms = false } = {},
+  ) => {
     setAuthError('')
     setWorkspaceError('')
 
@@ -909,7 +915,17 @@ function App() {
       return
     }
 
-    const query = socialBrandName ? `?brandName=${encodeURIComponent(socialBrandName)}` : ''
+    // Both values ride the URL because this is a NAVIGATION, not a fetch — there is no body to
+    // put them in. acceptedTerms is forwarded by the DPS to the BFF, which refuses to start the
+    // flow without it, so the redirect cannot begin for someone who has not consented.
+    const params = new URLSearchParams()
+    if (socialBrandName) {
+      params.set('brandName', socialBrandName)
+    }
+    if (acceptedTerms) {
+      params.set('acceptedTerms', 'true')
+    }
+    const query = params.toString() ? `?${params}` : ''
     window.location.assign(`${DPS_BASE_URL}/dps/auth/oauth/${provider}/start${query}`)
   }
 

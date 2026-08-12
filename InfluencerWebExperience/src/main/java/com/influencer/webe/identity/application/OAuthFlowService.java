@@ -19,26 +19,59 @@ public class OAuthFlowService {
     private final OAuthProfileService oauthProfileService;
     private final AuthService authService;
     private final OAuthHandoffService handoffService;
+    private final ConsentService consentService;
 
     public OAuthFlowService(
             WebExperienceProperties properties,
             OAuthStateService oauthStateService,
             OAuthProfileService oauthProfileService,
             AuthService authService,
-            OAuthHandoffService handoffService) {
+            OAuthHandoffService handoffService,
+            ConsentService consentService) {
         this.properties = properties;
         this.oauthStateService = oauthStateService;
         this.oauthProfileService = oauthProfileService;
         this.authService = authService;
         this.handoffService = handoffService;
+        this.consentService = consentService;
     }
 
     public ResponseEntity<Void> startGoogle(String brandName, String displayName) {
-        return ResponseEntity.status(HttpStatus.FOUND).location(URI.create(buildAuthorizationUrl("google", brandName, displayName))).build();
+        return startGoogle(brandName, displayName, false, null, null);
+    }
+
+    /**
+     * Begins a Google sign-in, having first checked that the person consented.
+     *
+     * <p>The check is here rather than in the callback because this is the last point at which a
+     * refusal costs nothing: after the redirect the browser is at Google, and rejecting on the way
+     * back would mean explaining a failure to someone who has already authenticated.
+     */
+    public ResponseEntity<Void> startGoogle(String brandName,
+                                            String displayName,
+                                            boolean acceptedTerms,
+                                            String ipAddress,
+                                            String userAgent) {
+        consentService.requireAccepted(acceptedTerms);
+        return ResponseEntity.status(HttpStatus.FOUND)
+                .location(URI.create(buildAuthorizationUrl("google", brandName, displayName, acceptedTerms, ipAddress, userAgent)))
+                .build();
     }
 
     public ResponseEntity<Void> startFacebook(String brandName, String displayName) {
-        return ResponseEntity.status(HttpStatus.FOUND).location(URI.create(buildAuthorizationUrl("facebook", brandName, displayName))).build();
+        return startFacebook(brandName, displayName, false, null, null);
+    }
+
+    /** As {@link #startGoogle(String, String, boolean, String, String)}, for Facebook. */
+    public ResponseEntity<Void> startFacebook(String brandName,
+                                              String displayName,
+                                              boolean acceptedTerms,
+                                              String ipAddress,
+                                              String userAgent) {
+        consentService.requireAccepted(acceptedTerms);
+        return ResponseEntity.status(HttpStatus.FOUND)
+                .location(URI.create(buildAuthorizationUrl("facebook", brandName, displayName, acceptedTerms, ipAddress, userAgent)))
+                .build();
     }
 
     public ResponseEntity<Void> completeGoogle(String code, String state) {
@@ -77,6 +110,30 @@ public class OAuthFlowService {
             AuthService.AuthResponse auth = "google".equals(provider)
                     ? authService.signupWithGoogle(accessToken, null, request.displayName(), request.brandName())
                     : authService.signupWithFacebook(accessToken, null, request.displayName(), request.brandName());
+
+            // Now that the account exists there is a user id to attach the consent to. The consent
+            // itself was given before the redirect and has been carried in the pending request since
+            // — see OAuthStateService.create for why it travels server-side rather than in `state`.
+            //
+            // This also fires for a RETURNING user, because signupWithSocial doubles as sign-in and
+            // does not distinguish the two. That is the safe direction: the unique index collapses a
+            // repeat acceptance of the same document version to the existing row, so a returning
+            // user re-consenting is a no-op, while missing a first-time signup would lose the record.
+            if (request.acceptedTerms()) {
+                consentService.recordSignupConsent(
+                        ConsentService.SUBJECT_USER,
+                        auth.userId(),
+                        auth.email(),
+                        provider + "_oauth_signup",
+                        // No metadata beyond the source.
+                        null,
+                        // The IP and user agent were captured at /start; the current request is the
+                        // provider's redirect, so reading them from it now would record the wrong
+                        // client. These stored values are the authoritative ones.
+                        request.ipAddress(),
+                        request.userAgent());
+            }
+
             return redirectToDps("/dps/auth/oauth/complete?handoff=" + encode(handoffService.store(auth)));
         } catch (ResponseStatusException exception) {
             String reason = exception.getReason() == null ? "OAuth sign-in failed" : exception.getReason();
@@ -102,8 +159,14 @@ public class OAuthFlowService {
                 .build();
     }
 
-    private String buildAuthorizationUrl(String provider, String brandName, String displayName) {
-        OAuthStateService.PendingOAuthRequest request = oauthStateService.create(provider, brandName, displayName);
+    private String buildAuthorizationUrl(String provider,
+                                         String brandName,
+                                         String displayName,
+                                         boolean acceptedTerms,
+                                         String ipAddress,
+                                         String userAgent) {
+        OAuthStateService.PendingOAuthRequest request =
+                oauthStateService.create(provider, brandName, displayName, acceptedTerms, ipAddress, userAgent);
         WebExperienceProperties.Google google = properties.getOauth().getGoogle();
         WebExperienceProperties.Facebook facebook = properties.getOauth().getFacebook();
 
