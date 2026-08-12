@@ -67,6 +67,10 @@ x-context-service: &context-service
   depends_on:
     postgres:
       condition: service_healthy
+    # Not merely "postgres is up" — the SCHEMA has to be there. A service that starts against a
+    # half-migrated database fails later, on a query, looking like an application bug.
+    migrate:
+      condition: service_completed_successfully
 
 # Health probe timings, shared by the extracted services. The `test` itself is NOT here: it needs
 # each service's own port, and a `${SERVICE_PORT}` reference would be resolved by compose from the
@@ -90,6 +94,31 @@ services:
   # -------------------------------------------------------------------------
   # Infrastructure
   # -------------------------------------------------------------------------
+  # Schema migration. The same image and the same Flyway ledger the deployed stack runs, so a
+  # migration cannot behave differently here from in production — which is the whole point of it
+  # being a container rather than an init-script mount.
+  #
+  # Runs to completion and exits 0. Everything that touches the database waits on
+  # `service_completed_successfully`, so nothing starts against a half-migrated schema.
+  #
+  # restart: "no" and it matters: a restarting one-shot would loop forever after its successful exit.
+  migrate:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.migrate
+    image: influencrm/migrate:dev
+    container_name: influencrm-migrate
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGDATABASE: ${POSTGRES_DB}
+      PGUSER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+    networks: [influencrm]
+
   postgres:
     image: pgvector/pgvector:pg15
     container_name: influencercrm-postgres
@@ -102,11 +131,13 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      # Init scripts run ONLY on an empty data directory. After a schema change:
-      #   docker compose down -v && docker compose up -d
-      # Without -v the volume persists and the new migration never runs, which looks like the
-      # migration was broken rather than never applied.
-      - ./schema:/docker-entrypoint-initdb.d:ro
+      # NO init-script mount any more. The schema is applied by the `migrate` service below — the
+      # SAME image and the same Flyway ledger production uses, so local and deployed cannot drift.
+      #
+      # What this replaces: the postgres image's init hook runs scripts ONLY on an empty data
+      # directory, so a new migration required `docker compose down -v` and silently did nothing
+      # without it. That reliably looked like a broken migration rather than an unapplied one.
+      # Flyway applies whatever is missing against the volume you already have.
     ports:
       - "5432:5432"
     healthcheck:
@@ -141,6 +172,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     environment:
       <<: *service-env
       DAO_DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}?stringtype=unspecified

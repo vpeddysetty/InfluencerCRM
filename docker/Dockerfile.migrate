@@ -12,31 +12,47 @@
 # and stops. `schema/seed/` is deliberately NOT copied — seeding a deployed environment with test
 # accounts is how a demo tenant ends up in production.
 #
-# IDEMPOTENT. Every migration in this repo is written `if not exists` / `create or replace`, so a
-# re-run is a no-op. That is what makes it safe to run on every deploy rather than tracking which
-# migrations have been applied — a real migration ledger (Flyway, Liquibase) is the right answer once
-# migrations stop being idempotent, and this comment is the marker for when that day arrives.
+# LEDGERED, as of 2026-08-11. This used to re-run every migration on every deploy and rely on each
+# being written `if not exists`. The comment here predicted its own end — "a real migration ledger is
+# the right answer once migrations stop being idempotent, and this comment is the marker for when
+# that day arrives" — and that day arrived when a one-time DATA migration (`landing_builder_reset`)
+# began aborting every deploy and, because every service waits on this container, stopped the whole
+# platform from starting.
+#
+# Flyway now records what it has applied in `public.flyway_schema_history` and never repeats it. An
+# existing database is BASELINED rather than replayed; see docker/migrate.sh for how the two cases
+# are told apart.
 FROM postgres:16-alpine
 
-# The base image ships psql, which is all this needs. No application code, no JVM.
+# The base image ships psql. Flyway needs a JRE — hence the JDK package, which is the reason this
+# image is bigger than it was. Worth it: the alternative is hand-maintaining a ledger in SQL.
+RUN apk add --no-cache openjdk17-jre-headless
+
+# Flyway Community, pinned. An unpinned version would change the migration engine underneath a
+# deploy without anything in this repo changing.
+ARG FLYWAY_VERSION=10.20.1
+RUN wget -qO /tmp/flyway.tar.gz \
+        "https://repo1.maven.org/maven2/org/flywaydb/flyway-commandline/${FLYWAY_VERSION}/flyway-commandline-${FLYWAY_VERSION}-linux-x64.tar.gz" \
+    && mkdir -p /opt/flyway \
+    && tar -xzf /tmp/flyway.tar.gz -C /opt/flyway --strip-components=1 \
+    && rm /tmp/flyway.tar.gz \
+    # The bundled JRE is for glibc and will not run on alpine's musl; the apk JRE above is what
+    # actually executes. Removing it avoids shipping a second, broken runtime.
+    && rm -rf /opt/flyway/jre \
+    && ln -s /opt/flyway/flyway /usr/local/bin/flyway \
+    && chmod +x /opt/flyway/flyway
 
 WORKDIR /schema
 
-# The schema itself. Copied as three separate layers matching the order they must run in, so a change
-# to one migration does not invalidate the cache for the base schema.
+# The base schema, applied only to an EMPTY database — it is the starting point the migrations build
+# on, not a migration itself. Separate layers so a change to one does not invalidate the other.
 COPY schema/influencer_crm_schema.sql /schema/
 COPY schema/mapping_examples_vector.sql /schema/
-COPY schema/zzz_apply_migrations.sql /schema/
-COPY schema/migrations /schema/migrations
 
-# zzz_apply_migrations.sql uses `\i /docker-entrypoint-initdb.d/migrations/...` because it was written
-# for the postgres image's init hook, which mounts the schema there. This task is not that hook, so the
-# path must exist for those includes to resolve.
-#
-# A symlink rather than editing the file: the same file then works unchanged both here and in
-# docker-compose, and there is one authoritative migration list rather than two that can disagree.
-RUN mkdir -p /docker-entrypoint-initdb.d \
-    && ln -s /schema/migrations /docker-entrypoint-initdb.d/migrations
+# The versioned migrations. Flyway reads this directory and nothing else; the ORDER is carried by the
+# V<n> in each filename, so there is no list to keep in sync and no way to add a migration that the
+# runner silently never executes — which is a mistake this repo has actually made.
+COPY schema/flyway /schema/flyway
 
 COPY docker/migrate.sh /usr/local/bin/migrate.sh
 RUN chmod 0555 /usr/local/bin/migrate.sh
