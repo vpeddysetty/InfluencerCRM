@@ -2,7 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import { useCallback, useEffect, useState } from 'react'
 import './App.css'
 import './components/ui/ui.css'
-import { SessionExpiredDialog, ToastProvider } from './components/ui'
+import { SessionExpiredDialog, ToastProvider, WorkspaceOnboardingDialog } from './components/ui'
 import { DEFAULT_ROUTE } from './shell/routeManifest'
 import { msUntilRefresh } from './shell/sessionExpiry'
 import LandingPage from './pages/LandingPage'
@@ -22,6 +22,7 @@ import ContentPage from './pages/ContentPage'
 import WorkspaceLayout from './components/WorkspaceLayout'
 import { SessionProvider } from './shell/SessionContext'
 import {
+  completeOnboarding,
   createBrand,
   createCampaign,
   createCreator,
@@ -116,6 +117,17 @@ import { createImportMappingJson, createImportMappingJsonFromAgent, parseSpreads
 // cached domain rows belong to an unknown tenant — versioning the key discards them rather than
 // risk showing one brand's data under another's name.
 const STORAGE_KEY = 'tejdux_ui_state_v3'
+
+// Set immediately before a social SIGN-UP redirect and read once the browser comes back, to decide
+// whether to ask for workspace details. sessionStorage rather than localStorage: the marker is only
+// meaningful for the tab that left for the provider, and a localStorage copy would outlive the flow
+// and greet the user with an onboarding step on some unrelated later visit.
+//
+// This is deliberately client-side. The alternative — a "needsOnboarding" flag threaded through the
+// DPS session, the BFF and the DAO — would mean editing the OAuth path that has to work for Meta's
+// review, to carry a hint the browser already has.
+const PENDING_SOCIAL_SIGNUP_KEY = 'tejdux_pending_social_signup'
+const PENDING_ACCOUNT_TYPE_KEY = 'tejdux_pending_account_type'
 
 // Origin of the Digital Presentation Service, which owns federated sign-in end to end. Kept in
 // step with the same constant in shell/gateway/PresentationGateway.js.
@@ -388,6 +400,10 @@ function App() {
   // login page renders for a moment before being replaced by the workspace, which reads as a
   // sign-in flashing past on every reload.
   const [restoringSession, setRestoringSession] = useState(true)
+  // Post-social-signup workspace details. Deliberately NOT persisted to localStorage: it describes
+  // one moment in one tab, and a restored `open: true` would ambush a returning user with a form
+  // asking them to name a workspace they named weeks ago.
+  const [onboarding, setOnboarding] = useState({ open: false, accountType: 'brand' })
   const [userId, setUserId] = useState(persistedState?.userId ?? '')
   // Active brand plus the set the user may switch to. Solo accounts have exactly one entry,
   // which is why the switcher can be hidden without needing a separate code path.
@@ -555,6 +571,20 @@ function App() {
           userName: session.userName || '',
           brandName: session.brandName || '',
         })
+
+        // A social SIGN-UP that has just landed back here still has a workspace named after the
+        // provider profile, and — for an agency — the wrong account type. Ask now, while the
+        // intent is fresh; the marker is consumed either way so a reload does not re-ask.
+        try {
+          if (window.sessionStorage.getItem(PENDING_SOCIAL_SIGNUP_KEY)) {
+            window.sessionStorage.removeItem(PENDING_SOCIAL_SIGNUP_KEY)
+            const pendingType = window.sessionStorage.getItem(PENDING_ACCOUNT_TYPE_KEY) || 'brand'
+            window.sessionStorage.removeItem(PENDING_ACCOUNT_TYPE_KEY)
+            setOnboarding({ open: true, accountType: pendingType })
+          }
+        } catch {
+          // Storage unavailable: skip the step rather than block a signed-in user behind it.
+        }
       } finally {
         if (isActive) {
           setRestoringSession(false)
@@ -826,6 +856,25 @@ function App() {
   }
 
   /**
+   * Finishes a social sign-up by naming the workspace, and promoting it to an agency if asked.
+   *
+   * <p>The server re-mints the token for the same reason switching does: the current one carries
+   * the provider-derived brandName the session was created with, so keeping it would leave the
+   * header showing "Ari Rivera" after the workspace had been renamed.
+   *
+   * <p>Cookie sessions carry no bearer token, and `request` sends the cookie instead — passing an
+   * empty authToken is correct there rather than a bug.
+   */
+  const handleCompleteOnboarding = async ({ workspaceName, accountType }) => {
+    const updated = await completeOnboarding(authToken, { workspaceName, accountType })
+    if (updated.accessToken) {
+      setAuthToken(updated.accessToken)
+    }
+    applyBrandFromAuth(updated)
+    setOnboarding({ open: false, accountType: 'brand' })
+  }
+
+  /**
    * Creates a brand and switches into it.
    *
    * Switching is not a convenience — a brand created and left in the background looks like
@@ -905,14 +954,22 @@ function App() {
     setAuthError('')
     setWorkspaceError('')
 
-    // Federated sign-up always creates a brand workspace: carrying the type would mean threading
-    // it through the signed OAuth state and both provider callbacks, which is roadmap Stage 1
-    // follow-up work. Say so rather than letting an agency selection be silently dropped.
-    if (accountType === 'agency') {
-      setAuthError(
-        'Agency workspaces are created with email and password for now. Use the form above, then add client brands once you are in.',
-      )
-      return
+    // Agency used to be refused here, because the type cannot ride the provider redirect and a
+    // federated signup always provisions a `brand` account. It is no longer refused: the workspace
+    // is created as a brand and the post-OAuth onboarding step promotes it, which is also where the
+    // workspace gets its real name. Remembering the selection across the redirect is what makes
+    // that step arrive pre-filled rather than asking the same question twice.
+    // Only on sign-up: accountType is blank when this handler is reused for sign-in, and someone
+    // signing in already named their workspace.
+    if (accountType) {
+      try {
+        window.sessionStorage.setItem(PENDING_SOCIAL_SIGNUP_KEY, '1')
+        window.sessionStorage.setItem(PENDING_ACCOUNT_TYPE_KEY, accountType)
+      } catch {
+        // A blocked sessionStorage (private mode, hardened settings) costs a pre-filled radio
+        // button, not the signup. Without the marker the step is skipped and the workspace keeps
+        // its provider-derived name, which the user can still change in settings.
+      }
     }
 
     // Both values ride the URL because this is a NAVIGATION, not a fetch — there is no body to
@@ -2211,6 +2268,17 @@ function App() {
         error={sessionRetryError}
         onRetry={handleSessionRetry}
         onSignOut={handleSessionSignOut}
+      />
+    ) : null}
+    {/* After sessionPrompt, so an expired session is never hidden behind a cosmetic question.
+        The two cannot realistically coincide — this fires seconds after a fresh sign-in — but the
+        ordering costs nothing and makes the precedence explicit. */}
+    {isLoggedIn && !sessionPrompt && onboarding.open ? (
+      <WorkspaceOnboardingDialog
+        initialName={brandName}
+        initialAccountType={onboarding.accountType}
+        onSubmit={handleCompleteOnboarding}
+        onSkip={() => setOnboarding({ open: false, accountType: 'brand' })}
       />
     ) : null}
     </ToastProvider>

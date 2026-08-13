@@ -1563,6 +1563,64 @@ test('the landing legal footnote links somewhere', () => {
   assert.match(page, /rel="noreferrer noopener"/)
 })
 
+test('the data deletion page is reachable from the product', () => {
+  // Meta requires this page to exist AND expects a reviewer to be able to find it from the app,
+  // not only from the App Dashboard field. It was linked nowhere in the UI until this was added.
+  const page = read('pages/LandingPage.jsx')
+
+  assert.match(page, /https:\/\/www\.tejdux\.com\/data-deletion\//)
+})
+
+test('one consent governs both sign-up paths', () => {
+  // The checkbox used to sit INSIDE the form, above the social buttons, which read as though it
+  // applied only to email sign-up while the buttons underneath silently required the same
+  // agreement. It now sits below both, and both are gated on it.
+  const page = read('pages/LandingPage.jsx')
+
+  const consentAt = page.indexOf('auth-consent-shared')
+  const socialAt = page.indexOf('auth-alt-actions')
+  assert.ok(consentAt > -1, 'the shared consent block must exist')
+  assert.ok(socialAt > -1 && consentAt > socialAt, 'consent must render below the social buttons')
+
+  // Both providers refuse to start a sign-up until the box is ticked, matching the email path's
+  // disabled CTA and the BFF, which rejects the redirect outright.
+  const gated = page.match(/disabled=\{Boolean\(socialProvider\) \|\| \(isSignUp && !acceptedTerms\)\}/g)
+  assert.equal(gated?.length, 2, 'both social buttons must be gated on consent')
+})
+
+test('social sign-up no longer refuses agencies', () => {
+  // Federated signup always provisions a `brand` account, so an agency selection used to be
+  // rejected with "use email and password instead". The post-OAuth onboarding step promotes it
+  // instead, so the refusal is gone and the selection survives the redirect.
+  const app = read('App.jsx')
+
+  assert.doesNotMatch(app, /Agency workspaces are created with email and password/)
+  assert.match(app, /PENDING_ACCOUNT_TYPE_KEY/, 'the choice must survive the provider redirect')
+  assert.match(app, /PENDING_SOCIAL_SIGNUP_KEY/, 'the return must be recognisable as a sign-up')
+})
+
+test('the onboarding marker is consumed so a reload cannot re-ask', () => {
+  // Left in place, the step would reappear on every reload of a workspace the user already named.
+  const app = read('App.jsx')
+  const at = app.indexOf('PENDING_SOCIAL_SIGNUP_KEY)')
+  const block = app.slice(at, at + 600)
+
+  assert.match(block, /removeItem\(PENDING_SOCIAL_SIGNUP_KEY\)/)
+  assert.match(block, /removeItem\(PENDING_ACCOUNT_TYPE_KEY\)/)
+})
+
+test('onboarding re-mints the token so the header stops showing the provider name', () => {
+  // The session carries brandName. Renaming the workspace without swapping the token leaves the
+  // old provider-derived name on screen until the next sign-in.
+  const core = read('api/core.js')
+  const app = read('App.jsx')
+
+  assert.match(core, /\/api\/brands\/onboarding/)
+  const handler = app.slice(app.indexOf('const handleCompleteOnboarding'), app.indexOf('const handleCompleteOnboarding') + 700)
+  assert.match(handler, /setAuthToken\(updated\.accessToken\)/)
+  assert.match(handler, /applyBrandFromAuth\(updated\)/)
+})
+
 test('landing controls clear the 44px touch target floor', () => {
   const css = read('App.css')
 
@@ -1746,7 +1804,10 @@ test('the restore runs once and cannot re-enter', () => {
   const at = app.indexOf('const restore = async () =>')
   assert.ok(at > -1, 'the restore effect must exist')
 
-  const effectTail = app.slice(at, at + 1400)
+  // 2400, not 1400: the effect grew when the post-social-signup onboarding check was added to it,
+  // which pushed the dependency array past the old window and failed this test while the invariant
+  // it guards was still perfectly intact. The window only has to reach the end of the effect.
+  const effectTail = app.slice(at, at + 2400)
   assert.match(effectTail, /\}, \[\]\)/, 'the restore effect must have an empty dependency array')
 })
 

@@ -297,32 +297,6 @@ function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit, onSocialLogin, authE
               </div>
             ) : null}
 
-            {/* Sign-up only. Someone signing in agreed when they registered, and re-asking on every
-                login would train people to tick without reading — which is how consent becomes a
-                formality rather than a decision. */}
-            {isSignUp ? (
-              <label className="auth-consent">
-                <input
-                  type="checkbox"
-                  name="acceptedTerms"
-                  checked={acceptedTerms}
-                  onChange={(event) => setAcceptedTerms(event.target.checked)}
-                  required
-                />
-                <span>
-                  I agree to the{' '}
-                  <a href="https://www.tejdux.com/terms/" target="_blank" rel="noreferrer noopener">
-                    Terms of Service
-                  </a>{' '}
-                  and{' '}
-                  <a href="https://www.tejdux.com/privacy/" target="_blank" rel="noreferrer noopener">
-                    Privacy Policy
-                  </a>
-                  .
-                </span>
-              </label>
-            ) : null}
-
             <button
               type="submit"
               className={`primary-btn landing-cta-btn${isSubmitting ? ' submitting' : ''}`}
@@ -350,7 +324,11 @@ function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit, onSocialLogin, authE
               type="button"
               className="ghost-btn auth-alt-btn"
               onClick={() => handleSocialLogin('google')}
-              disabled={Boolean(socialProvider)}
+              /* Sign-up gates on the same checkbox as the form below. Without this the social
+                 path would be a way around a consent the email path insists on, and the BFF
+                 would reject the redirect anyway — as an error after the click rather than a
+                 disabled button before it. */
+              disabled={Boolean(socialProvider) || (isSignUp && !acceptedTerms)}
               aria-busy={socialProvider === 'google'}
             >
               {socialProvider === 'google' ? 'Connecting…' : 'Google'}
@@ -359,12 +337,56 @@ function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit, onSocialLogin, authE
               type="button"
               className="ghost-btn auth-alt-btn"
               onClick={() => handleSocialLogin('facebook')}
-              disabled={Boolean(socialProvider)}
+              disabled={Boolean(socialProvider) || (isSignUp && !acceptedTerms)}
               aria-busy={socialProvider === 'facebook'}
             >
               {socialProvider === 'facebook' ? 'Connecting…' : 'Facebook'}
             </button>
           </div>
+
+          {/* One consent, below BOTH sign-up paths, because it governs both.
+
+              It used to sit inside the form, above the social buttons — which read as though it
+              applied only to email sign-up, while the social buttons underneath silently required
+              the same agreement. Placing it here makes the scope match the wording: whichever way
+              you create the account, this is what you agreed to.
+
+              Sign-up only. Someone signing in agreed when they registered, and re-asking on every
+              login would train people to tick without reading — which is how consent becomes a
+              formality rather than a decision. */}
+          {isSignUp ? (
+            <label className="auth-consent auth-consent-shared">
+              <input
+                type="checkbox"
+                name="acceptedTerms"
+                checked={acceptedTerms}
+                onChange={(event) => setAcceptedTerms(event.target.checked)}
+                required
+              />
+              <span>
+                I agree to the{' '}
+                <a href="https://www.tejdux.com/terms/" target="_blank" rel="noreferrer noopener">
+                  Terms of Service
+                </a>{' '}
+                and{' '}
+                <a href="https://www.tejdux.com/privacy/" target="_blank" rel="noreferrer noopener">
+                  Privacy Policy
+                </a>
+                , and I understand how to{' '}
+                {/* Meta requires this page to exist and expects it to be reachable from the
+                    product, not only from the App Dashboard field. It was previously linked
+                    nowhere in the UI — see docs/platform-app-registration.md. */}
+                <a
+                  href="https://www.tejdux.com/data-deletion/"
+                  target="_blank"
+                  rel="noreferrer noopener"
+                >
+                  request deletion of my data
+                </a>
+                .
+              </span>
+            </label>
+          ) : null}
         </div>
 
         {/* Sign-in only, now that sign-up has an explicit checkbox above — repeating the links here
@@ -384,7 +406,15 @@ function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit, onSocialLogin, authE
             <a href="https://www.tejdux.com/privacy/" target="_blank" rel="noreferrer noopener">
               Privacy Policy
             </a>
-            .
+            . You can{' '}
+            <a
+              href="https://www.tejdux.com/data-deletion/"
+              target="_blank"
+              rel="noreferrer noopener"
+            >
+              request deletion of your data
+            </a>{' '}
+            at any time.
           </p>
         ) : null}
       </section>

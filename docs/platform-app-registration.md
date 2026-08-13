@@ -113,6 +113,24 @@ Note what they do **not** show: live Instagram metrics, because the integration 
 approved yet. The README says so explicitly rather than implying an integration we do not
 have — a mockup presented as a working feature is its own rejection reason.
 
+### Dashboard fixes still required — verified against the Graph API on 2026-08-13
+
+The live app is **TejDux**, App ID `1532612907951511`. Querying it with an app access token shows
+these settings as Meta currently holds them. Each is a review blocker or a review risk, and none can
+be fixed from this repo — they are dashboard edits.
+
+| Field | Currently | Must become | Why |
+|---|---|---|---|
+| Terms of Service URL | `https://www.facebook.com/` | `https://www.tejdux.com/terms/` | 🔴 The app claims Facebook's own homepage as its terms. Almost certainly a paste error; reads to a reviewer as no terms at all |
+| Data Deletion | not configured | Instructions URL → `https://www.tejdux.com/data-deletion/` | 🔴 Required. Either option satisfies it — pick *Instructions URL*, per the note above |
+| Category | Utilities | Business and Pages | 🟠 Category routes the review. A B2B marketing CRM filed under Utilities invites "what does this app do?" |
+| Website / App URL | `http://www.tejdux.com/` | `https://www.tejdux.com/` | 🟠 Works via 301, but registering the http form is sloppy in a field reviewers read |
+| App Domains | empty | `tejdux.com` | 🟠 Meta validates redirect URIs against this |
+| Valid OAuth Redirect URIs | *(not visible via API)* | must include `https://api.tejdux.com/api/auth/oauth/facebook/callback` | 🔴 A localhost-only URI is itself a rejection reason. This is the exact URI the BFF sends — verified in the 302 above |
+
+**The Graph API cannot show permission statuses, redirect URIs, or business verification state.**
+Those must be read off the dashboard by a human; do not assume they are set because the login works.
+
 ### The two things that most often cause rejection
 
 - **A screencast that does not clearly show the permission being used in the product.** Record the
@@ -317,7 +335,8 @@ Phase A (the builder) runs in parallel throughout and needs none of this.
 
 | Platform | Owner | Submitted | Approved | Notes |
 |---|---|---|---|---|
-| Public URLs — privacy, terms, data deletion | peddysetty | — | n/a | Live on tejdux.com since 2026-08-07; dates and retention periods still placeholders |
+| Meta — prod Facebook Login credentials | peddysetty | 2026-08-13 | ✅ working | App **TejDux** (`1532612907951511`). Secrets populated in `influencrm-prod/facebook-oauth-client-{id,secret}`; `/api/auth/oauth/facebook/start` now 302s to the Meta dialog. Until 2026-08-13 both secrets held the single-space placeholder, so Facebook sign-in returned `400 facebook.client-id is not configured` **in production** — the top Meta rejection cause |
+| Public URLs — privacy, terms, data deletion | peddysetty | — | n/a | Live on tejdux.com since 2026-08-07; **dates and retention periods are still `[PLACEHOLDER]` on the live pages** — blocks review, see §"Dashboard fixes still required" |
 | Review screenshots | peddysetty | — | n/a | Captured 2026-08-07 in [`snapshots/`](../snapshots/); regenerate after UI changes |
 | Meta — access requested | peddysetty | 2026-08-07 | — | Requested. Expect 2–4 weeks; **resets if a reviewer requests changes**. Confirm below which permissions were included in the submission |
 | Meta — business verification | peddysetty | 2026-08-07 | — | Slowest step; runs in parallel with permission review |

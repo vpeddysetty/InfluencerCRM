@@ -247,6 +247,17 @@ export async function createBrand(token, name) {
   return request('/api/brands', { method: 'POST', token, body: { name } })
 }
 
+// Names the workspace after a social sign-up, and promotes it to an agency if that is what the
+// user picked before the redirect. Like switchBrand this re-mints the token, because the old one
+// still carries the provider-derived brandName the session was created with.
+export async function completeOnboarding(token, { workspaceName, accountType }) {
+  return request('/api/brands/onboarding', {
+    method: 'POST',
+    token,
+    body: { workspaceName, accountType },
+  })
+}
+
 export async function listAccountMembers(token) {
   return request('/api/brands/members', { token })
 }
