@@ -198,6 +198,12 @@ services:
       GOOGLE_OAUTH_CLIENT_SECRET: $${GOOGLE_OAUTH_CLIENT_SECRET}
       FACEBOOK_OAUTH_CLIENT_ID: $${FACEBOOK_OAUTH_CLIENT_ID}
       FACEBOOK_OAUTH_CLIENT_SECRET: $${FACEBOOK_OAUTH_CLIENT_SECRET}
+      # The TejDux app is Business-type, so Facebook Login for Business applies: email and
+      # public_profile on their own are refused with "Invalid Scopes: email", and at least one
+      # business permission must accompany them. pages_show_list needs no App Review at Standard
+      # Access, and linking a Facebook Page is how an Instagram Business account is reached anyway.
+      # Here rather than only in application.properties so a scope change is a restart, not a rebuild.
+      FACEBOOK_OAUTH_SCOPE: email,public_profile,pages_show_list
       STRIPE_SECRET_KEY: $${STRIPE_SECRET_KEY}
       WEBE_BILLING_WEBHOOK_SECRET: $${BILLING_WEBHOOK_SECRET}
       YOUTUBE_API_KEY: $${YOUTUBE_API_KEY}

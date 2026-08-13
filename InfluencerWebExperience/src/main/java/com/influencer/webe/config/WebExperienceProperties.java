@@ -273,6 +273,36 @@ public class WebExperienceProperties {
         private String redirectUri;
         private String userinfoUri;
 
+        /**
+         * Scopes requested at the consent screen.
+         *
+         * <p>Configurable, and defaulted to include {@code pages_show_list}, because what is valid
+         * here depends on the app's TYPE in the Meta dashboard rather than on anything in this code.
+         * A Business-type app uses <em>Facebook Login for Business</em>, which requires at least one
+         * business permission alongside {@code email} and {@code public_profile}; asking for only
+         * those two is refused outright with {@code Invalid Scopes: email}. A Consumer-type app is
+         * the opposite: it has no business permissions and wants exactly those two.
+         *
+         * <p>TejDux is Business-type — that is what the Instagram Graph API needs, so it is not a
+         * setting to undo. {@code pages_show_list} is the cheapest permission that satisfies the
+         * rule: it needs no App Review at Standard Access, and it is already on the submission list
+         * in docs/platform-app-registration.md because linking a Facebook Page is how an Instagram
+         * Business account is reached at all.
+         *
+         * <p>Being a property rather than a literal means a scope rejection is a config change and a
+         * restart, not a rebuild and a redeploy — which matters while the dashboard side is still
+         * being settled.
+         */
+        private String scope = "email,public_profile,pages_show_list";
+
+        public String getScope() {
+            return scope;
+        }
+
+        public void setScope(String scope) {
+            this.scope = scope;
+        }
+
         public String getAuthorizationUri() {
             return authorizationUri;
         }

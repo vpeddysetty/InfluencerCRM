@@ -184,7 +184,14 @@ public class OAuthFlowService {
             authorizationUri = requireConfigured(facebook.getAuthorizationUri(), "facebook.authorization-uri");
             clientId = requireConfigured(facebook.getClientId(), "facebook.client-id");
             redirectUri = requireConfigured(facebook.getRedirectUri(), "facebook.redirect-uri");
-            scope = "email public_profile";
+            // Configured rather than literal: which scopes are valid depends on the app's type in
+            // the Meta dashboard, not on this code. See WebExperienceProperties.Facebook#scope —
+            // a Business-type app refuses "email public_profile" on its own.
+            //
+            // Comma-separated on the wire. Meta accepts either separator, but its own documentation
+            // and error messages use commas, and a space-separated list is what the previous literal
+            // sent — so commas keep what we send and what Meta reports back directly comparable.
+            scope = normalizeScopes(facebook.getScope());
         } else {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported provider: " + provider);
         }
@@ -195,6 +202,38 @@ public class OAuthFlowService {
                 + "&redirect_uri=" + encode(redirectUri)
                 + "&scope=" + encode(scope)
                 + "&state=" + encode(request.state());
+    }
+
+    /**
+     * Accepts a scope list written with commas, spaces, or both, and emits a comma-separated one.
+     *
+     * <p>The property is edited by hand in a compose file and in the Meta dashboard's own notation,
+     * so tolerating whichever separator someone reaches for is worth more than insisting on one.
+     * Blank entries are dropped: a trailing comma is a typo, not a request for an empty permission,
+     * and Meta rejects the whole authorization with {@code Invalid Scopes} if one arrives.
+     */
+    private String normalizeScopes(String configured) {
+        if (configured == null || configured.isBlank()) {
+            // Deliberately not silently substituting a default. An empty scope is a configuration
+            // mistake, and Meta's error for it names the app rather than the setting — so failing
+            // here, with the property name, is the faster diagnosis.
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "facebook.scope is not configured");
+        }
+        String[] parts = configured.trim().split("[,\\s]+");
+        StringBuilder joined = new StringBuilder();
+        for (String part : parts) {
+            if (part.isBlank()) {
+                continue;
+            }
+            if (joined.length() > 0) {
+                joined.append(',');
+            }
+            joined.append(part);
+        }
+        if (joined.length() == 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "facebook.scope is not configured");
+        }
+        return joined.toString();
     }
 
     private String requireConfigured(String value, String propertyName) {
