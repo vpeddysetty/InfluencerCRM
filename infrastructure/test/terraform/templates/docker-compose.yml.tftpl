@@ -162,10 +162,21 @@ services:
       # silently left the other pointing at a certificate that no longer existed.
       WEBE_DAO_TRUST_STORE_B64: $${DAO_TRUSTSTORE_B64}
       WEBE_AGENT_BASE_URL: http://agent:8000
-      WEBE_DPS_BASE_URL: http://dps:8090
       WORKFLOW_SERVICE_URL: http://workflow:8444
       # Externally reachable origins. These end up in redirects and CORS headers, so they must be what a
       # BROWSER can reach — not a service name.
+      #
+      # WEBE_DPS_BASE_URL BELONGS IN THIS GROUP, not with the service-name URLs above, where it sat
+      # until 2026-08-13. Its ONLY consumer is OAuthFlowService.redirectToDps, which builds a 302
+      # Location header — an instruction to the BROWSER. Set to http://dps:8090 it told the browser to
+      # navigate to a Docker-internal hostname, so every social sign-in died at the end of the flow:
+      # the provider authenticated the user, the callback exchanged the code and created the session,
+      # and then the browser was sent somewhere it could not resolve. Facebook surfaced this as a
+      # /dialog/close/ URL, which reads like a Meta-side rejection and is not one.
+      #
+      # The public origin serves the same DPS: /dps/* is routed to it by Caddy, so this is the same
+      # service by a name a browser can actually reach.
+      WEBE_DPS_BASE_URL: ${public_base_url}
       WEBE_PUBLIC_BASE_URL: ${public_base_url}
       WEBE_UI_BASE_URL: ${ui_base_url}
       # Uploaded assets live on the EFS mount: a container's own filesystem does not survive a deploy.
