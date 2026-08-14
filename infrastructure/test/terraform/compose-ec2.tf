@@ -410,6 +410,16 @@ locals {
     cookie_secure    = var.api_domain != "" ? "true" : "false"
     cookie_same_site = var.api_domain != "" ? "None" : "Lax"
 
+    # The session cookie has to reach the UI, which is a DIFFERENT HOST from the one that sets it:
+    # the DPS answers on api.tejdux.com, the UI is served from tejdux.com. Without a Domain the
+    # cookie is host-only, so it never arrives — and a completed sign-in renders as a signed-out
+    # landing page, because the SPA's first /dps/session call carries nothing.
+    #
+    # A leading dot on the apex covers the apex and every subdomain, which is what makes one session
+    # work across both. Empty when there is no api_domain: local development is all localhost, where
+    # a Domain attribute on a bare hostname is rejected and the cookie dropped entirely.
+    cookie_domain = var.api_domain != "" ? ".${var.root_domain}" : ""
+
     context_services = local.compose_context_services
   })
 }

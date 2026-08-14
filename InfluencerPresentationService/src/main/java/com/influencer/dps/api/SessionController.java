@@ -323,7 +323,7 @@ public class SessionController {
     }
 
     private ResponseCookie.ResponseCookieBuilder cookieBuilder(String value, Duration maxAge) {
-        return ResponseCookie.from(properties.getCookieName(), value)
+        ResponseCookie.ResponseCookieBuilder builder = ResponseCookie.from(properties.getCookieName(), value)
                 // The property that makes this design worthwhile: JavaScript cannot read it, so an
                 // XSS payload cannot steal the session.
                 .httpOnly(true)
@@ -331,6 +331,19 @@ public class SessionController {
                 .sameSite(properties.getCookieSameSite())
                 .path("/")
                 .maxAge(maxAge);
+
+        // Only when configured. An empty Domain attribute is not the same as none: it is invalid,
+        // and a browser drops the whole cookie rather than treating it as host-only — which would
+        // turn "no domain configured" into "no session at all" for local development.
+        //
+        // Applied through the shared builder so the CLEARING cookie carries it too. A logout whose
+        // Domain does not match the one the cookie was set with does not clear anything: the browser
+        // treats them as different cookies and the session cookie survives the sign-out.
+        String domain = properties.getCookieDomain();
+        if (domain != null && !domain.isBlank()) {
+            builder.domain(domain.trim());
+        }
+        return builder;
     }
 
     // ------------------------------------------------------------------ payloads

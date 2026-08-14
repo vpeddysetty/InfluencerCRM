@@ -260,6 +260,9 @@ services:
       DPS_COOKIE_SECURE: "${cookie_secure}"
       # Cross-origin micro-frontends need SameSite=None, which the spec only permits alongside Secure.
       DPS_COOKIE_SAME_SITE: "${cookie_same_site}"
+      # Scopes the session cookie to the apex so it reaches the UI host as well as this one. Without
+      # it the cookie is host-only to api.tejdux.com and the SPA on tejdux.com never sees the session.
+      DPS_COOKIE_DOMAIN: "${cookie_domain}"
       DPS_ALLOWED_ORIGINS: ${ui_base_url}
       # DPS_SESSION_STORE deliberately unset: in-memory Caffeine. Correct for one instance, wrong for
       # more than one — which is why this deployment is pinned to a single instance.

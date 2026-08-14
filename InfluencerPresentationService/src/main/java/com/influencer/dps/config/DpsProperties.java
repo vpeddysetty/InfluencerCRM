@@ -83,6 +83,29 @@ public class DpsProperties {
      */
     private String cookieSameSite = "Lax";
 
+    /**
+     * Domain the session cookie is scoped to. Blank leaves it host-only.
+     *
+     * <p><b>Why this has to be settable.</b> The DPS is reached at one hostname and the UI is served
+     * from another — {@code api.tejdux.com} and {@code tejdux.com} in production. A cookie with no
+     * {@code Domain} attribute is host-only, so one set while answering on {@code api.tejdux.com} is
+     * never sent to {@code tejdux.com}. Setting it to the shared parent, {@code .tejdux.com}, makes
+     * it travel to both.
+     *
+     * <p>That gap is what made a successful social sign-in look like a failed one: the OAuth flow
+     * completed, the session existed server-side, the browser was redirected to the UI — and the
+     * SPA's first {@code /dps/session} call arrived without the cookie, so the app rendered the
+     * signed-out landing page. Nothing in the flow errored; the session simply could not be seen.
+     *
+     * <p>Blank by default, because host-only is right for local development, where everything is
+     * {@code localhost} and a {@code Domain} attribute on a bare hostname is rejected outright.
+     *
+     * <p>Widen this no further than necessary: the cookie is sent to every subdomain of whatever is
+     * set here, so a parent domain shared with hosts that should not receive the session is not a
+     * valid value.
+     */
+    private String cookieDomain = "";
+
     public String getBffBaseUrl() {
         return bffBaseUrl;
     }
@@ -180,5 +203,13 @@ public class DpsProperties {
 
     public void setCookieSameSite(String cookieSameSite) {
         this.cookieSameSite = cookieSameSite;
+    }
+
+    public String getCookieDomain() {
+        return cookieDomain;
+    }
+
+    public void setCookieDomain(String cookieDomain) {
+        this.cookieDomain = cookieDomain;
     }
 }
