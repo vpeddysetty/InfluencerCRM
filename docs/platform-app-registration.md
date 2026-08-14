@@ -113,6 +113,34 @@ Note what they do **not** show: live Instagram metrics, because the integration 
 approved yet. The README says so explicitly rather than implying an integration we do not
 have — a mockup presented as a working feature is its own rejection reason.
 
+### Two Meta apps, not one — decided 2026-08-13
+
+**Sign-in and Instagram need different app TYPES, and one app cannot be both.**
+
+| | Consumer app | Business app |
+|---|---|---|
+| Login mechanism | `scope` | `config_id` — Meta's docs state it **replaces** `scope` |
+| `scope=email,public_profile` | works | **rejected**: `Invalid Scopes: email` |
+| Instagram Graph API | not available | required |
+
+This was learned the slow way. TejDux (`1532612907951511`) was set to Business type, and the
+resulting `Invalid Scopes: email` was first misread as "a Business app needs an extra business
+permission" — so `pages_show_list` was added to the scope. It changed nothing, because the contents
+of the parameter were never the problem: a Business app does not read `scope` at all. Permissions
+there come from a Business Login Configuration built in the dashboard and referenced by `config_id`.
+
+The resolution is two apps, which also matches what they actually are — two integrations with
+different users, timelines and failure modes:
+
+| App | Type | Purpose | When |
+|---|---|---|---|
+| Sign-in | **Consumer** | Brand owners signing into the CRM with Facebook | Now |
+| Instagram | **Business** | Reading creator metrics via the Instagram Graph API | M6 |
+
+Making sign-in wait for the Instagram app would hold a working feature behind a 2–4 week review of
+something months away. `web-experience.oauth.facebook.scope` is a property precisely so the sign-in
+app's scope can be corrected with a restart rather than a rebuild.
+
 ### Dashboard fixes still required — verified against the Graph API on 2026-08-13
 
 The live app is **TejDux**, App ID `1532612907951511`. Querying it with an app access token shows

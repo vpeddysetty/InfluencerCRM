@@ -10,35 +10,45 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Guards the scope list sent to Meta, which is constrained by the app's TYPE rather than by anything
  * in this codebase.
  *
- * <p>TejDux is a Business-type app, so it uses <em>Facebook Login for Business</em>. That flavour
- * requires at least one business permission alongside {@code email} and {@code public_profile};
- * asking for only those two is refused before the consent screen with {@code Invalid Scopes: email}.
- * A Consumer-type app behaves the opposite way. The type is not interchangeable here — Business is
- * what the Instagram Graph API requires, and Instagram is the reason the Meta app exists.
+ * <p>Sign-in runs against a <b>Consumer</b>-type app, where {@code scope} is the mechanism and
+ * {@code email,public_profile} is exactly what a sign-in needs. A <b>Business</b>-type app is not a
+ * variation on that: Meta's documentation states {@code config_id} <em>replaces</em> {@code scope},
+ * so a scope parameter there is refused with {@code Invalid Scopes: email} whatever it contains.
  *
- * <p>{@code pages_show_list} is the permission chosen to satisfy the rule: no App Review at Standard
- * Access, and already on the submission list, because reaching an Instagram Business account goes
- * through the Facebook Page it is linked to.
+ * <p>That distinction is the reason these assertions are worth writing down. An earlier attempt to
+ * fix the Business-app rejection by ADDING {@code pages_show_list} to this list failed, because the
+ * problem was never which permissions were listed — it was that the parameter itself is not how a
+ * Business app asks. Instagram does need a Business app, but as a separate integration on a separate
+ * app (roadmap M6); reading creator metrics and signing a brand owner in are not the same flow.
  */
 class FacebookScopeTest {
 
     @Test
-    @DisplayName("the default scope carries a business permission, not just email and public_profile")
-    void defaultScopeSatisfiesLoginForBusiness() {
+    @DisplayName("the default scope is the Consumer-login pair, with no business permissions")
+    void defaultScopeIsTheConsumerPair() {
         String scope = new WebExperienceProperties.Facebook().getScope();
 
         assertTrue(scope.contains("email"), "email is what the account is keyed on");
         assertTrue(scope.contains("public_profile"), "public_profile supplies the display name");
-        assertTrue(
-                scope.contains("pages_show_list"),
-                "a Business-type app refuses email+public_profile alone with 'Invalid Scopes: email'; "
-                        + "at least one business permission has to accompany them");
+
+        // A business permission here means someone is trying to make a Business app work by editing
+        // the scope, which cannot succeed — that app type ignores scope in favour of config_id.
+        for (String businessPermission : new String[] {
+                "pages_show_list", "pages_read_engagement", "business_management", "instagram_basic"}) {
+            assertFalse(
+                    scope.contains(businessPermission),
+                    "scope carries " + businessPermission + ", a business permission. If this is an "
+                            + "attempt to satisfy a Business-type app, it will not work: config_id "
+                            + "replaces scope there, and any scope is rejected as 'Invalid Scopes'. "
+                            + "Sign-in belongs on a Consumer app.");
+        }
     }
 
     @Test
@@ -53,9 +63,9 @@ class FacebookScopeTest {
 
         String text = Files.readString(compose, StandardCharsets.UTF_8);
         assertTrue(
-                text.contains("FACEBOOK_OAUTH_SCOPE: email,public_profile,pages_show_list"),
+                text.contains("FACEBOOK_OAUTH_SCOPE: email,public_profile"),
                 "the compose template must request the same scopes as the in-code default; a "
-                        + "deployment that quietly asks for less fails at the consent screen");
+                        + "deployment that quietly asks for something else fails at the consent screen");
     }
 
     @Test

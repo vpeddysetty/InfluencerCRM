@@ -276,24 +276,30 @@ public class WebExperienceProperties {
         /**
          * Scopes requested at the consent screen.
          *
-         * <p>Configurable, and defaulted to include {@code pages_show_list}, because what is valid
-         * here depends on the app's TYPE in the Meta dashboard rather than on anything in this code.
-         * A Business-type app uses <em>Facebook Login for Business</em>, which requires at least one
-         * business permission alongside {@code email} and {@code public_profile}; asking for only
-         * those two is refused outright with {@code Invalid Scopes: email}. A Consumer-type app is
-         * the opposite: it has no business permissions and wants exactly those two.
+         * <p><b>This only works against a CONSUMER-type Meta app, and that is deliberate.</b> The
+         * two app types authenticate differently, and the difference is not a matter of which
+         * permissions are listed here:
          *
-         * <p>TejDux is Business-type — that is what the Instagram Graph API needs, so it is not a
-         * setting to undo. {@code pages_show_list} is the cheapest permission that satisfies the
-         * rule: it needs no App Review at Standard Access, and it is already on the submission list
-         * in docs/platform-app-registration.md because linking a Facebook Page is how an Instagram
-         * Business account is reached at all.
+         * <ul>
+         *   <li><b>Consumer</b> — plain Facebook Login. {@code scope} is the mechanism, and
+         *       {@code email,public_profile} is exactly what a sign-in needs.</li>
+         *   <li><b>Business</b> — Facebook Login for Business. Meta's documentation states that
+         *       {@code config_id} <em>replaces</em> {@code scope}: permissions come from a Business
+         *       Login Configuration built in the dashboard, and a {@code scope} parameter is
+         *       rejected with {@code Invalid Scopes: email} no matter what it contains. Adding
+         *       {@code pages_show_list} here does not help, because the parameter itself is the
+         *       wrong mechanism.</li>
+         * </ul>
          *
-         * <p>Being a property rather than a literal means a scope rejection is a config change and a
-         * restart, not a rebuild and a redeploy — which matters while the dashboard side is still
-         * being settled.
+         * <p>Sign-in therefore runs on a Consumer app. The Instagram Graph API needs a Business one,
+         * but that is a separate integration on a separate timeline (roadmap M6) reading creator
+         * metrics — not the same flow as a brand owner signing in, and no reason to make signing in
+         * wait for it. See docs/platform-app-registration.md.
+         *
+         * <p>Still a property rather than a literal: it is what lets the scope be corrected with a
+         * restart instead of a rebuild while the dashboard side is being settled.
          */
-        private String scope = "email,public_profile,pages_show_list";
+        private String scope = "email,public_profile";
 
         public String getScope() {
             return scope;
