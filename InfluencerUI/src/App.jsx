@@ -820,7 +820,7 @@ function App() {
     }
   }, [authToken, isLoggedIn])
 
-  const handleAuthSubmit = async (event) => {
+  const handleAuthSubmit = async (event, options = {}) => {
     const form = new FormData(event.currentTarget)
     const rawIdentifier = String(form.get('email') || '')
     const email = isSignUp ? rawIdentifier : normalizeLoginEmail(rawIdentifier)
@@ -833,9 +833,17 @@ function App() {
     // The landing page's workspace-type radio. Absent on the login tab, and defaulted rather
     // than sent blank so the server's own default stays the single source of that rule.
     const accountType = String(form.get('accountType') || 'brand')
-    // The consent checkbox. Only present on the sign-up tab, and sent as a real boolean rather
-    // than the string a form field yields — the server distinguishes true from everything else.
-    const acceptedTerms = form.get('acceptedTerms') === 'on'
+    // The consent checkbox, passed in by the caller rather than read from the form.
+    //
+    // It used to come from FormData, which worked only while the checkbox sat inside <form>. When
+    // it moved below the form — to sit under BOTH sign-up paths, since it governs the social
+    // buttons too — FormData stopped seeing it, so every signup was sent with acceptedTerms=false
+    // and the server refused it with "You must accept the Terms of Service and Privacy Policy".
+    // The page renders the box, the user ticks it, and the value never left the browser.
+    //
+    // The fallback keeps the old behaviour for any caller that still relies on the field being in
+    // the form, so this cannot silently break a second entry point.
+    const acceptedTerms = options.acceptedTerms ?? (form.get('acceptedTerms') === 'on')
 
     try {
       setAuthError('')

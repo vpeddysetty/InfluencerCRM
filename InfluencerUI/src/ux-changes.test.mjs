@@ -1577,6 +1577,26 @@ test('the data deletion page is reachable from the product', () => {
   assert.match(page, /https:\/\/www\.tejdux\.com\/data-deletion\//)
 })
 
+test('the consent value does not depend on the checkbox being inside the form', () => {
+  // The checkbox sits BELOW <form>, next to the social buttons it also governs. FormData built from
+  // a submit event only sees fields inside that form, so reading acceptedTerms from it sent every
+  // signup with false and the server refused it -- the box was ticked on screen and the value never
+  // left the browser. The page renders it from React state, so the submit path must read it there.
+  const page = read('pages/LandingPage.jsx')
+  const app = read('App.jsx')
+
+  const formEnds = page.indexOf('</form>')
+  const checkboxAt = page.indexOf('name="acceptedTerms"')
+  assert.ok(formEnds > -1 && checkboxAt > formEnds,
+    'this test only matters while the checkbox is outside the form; if it moved back inside, ' +
+    'revisit whether the FormData read is safe again')
+
+  assert.match(page, /onAuthSubmit\(event, \{ acceptedTerms \}\)/,
+    'LandingPage must pass its own state, not rely on the form containing the field')
+  assert.match(app, /options\.acceptedTerms \?\?/,
+    'the handler must prefer the passed value over FormData')
+})
+
 test('one consent governs both sign-up paths', () => {
   // The checkbox used to sit INSIDE the form, above the social buttons, which read as though it
   // applied only to email sign-up while the buttons underneath silently required the same

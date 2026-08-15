@@ -82,6 +82,50 @@ try {
       note(`"${label}" present`)
     }
   }
+  // Actually SIGN UP. Everything above proves the page renders; this proves it works.
+  //
+  // Added after a signup bug that no source-reading test could catch: the consent checkbox moved
+  // below <form>, so the FormData the submit handler built stopped seeing it. Every signup was sent
+  // with acceptedTerms=false and refused by the server, while the box sat ticked on screen. The
+  // unit tests passed, the build passed, the API passed when called directly with the field — the
+  // only broken thing was the browser, and nothing was driving a browser.
+  //
+  // Skipped against production by default: it writes a real account to the real database. Pass
+  // --signup to opt in, which is worth doing after any change to the auth path.
+  const runSignup = process.argv.includes('--signup') || !target.includes('tejdux.com')
+  if (!runSignup) {
+    note('signup check skipped (pass --signup to run it against a real environment)')
+  } else {
+    const email = `smoke${Date.now()}@tejdux.com`
+    await page.getByRole('button', { name: 'Sign up', exact: true }).click()
+    await page.locator('input[name="fullName"]').fill('Smoke Test')
+    await page.locator('input[name="brand"]').fill('Smoke Test Co')
+    await page.locator('input[name="email"]').fill(email)
+    await page.locator('input[name="password"]').fill('Test!23456')
+    await page.locator('input[name="acceptedTerms"]').check()
+
+    await page.getByRole('button', { name: /Create workspace/i }).click()
+
+    // Either the workspace loads, or an error note appears. Waiting for both and reporting
+    // whichever arrives beats a fixed timeout that reports "no workspace" for every failure.
+    const errorNote = page.locator('.auth-error-note')
+    const outcome = await Promise.race([
+      page.waitForURL((url) => !url.pathname.match(/^\/(login)?$/), { timeout: 20_000 })
+        .then(() => 'signed-in')
+        .catch(() => null),
+      errorNote.waitFor({ state: 'visible', timeout: 20_000 })
+        .then(() => 'error')
+        .catch(() => null),
+    ])
+
+    if (outcome === 'error') {
+      failures.push(`signup failed: ${(await errorNote.textContent())?.trim().slice(0, 160)}`)
+    } else if (outcome === 'signed-in') {
+      note(`signup succeeded → ${new URL(page.url()).pathname}`)
+    } else {
+      failures.push('signup neither completed nor reported an error within 20s')
+    }
+  }
 } catch (error) {
   failures.push(`navigation failed: ${error.message}`)
 } finally {

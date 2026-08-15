@@ -51,6 +51,26 @@ public class WebExperienceProperties {
         this.daoBaseUrl = daoBaseUrl;
     }
 
+    /**
+     * The UI's PRIMARY origin — the one to put in a link someone will click.
+     *
+     * <p>{@code ui-base-url} may hold a comma-separated list, because the same site is served from
+     * more than one hostname and CORS has to allow all of them. Anything building a URL wants one
+     * value, and quietly gets the first: a share link reading
+     * {@code https://tejdux.com,https://www.tejdux.com/share/abc} is not a link at all.
+     *
+     * <p>Kept as a separate accessor rather than trimming at the call site, so the distinction
+     * between "which origins may call us" and "where do we send people" is visible in the API
+     * instead of being rediscovered by whoever writes the next feature.
+     */
+    public String getPrimaryUiBaseUrl() {
+        String configured = getUiBaseUrl();
+        if (configured == null || configured.isBlank()) {
+            return configured;
+        }
+        return configured.split(",")[0].trim();
+    }
+
     public String getUiBaseUrl() {
         return uiBaseUrl;
     }

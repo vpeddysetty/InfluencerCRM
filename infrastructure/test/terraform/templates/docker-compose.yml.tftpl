@@ -178,7 +178,13 @@ services:
       # service by a name a browser can actually reach.
       WEBE_DPS_BASE_URL: ${public_base_url}
       WEBE_PUBLIC_BASE_URL: ${public_base_url}
-      WEBE_UI_BASE_URL: ${ui_base_url}
+      # BOTH hostnames, comma-separated: this feeds the BFF's CORS allow-list, and the site is served
+      # from the apex and www alike. Allowing only the apex meant a visitor on www had signup blocked
+      # before the request left the browser, reported as "Failed to fetch".
+      #
+      # The FIRST entry is also the primary origin — what getPrimaryUiBaseUrl returns for share
+      # links, which need one URL rather than a list.
+      WEBE_UI_BASE_URL: ${ui_allowed_origins}
       # Uploaded assets live on the EFS mount: a container's own filesystem does not survive a deploy.
       WEBE_ASSET_ROOT: /mnt/assets
       WEBE_EMAIL_FROM: ${ses_from_address}

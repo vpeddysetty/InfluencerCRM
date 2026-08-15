@@ -158,10 +158,23 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
+
+        // A LIST, because the same site is served from more than one hostname. CloudFront answers on
+        // both tejdux.com and www.tejdux.com, and only the apex was allowed here — so a visitor who
+        // typed the www prefix loaded the page, ticked the consent box, pressed Create workspace,
+        // and had the request blocked before it left the browser. The UI reported "Failed to fetch",
+        // which reads like a network fault rather than a configuration one.
+        //
+        // No wildcard is possible: allowCredentials is true below, and the CORS spec forbids
+        // Access-Control-Allow-Origin: * alongside credentials. Enumerating origins is the only
+        // correct form, which is why this parses a list rather than taking a single value.
         String uiOrigin = properties.getUiBaseUrl();
         configuration.setAllowedOrigins(uiOrigin == null || uiOrigin.isBlank()
                 ? List.of("http://localhost:5173")
-                : List.of(uiOrigin));
+                : java.util.Arrays.stream(uiOrigin.split(","))
+                        .map(String::trim)
+                        .filter(origin -> !origin.isEmpty())
+                        .toList());
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Brand-Id"));
         configuration.setAllowCredentials(true);

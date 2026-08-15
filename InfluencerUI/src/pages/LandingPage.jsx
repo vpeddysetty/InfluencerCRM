@@ -32,7 +32,12 @@ function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit, onSocialLogin, authE
 
     setIsSubmitting(true)
     try {
-      await onAuthSubmit(event)
+      // Passed explicitly rather than left to FormData. The consent checkbox lives BELOW the form,
+      // next to the social buttons it also governs, so it is outside <form> and a FormData built
+      // from the submit event cannot see it — which silently sent every signup with no consent and
+      // had the server refuse it. React state is where this value actually lives; read it from
+      // there rather than from the DOM position it happens to occupy.
+      await onAuthSubmit(event, { acceptedTerms })
       // Navigate as soon as the session is real. The CTA animation used to hold this back by
       // 340ms, which charged every signup for a decoration; the animation is free to finish
       // while the next route mounts.
