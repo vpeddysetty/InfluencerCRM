@@ -34,17 +34,37 @@ function WorkspaceOnboardingDialog({
   const panelRef = useRef(null)
   const nameRef = useRef(null)
 
+  // Held in refs so the effects below need not depend on their identity. See the note in Drawer:
+  // an effect that focuses and then lists a changing dependency re-runs on every keystroke, and
+  // steals the caret out of the field being typed into. Here it would also re-SELECT the text, so
+  // the second character would replace the first.
+  const onSkipRef = useRef(onSkip)
+  const busyRef = useRef(busy)
+  useEffect(() => {
+    onSkipRef.current = onSkip
+    busyRef.current = busy
+  }, [onSkip, busy])
+
+  // MOUNT ONLY: entering and leaving the dialog, and the one-time focus of the name field.
   useEffect(() => {
     const originalOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
 
     nameRef.current?.focus()
+    // Pre-filled with the provider-derived name, so selecting it means typing replaces rather than
+    // appends. Correct exactly once, on open.
     nameRef.current?.select()
 
+    return () => {
+      document.body.style.overflow = originalOverflow
+    }
+  }, [])
+
+  useEffect(() => {
     const onKeyDown = (event) => {
-      if (event.key === 'Escape' && !busy) {
+      if (event.key === 'Escape' && !busyRef.current) {
         event.preventDefault()
-        onSkip?.()
+        onSkipRef.current?.()
         return
       }
 
@@ -72,11 +92,8 @@ function WorkspaceOnboardingDialog({
     }
 
     document.addEventListener('keydown', onKeyDown)
-    return () => {
-      document.body.style.overflow = originalOverflow
-      document.removeEventListener('keydown', onKeyDown)
-    }
-  }, [busy, onSkip])
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [])
 
   const handleSubmit = async (event) => {
     event.preventDefault()

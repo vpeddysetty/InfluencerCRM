@@ -1577,6 +1577,46 @@ test('the data deletion page is reachable from the product', () => {
   assert.match(page, /https:\/\/www\.tejdux\.com\/data-deletion\//)
 })
 
+test('no dialog moves focus from an effect that re-runs on re-render', () => {
+  // The bug this guards: an effect that focuses something AND lists a changing dependency runs
+  // again every time the parent re-renders. Parents pass inline arrows, so every keystroke in a
+  // drawer form produced a new onClose identity, React tore the effect down and set it up again,
+  // and focus went from the input to the dialog panel. Typing was impossible -- one character per
+  // click. The forms were fine; the dialogs wrapping them were not.
+  //
+  // The fix is structural: callbacks live in refs, and anything that touches focus runs mount-only.
+  // So the rule checked here is that a focus-moving effect has an EMPTY dependency array.
+  const dialogs = [
+    'components/ui/Drawer.jsx',
+    'components/ui/ConfirmDialog.jsx',
+    'components/ui/WorkspaceOnboardingDialog.jsx',
+    'components/ui/SessionExpiredDialog.jsx',
+  ]
+
+  for (const file of dialogs) {
+    const source = read(file)
+
+    // Split into effect bodies with their dependency arrays.
+    const effects = source.split('useEffect(() => {').slice(1)
+    for (const effect of effects) {
+      const end = effect.search(/\n  \}, \[[^\]]*\]\)/)
+      if (end === -1) continue
+      const body = effect.slice(0, end)
+      const deps = effect.slice(end).match(/\}, \[([^\]]*)\]\)/)?.[1].trim() ?? ''
+
+      // A ref-sync effect assigns and focuses nothing; it may depend on whatever it likes.
+      const movesFocus = /\.focus\(\)|\.select\(\)/.test(body)
+      if (movesFocus && deps !== '') {
+        assert.fail(
+          `${file}: an effect that moves focus depends on [${deps}]. It will re-run whenever the ` +
+          'parent re-renders and pull focus out of whatever the user is typing into. Hold the ' +
+          'callback in a ref and give the effect an empty dependency array.',
+        )
+      }
+    }
+  }
+})
+
 test('the consent value does not depend on the checkbox being inside the form', () => {
   // The checkbox sits BELOW <form>, next to the social buttons it also governs. FormData built from
   // a submit event only sees fields inside that form, so reading acceptedTerms from it sent every
