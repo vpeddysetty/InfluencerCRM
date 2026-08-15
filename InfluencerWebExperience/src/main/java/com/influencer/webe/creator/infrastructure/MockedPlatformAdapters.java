@@ -6,14 +6,17 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /**
- * Instagram and TikTok adapters, simulated until the platforms approve the app (roadmap M6.4).
+ * TikTok's adapter, simulated until the platform approves the app (roadmap M6.4).
  *
- * <p><b>Why these exist at all rather than simply leaving the platforms unregistered.</b> With no
- * adapter, "Instagram is not wired up yet" is invisible — the registry finds nothing, the gateway
- * quietly falls back, and the only record of the gap is a roadmap line. With them, the seam is a
- * real class: when Meta approves, {@link InstagramProfileAdapter} gets a body and an
- * {@code isConfigured()} that checks for a token, and nothing else in the system changes. That is
- * the difference between "start a project" and "fill in one method".
+ * <p><b>Why this exists rather than simply leaving the platform unregistered.</b> With no adapter,
+ * "TikTok is not wired up yet" is invisible — the registry finds nothing, the gateway quietly falls
+ * back, and the only record of the gap is a roadmap line. With one, the seam is a real class.
+ *
+ * <p><b>Instagram used to live here and no longer does.</b> {@link InstagramProfileAdapter} is now
+ * a real Graph API read, which is what this slot was holding open for. The replacement was exactly
+ * the promised shape — a new class implementing the same interface, with no change at any call site
+ * — so the pattern is worth keeping for TikTok rather than treating this file as scaffolding to
+ * delete.
  *
  * <p><b>They delegate to {@link MockSocialProfileGateway} rather than inventing their own numbers.</b>
  * One simulation, so a creator's mock follower count does not change depending on which layer
@@ -63,27 +66,8 @@ public final class MockedPlatformAdapters {
     }
 
     /**
-     * Instagram — blocked on Meta app review.
+     * TikTok — registration deferred by decision, not by rejection.
      *
-     * <p>When approved this needs a Business account token and a second call for audience
-     * insights, which is why the real version is 3 days rather than the 1 the roadmap implies for
-     * "an adapter". See docs/platform-app-registration.md.
-     */
-    @Component
-    public static class InstagramProfileAdapter extends SimulatedAdapter {
-        public InstagramProfileAdapter(
-                MockSocialProfileGateway simulation,
-                @Value("${web-experience.creators.instagram-simulated:true}") boolean simulated) {
-            super(simulation, simulated);
-        }
-
-        @Override
-        public String platform() {
-            return "instagram";
-        }
-    }
-
-    /**
      * TikTok — registration deferred by decision, not by rejection.
      *
      * <p>docs/platform-app-registration.md §2.1 holds a paste-ready package; the decision was to
