@@ -263,7 +263,9 @@ services:
       # Scopes the session cookie to the apex so it reaches the UI host as well as this one. Without
       # it the cookie is host-only to api.tejdux.com and the SPA on tejdux.com never sees the session.
       DPS_COOKIE_DOMAIN: "${cookie_domain}"
-      DPS_ALLOWED_ORIGINS: ${ui_base_url}
+      # Apex AND www: both hostnames serve the UI, and an origin missing from this list has every
+      # session call blocked by CORS — the page renders, and nothing on it can authenticate.
+      DPS_ALLOWED_ORIGINS: ${ui_allowed_origins}
       # DPS_SESSION_STORE deliberately unset: in-memory Caffeine. Correct for one instance, wrong for
       # more than one — which is why this deployment is pinned to a single instance.
       DPS_SERVICE_TOKEN: $${DPS_SERVICE_TOKEN}

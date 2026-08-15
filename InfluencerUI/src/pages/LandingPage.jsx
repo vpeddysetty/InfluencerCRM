@@ -313,7 +313,37 @@ function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit, onSocialLogin, authE
             </button>
           </form>
 
-          {authError ? <MdsNote className="auth-error-note">{authError}</MdsNote> : null}
+          {authError ? (
+            <MdsNote className="auth-error-note">
+              {authError}
+              {/* The refusal names its own remedy — "sign in with your password, then link facebook
+                  from account settings" — but account settings is a page behind a session the user
+                  does not yet have, so the instruction is only actionable in that order. Rather than
+                  offer a link that would bounce them straight back here, switch them to the form
+                  that gets them signed in, which is the step they actually have to do first.
+
+                  Matched on the stable half of the message rather than the whole string, so
+                  rewording the prose does not silently drop the affordance. */}
+              {/^An account already exists for this email/.test(authError) ? (
+                <>
+                  {' '}
+                  <button
+                    type="button"
+                    className="auth-link-btn"
+                    onClick={() => {
+                      setIsSignUp(false)
+                      // The password field is the next thing they need; putting the cursor there
+                      // saves a click and makes the switch visibly do something.
+                      document.querySelector('input[name="email"]')?.focus()
+                    }}
+                  >
+                    Sign in with your password
+                  </button>
+                  {' — then connect it from Settings once you are in.'}
+                </>
+              ) : null}
+            </MdsNote>
+          ) : null}
 
           <div className="auth-divider" aria-hidden="true">
             <span>or continue with</span>

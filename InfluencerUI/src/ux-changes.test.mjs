@@ -1657,6 +1657,21 @@ test('no hook reads a const declared later in the component', () => {
   }
 })
 
+test('the account-exists refusal offers the step it tells the user to take', () => {
+  // The message names its own remedy -- "sign in with your password, then link facebook from
+  // account settings" -- but settings sits behind a session the user does not have yet, so the
+  // instruction only works in that order. The affordance therefore switches them to the sign-in
+  // form rather than linking to a page that would bounce them straight back.
+  const page = read('pages/LandingPage.jsx')
+
+  assert.match(page, /\^An account already exists for this email/, 'matched on the stable prefix')
+  assert.match(page, /setIsSignUp\(false\)/, 'the control must switch to the sign-in form')
+
+  // Deliberately NOT a link to /settings: signed out, that route does not render.
+  const block = page.slice(page.indexOf('An account already exists'), page.indexOf('An account already exists') + 900)
+  assert.doesNotMatch(block, /href="\/settings"/, 'settings is unreachable signed out')
+})
+
 test('a failed social sign-in has somewhere to land and says what happened', () => {
   // The DPS redirects failures to /login?error=<reason>. With no such route the redirect hit the
   // catch-all, rendered the signed-out landing page, and dropped the message — so "an account

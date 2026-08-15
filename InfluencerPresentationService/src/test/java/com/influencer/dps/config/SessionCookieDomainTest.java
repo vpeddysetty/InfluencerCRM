@@ -75,6 +75,25 @@ class SessionCookieDomainTest {
     }
 
     @Test
+    @DisplayName("both hostnames that serve the UI are allowed origins")
+    void wwwAndApexAreBothAllowed() throws IOException {
+        Path tf = Path.of("..", "infrastructure", "test", "terraform", "compose-ec2.tf");
+        if (!Files.exists(tf)) {
+            return;
+        }
+
+        // CloudFront answers on www.tejdux.com as well as tejdux.com, but only the apex was allowed.
+        // A visitor arriving with the www prefix loaded the page normally and then had every
+        // /dps/session call blocked by CORS, so nothing could authenticate — and because the page
+        // itself rendered, it looked like it was working.
+        String text = Files.readString(tf, StandardCharsets.UTF_8);
+        assertTrue(
+                text.contains("replace(var.ui_base_url, \"://\", \"://www.\")"),
+                "the www hostname must be an allowed origin alongside the apex; without it the site "
+                        + "loads at www and cannot sign anyone in");
+    }
+
+    @Test
     @DisplayName("the deployment scopes the cookie to the apex, not to the API host")
     void deploymentUsesTheSharedParentDomain() throws IOException {
         Path tf = Path.of("..", "infrastructure", "test", "terraform", "compose-ec2.tf");

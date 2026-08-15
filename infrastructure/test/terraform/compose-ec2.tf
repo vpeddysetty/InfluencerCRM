@@ -420,6 +420,18 @@ locals {
     # a Domain attribute on a bare hostname is rejected and the cookie dropped entirely.
     cookie_domain = var.api_domain != "" ? ".${var.root_domain}" : ""
 
+    # BOTH the apex and www, because both serve the UI. CloudFront answers on www.tejdux.com as well
+    # as tejdux.com, but only the apex was allowed — so anyone who reached the site with the www
+    # prefix loaded the page, had every /dps/session call blocked by CORS, and could not sign in at
+    # all. The page rendered, which is what made it look fine.
+    #
+    # Kept as a derived list rather than a second variable: the two origins are the same site, and
+    # allowing one without the other is never the intent.
+    ui_allowed_origins = var.api_domain != "" ? join(",", [
+      var.ui_base_url,
+      replace(var.ui_base_url, "://", "://www."),
+    ]) : var.ui_base_url
+
     context_services = local.compose_context_services
   })
 }
