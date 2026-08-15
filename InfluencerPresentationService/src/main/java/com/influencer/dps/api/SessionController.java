@@ -75,10 +75,37 @@ public class SessionController {
 
     @PostMapping("/auth/signup")
     @ResponseStatus(HttpStatus.CREATED)
-    public ResponseEntity<SessionView> signup(@Valid @RequestBody SignupRequest request) {
+    public ResponseEntity<SessionView> signup(@Valid @RequestBody SignupRequest request,
+                                              HttpServletRequest httpRequest) {
+        // The consent, and the client that gave it. Both travel to the BFF, which owns the rule and
+        // writes the record — see IdentityClient#signup for why the headers matter as much as the
+        // flag: without them every consent record would name this container as the consenting party.
         UiSession session = sessionService.signup(
-                request.email(), request.password(), request.brandName(), request.accountType());
+                request.email(),
+                request.password(),
+                request.brandName(),
+                request.accountType(),
+                request.acceptedTerms(),
+                clientIp(httpRequest),
+                httpRequest.getHeader("User-Agent"));
         return withSessionCookie(session, SessionView.of(session));
+    }
+
+    /**
+     * The browser's address, preferring {@code X-Forwarded-For} because the DPS sits behind Caddy.
+     *
+     * <p>Only the first entry: the rest of that header is whatever earlier hops appended, and any of
+     * it can be forged by the client. The first is the one Caddy observed.
+     */
+    private String clientIp(HttpServletRequest request) {
+        String forwarded = request.getHeader("X-Forwarded-For");
+        if (forwarded != null && !forwarded.isBlank()) {
+            String first = forwarded.split(",")[0].trim();
+            if (!first.isEmpty()) {
+                return first;
+            }
+        }
+        return request.getRemoteAddr();
     }
 
     /**
@@ -423,7 +450,24 @@ public class SessionController {
     public record SignupRequest(@Email @NotBlank String email,
                                 @NotBlank String password,
                                 String brandName,
-                                String accountType) {
+                                String accountType,
+                                /**
+                                 * The consent checkbox from the sign-up form.
+                                 *
+                                 * <p>Absent from this record until 2026-08-14, which broke
+                                 * email-and-password signup entirely: the UI sent the field, {@link
+                                 * #rejectUnknown} threw on it as unrecognised, and a caller that
+                                 * omitted it instead reached the BFF with no consent and was refused
+                                 * with "You must accept the Terms of Service and Privacy Policy".
+                                 * The social paths were threaded through when consent capture
+                                 * landed; this one was missed, so the primary signup route did not
+                                 * work at all through the DPS.
+                                 *
+                                 * <p>Forwarded rather than checked here. The BFF is where the rule
+                                 * lives, and duplicating it would give the platform two places to
+                                 * disagree about what consent means.
+                                 */
+                                Boolean acceptedTerms) {
 
         @JsonAnySetter
         void rejectUnknown(String name, Object value) {

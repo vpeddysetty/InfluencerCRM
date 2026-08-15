@@ -51,7 +51,24 @@ public class UiSessionService {
     }
 
     public UiSession signup(String email, String password, String brandName, String accountType) {
-        return establish(identityClient.signup(email, password, brandName, accountType));
+        return signup(email, password, brandName, accountType, null, null, null);
+    }
+
+    /**
+     * As above, carrying the consent from the sign-up form and the client that gave it.
+     *
+     * <p>The BFF requires consent and refuses a signup without it, so omitting these was not a
+     * missing nicety — it broke email-and-password signup through the DPS outright.
+     */
+    public UiSession signup(String email,
+                            String password,
+                            String brandName,
+                            String accountType,
+                            Boolean acceptedTerms,
+                            String clientIp,
+                            String userAgent) {
+        return establish(identityClient.signup(
+                email, password, brandName, accountType, acceptedTerms, clientIp, userAgent));
     }
 
     /**
