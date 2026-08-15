@@ -286,6 +286,33 @@ import { dirname, join } from 'node:path'
 const SRC = dirname(fileURLToPath(import.meta.url))
 const read = (relative) => readFileSync(join(SRC, relative), 'utf8')
 
+/**
+ * Removes every `@<name>` block and its full body, brace-matched so nested rules go with it.
+ *
+ * <p>Used to ask "is this selector reachable without the OS being in a particular mode?" — a plain
+ * regex cannot answer that, because it cannot tell a rule inside a media query from one outside.
+ */
+function stripAtBlocks(css, atName) {
+  let out = ''
+  for (let i = 0; i < css.length; ) {
+    if (!css.startsWith(atName, i)) {
+      out += css[i]
+      i += 1
+      continue
+    }
+    const open = css.indexOf('{', i)
+    if (open === -1) break
+    let depth = 0
+    let j = open
+    for (; j < css.length; j += 1) {
+      if (css[j] === '{') depth += 1
+      else if (css[j] === '}' && (depth -= 1) === 0) break
+    }
+    i = j + 1
+  }
+  return out
+}
+
 test('the kanban grid sizes itself to however many stages exist', () => {
   const css = read('App.css')
   const columns = css.slice(css.indexOf('.columns {'), css.indexOf('.columns >'))
@@ -892,6 +919,52 @@ test('choosing "system" removes the attribute rather than setting a value', () =
   assert.match(toggle, /root\.removeAttribute\('data-theme'\)/)
   // localStorage throws — not returns null — in Safari private browsing and under policy blocks.
   assert.match(toggle, /catch \{/)
+})
+
+test('picking Dark works on a light-mode machine', () => {
+  // The whole dark palette used to live inside @media (prefers-color-scheme: dark), so
+  // :root:not([data-theme='light']) could only match while the OS was ALREADY dark. Pressing
+  // Dark on a light-mode machine set the attribute and changed nothing — the reported bug.
+  // The explicit selector must therefore exist OUTSIDE any media query.
+  const index = read('index.css')
+
+  // Remove every @media block (brace-matched, so nested rules go with it) and assert on what is
+  // left. That is exactly "reachable regardless of the OS setting".
+  const outside = stripAtBlocks(index, '@media')
+
+  assert.match(outside, /:root\[data-theme='dark'\]\s*\{/)
+  // and it must actually carry the palette, not merely exist
+  assert.match(outside, /:root\[data-theme='dark'\]\s*\{[^}]*--bg: #0b1017/s)
+})
+
+test('the dark background rules are reachable without the OS too', () => {
+  // body/.workspace-rail/.card paint literal backgrounds rather than reading a token, so they
+  // need the same dual-path treatment as the palette. Missing these left a dark-token page
+  // sitting on a light body.
+  const index = read('index.css')
+
+  assert.match(index, /:root\[data-theme='dark'\] body/)
+  assert.match(index, /:root\[data-theme='dark'\] \.workspace-rail/)
+})
+
+test('.mds-theme carries no light-mode colour literals', () => {
+  // .mds-theme wraps <Outlet />, so every routed page inherits these rules. Hardcoded inks here
+  // outrank the tokenised components/ui styles and go unreadable the moment the theme flips.
+  const app = read('App.css')
+  const block = app.slice(app.indexOf('.mds-theme'), app.lastIndexOf('.mds-theme'))
+
+  // A <pre> is deliberately dark in both themes, so exclude it before asserting. Comments are
+  // stripped too — they legitimately name the old literals to explain what was replaced.
+  const withoutCodeBlock = block
+    .replace(/\/\*.*?\*\//gs, '')
+    .replace(/\.mds-theme pre[^}]*\}/gs, '')
+
+  for (const literal of ['#1e3a8a', '#1e40af', '#1d4ed8', '#2563eb', '#0f172a']) {
+    assert.ok(
+      !withoutCodeBlock.includes(literal),
+      `.mds-theme still hardcodes ${literal}; use a token so it flips with the theme`,
+    )
+  }
 })
 
 test('fonts are self-hosted, not fetched from Google at runtime', () => {
