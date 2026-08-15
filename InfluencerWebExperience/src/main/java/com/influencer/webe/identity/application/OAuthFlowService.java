@@ -52,9 +52,37 @@ public class OAuthFlowService {
                                             boolean acceptedTerms,
                                             String ipAddress,
                                             String userAgent) {
-        consentService.requireAccepted(acceptedTerms);
+        return startGoogle(brandName, displayName, acceptedTerms, ipAddress, userAgent, false);
+    }
+
+    /**
+     * Begins a Google flow, demanding consent only when this is a SIGN-UP.
+     *
+     * <p>Consent belongs to creating an account, not to using one. Requiring it on every social
+     * sign-in would re-ask a question already answered at registration, which is how a consent
+     * checkbox becomes a reflex rather than a decision — and it broke sign-in outright, because the
+     * Log in tab has no checkbox to tick and the server refused the flow before it began.
+     *
+     * <p>The check stays here for sign-up, though: this is the last point at which a refusal costs
+     * nothing. After the redirect the browser is at the provider, and rejecting on the way back would
+     * mean explaining a failure to someone who has already authenticated.
+     *
+     * <p>{@code signInOnly} is not a licence to skip consent — it is a promise that no account will
+     * be created. {@link #completeSocial} enforces that promise, refusing rather than signing up
+     * anyone whose account turns out not to exist.
+     */
+    public ResponseEntity<Void> startGoogle(String brandName,
+                                            String displayName,
+                                            boolean acceptedTerms,
+                                            String ipAddress,
+                                            String userAgent,
+                                            boolean signInOnly) {
+        if (!signInOnly) {
+            consentService.requireAccepted(acceptedTerms);
+        }
         return ResponseEntity.status(HttpStatus.FOUND)
-                .location(URI.create(buildAuthorizationUrl("google", brandName, displayName, acceptedTerms, ipAddress, userAgent)))
+                .location(URI.create(buildAuthorizationUrl(
+                        "google", brandName, displayName, acceptedTerms, ipAddress, userAgent, signInOnly)))
                 .build();
     }
 
@@ -68,9 +96,22 @@ public class OAuthFlowService {
                                               boolean acceptedTerms,
                                               String ipAddress,
                                               String userAgent) {
-        consentService.requireAccepted(acceptedTerms);
+        return startFacebook(brandName, displayName, acceptedTerms, ipAddress, userAgent, false);
+    }
+
+    /** As {@link #startGoogle(String, String, boolean, String, String, boolean)}, for Facebook. */
+    public ResponseEntity<Void> startFacebook(String brandName,
+                                              String displayName,
+                                              boolean acceptedTerms,
+                                              String ipAddress,
+                                              String userAgent,
+                                              boolean signInOnly) {
+        if (!signInOnly) {
+            consentService.requireAccepted(acceptedTerms);
+        }
         return ResponseEntity.status(HttpStatus.FOUND)
-                .location(URI.create(buildAuthorizationUrl("facebook", brandName, displayName, acceptedTerms, ipAddress, userAgent)))
+                .location(URI.create(buildAuthorizationUrl(
+                        "facebook", brandName, displayName, acceptedTerms, ipAddress, userAgent, signInOnly)))
                 .build();
     }
 
@@ -127,6 +168,17 @@ public class OAuthFlowService {
                 return redirectToDps("/dps/auth/oauth/complete?linked=" + encode(provider));
             }
 
+            // A SIGN-IN was allowed to start without consent, on the promise that it would only ever
+            // sign in. This is where that promise is kept: if no account exists for this identity,
+            // refuse rather than quietly creating one nobody agreed to terms for.
+            //
+            // Checked BEFORE the exchange result is used to create anything, so the refusal happens
+            // instead of the signup rather than after it.
+            if (request.signInOnly() && !authService.hasAccountFor(provider, accessToken)) {
+                throw new IllegalArgumentException(
+                        "No account found for that " + provider + " account. Choose Sign up to create one.");
+            }
+
             AuthService.AuthResponse auth = "google".equals(provider)
                     ? authService.signupWithGoogle(accessToken, null, request.displayName(), request.brandName())
                     : authService.signupWithFacebook(accessToken, null, request.displayName(), request.brandName());
@@ -150,6 +202,21 @@ public class OAuthFlowService {
                         // The IP and user agent were captured at /start; the current request is the
                         // provider's redirect, so reading them from it now would record the wrong
                         // client. These stored values are the authoritative ones.
+                        request.ipAddress(),
+                        request.userAgent());
+            } else if (request.signInOnly()) {
+                // A sign-in to an account with NO consent on record — one predating consent capture,
+                // or created by a path that never wrote it. The sign-in is the only moment the person
+                // is present and identified, so it is the only moment that gap can be closed.
+                //
+                // Recorded, not demanded: the account already exists and is in use, and refusing
+                // entry over a record we failed to write would punish the user for our omission.
+                // A no-op when consent already exists, so returning users are not re-recorded.
+                consentService.recordIfMissing(
+                        ConsentService.SUBJECT_USER,
+                        auth.userId(),
+                        auth.email(),
+                        provider + "_oauth_signin_backfill",
                         request.ipAddress(),
                         request.userAgent());
             }
@@ -184,9 +251,10 @@ public class OAuthFlowService {
                                          String displayName,
                                          boolean acceptedTerms,
                                          String ipAddress,
-                                         String userAgent) {
-        OAuthStateService.PendingOAuthRequest request =
-                oauthStateService.create(provider, brandName, displayName, acceptedTerms, ipAddress, userAgent);
+                                         String userAgent,
+                                         boolean signInOnly) {
+        OAuthStateService.PendingOAuthRequest request = oauthStateService.create(
+                provider, brandName, displayName, acceptedTerms, ipAddress, userAgent, signInOnly);
         return authorizationUrlFor(provider, request);
     }
 

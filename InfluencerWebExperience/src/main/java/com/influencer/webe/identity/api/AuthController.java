@@ -176,9 +176,13 @@ public class AuthController {
             @RequestParam(required = false) String brandName,
             @RequestParam(required = false) String displayName,
             @RequestParam(required = false, defaultValue = "false") boolean acceptedTerms,
+            // Log in rather than Sign up. Consent is not demanded for a sign-in — it belongs to
+            // registration — and completeSocial refuses to CREATE an account on this path, so the
+            // flag cannot be used to register without agreeing to anything.
+            @RequestParam(required = false, defaultValue = "false") boolean signInOnly,
             HttpServletRequest httpRequest) {
         return oauthFlowService.startGoogle(brandName, displayName, acceptedTerms,
-                consentService.clientIp(httpRequest), consentService.userAgent(httpRequest));
+                consentService.clientIp(httpRequest), consentService.userAgent(httpRequest), signInOnly);
     }
 
     @GetMapping("/oauth/google/callback")
@@ -208,9 +212,13 @@ public class AuthController {
             @RequestParam(required = false) String brandName,
             @RequestParam(required = false) String displayName,
             @RequestParam(required = false, defaultValue = "false") boolean acceptedTerms,
+            // Log in rather than Sign up. Consent is not demanded for a sign-in — it belongs to
+            // registration — and completeSocial refuses to CREATE an account on this path, so the
+            // flag cannot be used to register without agreeing to anything.
+            @RequestParam(required = false, defaultValue = "false") boolean signInOnly,
             HttpServletRequest httpRequest) {
         return oauthFlowService.startFacebook(brandName, displayName, acceptedTerms,
-                consentService.clientIp(httpRequest), consentService.userAgent(httpRequest));
+                consentService.clientIp(httpRequest), consentService.userAgent(httpRequest), signInOnly);
     }
 
     @GetMapping("/oauth/facebook/callback")

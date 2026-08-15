@@ -1050,6 +1050,12 @@ function App() {
     if (acceptedTerms) {
       params.set('acceptedTerms', 'true')
     }
+    // Says "Log in", not "Sign up". The server skips the consent question on this path — consent
+    // belongs to registration, and the Log in tab has no checkbox to tick — and in exchange refuses
+    // to CREATE an account, so this cannot become a way to register without agreeing to anything.
+    if (!accountType) {
+      params.set('signInOnly', 'true')
+    }
     const query = params.toString() ? `?${params}` : ''
     window.location.assign(`${DPS_BASE_URL}/dps/auth/oauth/${provider}/start${query}`)
   }

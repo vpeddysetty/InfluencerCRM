@@ -235,6 +235,27 @@ public class AuthService {
                 profile.emailVerified()));
     }
 
+    /**
+     * Whether a provider identity already resolves to a local account, WITHOUT creating one.
+     *
+     * <p>What makes a sign-in-only flow honest. {@code signupWithSocial} doubles as sign-in and
+     * creates an account when it finds none, so a flow that skipped the consent checkbox on the
+     * promise of only signing in would otherwise register someone who agreed to nothing. This is the
+     * check that keeps the promise.
+     *
+     * <p>Matches the same two ways {@code signupWithSocial} does — provider subject first, then
+     * email — so the two cannot disagree about whether an account exists.
+     */
+    public boolean hasAccountFor(String provider, String accessToken) {
+        OAuthProfileService.OAuthProfile profile =
+                oauthProfileService.resolveProfile(provider, accessToken, null, null);
+
+        if (daoFederatedIdentityClient.findBySubject(provider, profile.providerUserId()).isPresent()) {
+            return true;
+        }
+        return daoUserClient.findByEmail(profile.email()).isPresent();
+    }
+
     /** Every provider currently connected to an account, for the settings screen. */
     public List<DaoFederatedIdentityClient.FederatedIdentityRecord> linkedProviders(UUID userId) {
         return daoFederatedIdentityClient.findByUserId(userId);

@@ -149,6 +149,45 @@ public class ConsentService {
         return consentClient.bySubject(subjectType, subjectId);
     }
 
+    /**
+     * Records consent for an existing account that has none, and reports whether it did.
+     *
+     * <p>For accounts that predate consent capture, or were created by a path that did not record
+     * it. A social SIGN-IN does not ask for consent — the agreement belongs to registration — but an
+     * account with no consent record at all is a gap that only a sign-in is in a position to close,
+     * because that is the only moment the person is present and identified.
+     *
+     * <p>Records rather than blocks. The account already exists and its owner is already using the
+     * product; refusing them entry over a missing historical record would punish them for our own
+     * omission. The record is written so the gap is closed and auditable from then on.
+     *
+     * <p>A no-op when a record already exists, so a returning user is not re-recorded on every
+     * sign-in. The unique index would collapse a repeat of the same document version anyway; this
+     * avoids the write entirely and, more importantly, avoids logging a fresh act of consent that
+     * never happened.
+     */
+    public boolean recordIfMissing(String subjectType,
+                                   UUID subjectId,
+                                   String email,
+                                   String source,
+                                   String ipAddress,
+                                   String userAgent) {
+        try {
+            com.fasterxml.jackson.databind.JsonNode existing = history(subjectType, subjectId);
+            if (existing != null && existing.isArray() && !existing.isEmpty()) {
+                return false;
+            }
+        } catch (RuntimeException e) {
+            // Unreadable history is not a reason to refuse a sign-in, and not a reason to write a
+            // duplicate either. Leave it alone and say so.
+            log.error("Could not read consent history for {} {}: {}", subjectType, subjectId, e.toString());
+            return false;
+        }
+
+        recordSignupConsent(subjectType, subjectId, email, source, null, ipAddress, userAgent);
+        return true;
+    }
+
     /** Everything one email address ever agreed to — answers a subject access request. */
     public com.fasterxml.jackson.databind.JsonNode historyByEmail(String email) {
         return consentClient.byEmail(email.trim().toLowerCase());

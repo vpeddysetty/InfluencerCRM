@@ -128,7 +128,8 @@ public class SessionController {
     public ResponseEntity<Void> startOAuth(@PathVariable String provider,
                                            @RequestParam(required = false) String brandName,
                                            @RequestParam(required = false) String displayName,
-                                           @RequestParam(required = false, defaultValue = "false") boolean acceptedTerms) {
+                                           @RequestParam(required = false, defaultValue = "false") boolean acceptedTerms,
+                                           @RequestParam(required = false, defaultValue = "false") boolean signInOnly) {
         if (!SUPPORTED_PROVIDERS.contains(provider)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported provider: " + provider);
         }
@@ -156,8 +157,16 @@ public class SessionController {
         }
         // Forwarded rather than re-asked: the checkbox is on the landing page, and this leg is a
         // redirect with nowhere to render one. The BFF re-checks it — see OAuthFlowService.startGoogle.
+        //
+        // signInOnly rides along for the same reason. It says the person chose Log in, which is what
+        // lets the BFF skip a consent question that belongs to registration — and what makes it
+        // refuse to create an account on this path rather than register someone silently.
         if (acceptedTerms) {
             target.append(separator).append("acceptedTerms=true");
+            separator = "&";
+        }
+        if (signInOnly) {
+            target.append(separator).append("signInOnly=true");
         }
         return ResponseEntity.status(HttpStatus.FOUND).location(URI.create(target.toString())).build();
     }
