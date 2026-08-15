@@ -57,10 +57,14 @@ public class SessionController {
 
     private final UiSessionService sessionService;
     private final DpsProperties properties;
+    private final com.influencer.dps.identity.IdentityClient identityClient;
 
-    public SessionController(UiSessionService sessionService, DpsProperties properties) {
+    public SessionController(UiSessionService sessionService,
+                             DpsProperties properties,
+                             com.influencer.dps.identity.IdentityClient identityClient) {
         this.sessionService = sessionService;
         this.properties = properties;
+        this.identityClient = identityClient;
     }
 
     @PostMapping("/auth/login")
@@ -75,6 +79,42 @@ public class SessionController {
         UiSession session = sessionService.signup(
                 request.email(), request.password(), request.brandName(), request.accountType());
         return withSessionCookie(session, SessionView.of(session));
+    }
+
+    /**
+     * Begins connecting a provider to the account this browser is signed in to.
+     *
+     * <p>Its own endpoint rather than the generic {@code /dps/api} proxy, because that proxy returns
+     * the upstream response as a BODY. A 302 arrives with its status intact but no forwarded
+     * {@code Location}, so the browser has nothing to follow — fine for the fetch() calls the proxy
+     * exists for, useless for a leg whose entire purpose is to navigate.
+     *
+     * <p>The session cookie is what authorises this. Its access token is handed to the BFF, which
+     * resolves the user from it: linking decides which account an external identity can open, so the
+     * user must come from a verified token and never from the request.
+     */
+    @GetMapping("/auth/connected-accounts/{provider}/start")
+    public ResponseEntity<Void> startProviderLink(@PathVariable String provider,
+                                                  HttpServletRequest request) {
+        if (!SUPPORTED_PROVIDERS.contains(provider)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported provider: " + provider);
+        }
+
+        UiSession session = resolve(request)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Sign in first"));
+
+        // The BFF is asked SERVER-TO-SERVER for the authorization URL, and only its answer is
+        // redirected to. The obvious alternative — redirect the browser at the BFF with the access
+        // token in the query string — would put a bearer token in browser history, in the Referer of
+        // whatever the provider loads next, and in every access log along the way. That is the exact
+        // exposure this service exists to prevent, and it is why the session lives in an httpOnly
+        // cookie rather than in the page.
+        //
+        // So the token stays on this side of the wire, travelling as a header on a call the browser
+        // never sees, and the browser receives only the provider URL it was always going to be sent
+        // to. bff-base-url here, not the public one: this leg is server-to-server.
+        String location = identityClient.authorizationUrlForLink(provider, session.accessToken());
+        return ResponseEntity.status(HttpStatus.FOUND).location(URI.create(location)).build();
     }
 
     /**
@@ -136,10 +176,20 @@ public class SessionController {
      */
     @GetMapping("/auth/oauth/complete")
     public ResponseEntity<Void> completeOAuth(@RequestParam(required = false) String handoff,
-                                              @RequestParam(required = false) String error) {
+                                              @RequestParam(required = false) String error,
+                                              @RequestParam(required = false) String linked) {
         if (error != null && !error.isBlank()) {
             return redirectToUi("/login?error=" + encode(presentable(error)), null);
         }
+
+        // A LINK rather than a sign-in. There is no handoff to redeem and no session to create —
+        // the caller already had one, which is what authorised the link in the first place. Handled
+        // before the handoff check, which would otherwise read a successful link as a failed login
+        // and send the user to the sign-in page with an error.
+        if (linked != null && !linked.isBlank()) {
+            return redirectToUi("/settings?linked=" + encode(presentable(linked)), null);
+        }
+
         if (handoff == null || handoff.isBlank()) {
             return redirectToUi("/login?error=" + encode("OAuth sign-in did not complete"), null);
         }

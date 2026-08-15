@@ -102,6 +102,23 @@ public class IdentityClient {
     }
 
     /**
+     * Asks the BFF where to send a browser to connect a provider to this session's account.
+     *
+     * <p>The URL comes back as data and the DPS issues the redirect itself, so the access token
+     * travels on this call — server to server — rather than in a browser-visible query string. A
+     * bearer token in a URL ends up in history, in the Referer sent to the provider, and in every
+     * access log between here and there.
+     */
+    public String authorizationUrlForLink(String provider, String accessToken) {
+        JsonNode response = get("/api/auth/connected-accounts/" + provider + "/start", accessToken, null);
+        JsonNode url = response == null ? null : response.get("authorizationUrl");
+        if (url == null || url.isNull() || url.asText().isBlank()) {
+            throw new IllegalStateException("BFF returned no authorization URL for " + provider);
+        }
+        return url.asText();
+    }
+
+    /**
      * Proxies an arbitrary API call on a session's behalf.
      *
      * <p>This is what lets a remote reach the platform without ever holding a token: it calls the

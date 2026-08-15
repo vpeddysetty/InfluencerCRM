@@ -50,6 +50,9 @@ public class OAuthStateService {
                 acceptedTerms,
                 ipAddress,
                 userAgent,
+                // Not a link: this path creates or signs in an account rather than attaching a
+                // provider to one that exists.
+                null,
                 Instant.now(),
                 Instant.now().plus(ttl));
         pendingRequests.put(state, request);
@@ -71,6 +74,36 @@ public class OAuthStateService {
         return request;
     }
 
+    /**
+     * Opens a pending request that LINKS a provider to an account that already exists.
+     *
+     * <p>The distinguishing field is {@code linkUserId}. Its presence is what tells the callback to
+     * attach the provider identity to that user instead of signing anyone in, and it is set from the
+     * verified token of a caller who is already authenticated — never from anything the browser
+     * sends. That is the whole security property: a link decides which account an external identity
+     * can open, so a user id the browser could choose would let anyone attach their own Facebook
+     * account to someone else's workspace.
+     *
+     * <p>No consent fields: the terms were accepted when the account was created, and connecting a
+     * second sign-in method to an existing account is not a new agreement.
+     */
+    public PendingOAuthRequest createForLink(String provider, UUID linkUserId) {
+        String state = UUID.randomUUID().toString();
+        PendingOAuthRequest request = new PendingOAuthRequest(
+                state,
+                provider,
+                null,
+                null,
+                false,
+                null,
+                null,
+                linkUserId,
+                Instant.now(),
+                Instant.now().plus(ttl));
+        pendingRequests.put(state, request);
+        return request;
+    }
+
     public record PendingOAuthRequest(String state,
                                       String provider,
                                       String brandName,
@@ -78,6 +111,8 @@ public class OAuthStateService {
                                       boolean acceptedTerms,
                                       String ipAddress,
                                       String userAgent,
+                                      /** Non-null only for a link; see {@link #createForLink}. */
+                                      UUID linkUserId,
                                       Instant issuedAt,
                                       Instant expiresAt) {
     }

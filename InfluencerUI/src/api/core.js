@@ -250,6 +250,16 @@ export async function createBrand(token, name) {
 // Names the workspace after a social sign-up, and promotes it to an agency if that is what the
 // user picked before the redirect. Like switchBrand this re-mints the token, because the old one
 // still carries the provider-derived brandName the session was created with.
+// The providers connected to the signed-in account. Always the caller's own — the server takes the
+// user from the token, so there is no id to pass.
+export async function listConnectedAccounts(token) {
+  return request('/api/auth/connected-accounts', { token })
+}
+
+export async function disconnectAccount(token, id) {
+  return request(`/api/auth/connected-accounts/${id}`, { method: 'DELETE', token })
+}
+
 export async function completeOnboarding(token, { workspaceName, accountType }) {
   return request('/api/brands/onboarding', {
     method: 'POST',

@@ -6,11 +6,14 @@ import com.influencer.webe.identity.infrastructure.DaoFederatedIdentityClient;
 import com.influencer.webe.identity.infrastructure.DaoTenancyClient;
 import com.influencer.webe.identity.infrastructure.DaoUserClient;
 import com.influencer.webe.security.AccountRole;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -181,6 +184,78 @@ public class AuthService {
      * brand's account. Refusing is the safe default: the account holder can link the provider
      * deliberately from a signed-in session, where ownership is already proven.
      */
+    /**
+     * Attaches a provider identity to an account that already exists.
+     *
+     * <p>This is the deliberate act the sign-in refusal points at. A social sign-in whose email
+     * matches an existing account is rejected when the provider does not state it verified that
+     * address — Facebook never does — because matching on an unverified email would let anyone who
+     * can present {@code owner@brand.com} to a lax provider open that brand's workspace. Proving
+     * ownership of the local account first, by being signed in to it, is what removes the doubt.
+     *
+     * <p>{@code userId} therefore comes from the caller's verified token and never from the request.
+     *
+     * <p>Refuses when the external identity is already attached to a DIFFERENT account. Silently
+     * moving it would take a sign-in method away from whoever holds that other account, and the
+     * failure would look to them like their provider had stopped working.
+     */
+    public void linkProvider(String provider, UUID userId, String accessToken) {
+        OAuthProfileService.OAuthProfile profile =
+                oauthProfileService.resolveProfile(provider, accessToken, null, null);
+
+        daoFederatedIdentityClient.findBySubject(provider, profile.providerUserId()).ifPresent(existing -> {
+            if (!existing.userId().equals(userId)) {
+                throw new IllegalArgumentException(
+                        "That " + provider + " account is already connected to a different InfluenCRM account.");
+            }
+        });
+
+        DaoUserClient.UserRecord user = daoUserClient.findById(userId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
+
+        // Record the provider's profile on the user the same way a federated signup does, so a
+        // linked account and one created through the provider hold the same shape of data.
+        DaoUserClient.UserPayload payload = new DaoUserClient.UserPayload(
+                user.id(),
+                user.email(),
+                user.passwordHash(),
+                user.brandName(),
+                mergeCustomAttributes(user.customAttributes(), provider, profile),
+                user.role(),
+                user.plan(),
+                user.createdAt(),
+                Instant.now());
+        daoUserClient.updateUser(user.id(), payload);
+
+        daoFederatedIdentityClient.link(new DaoFederatedIdentityClient.LinkPayload(
+                user.id(),
+                provider,
+                profile.providerUserId(),
+                profile.email(),
+                profile.emailVerified()));
+    }
+
+    /** Every provider currently connected to an account, for the settings screen. */
+    public List<DaoFederatedIdentityClient.FederatedIdentityRecord> linkedProviders(UUID userId) {
+        return daoFederatedIdentityClient.findByUserId(userId);
+    }
+
+    /**
+     * Detaches a provider identity.
+     *
+     * <p>Scoped to the caller's own identities: an id belonging to someone else is treated as not
+     * found rather than refused, so this cannot be used to discover which ids exist.
+     */
+    public void unlinkProvider(UUID userId, UUID identityId) {
+        DaoFederatedIdentityClient.FederatedIdentityRecord record =
+                daoFederatedIdentityClient.findByUserId(userId).stream()
+                        .filter(identity -> identity.id().equals(identityId))
+                        .findFirst()
+                        .orElseThrow(() -> new ResponseStatusException(
+                                HttpStatus.NOT_FOUND, "Connected account not found"));
+        daoFederatedIdentityClient.unlink(record.id());
+    }
+
     private AuthResponse signupWithSocial(String provider, String accessToken, String fallbackEmail, String fallbackDisplayName, String brandName) {
         OAuthProfileService.OAuthProfile profile = oauthProfileService.resolveProfile(provider, accessToken, fallbackEmail, fallbackDisplayName);
 

@@ -216,8 +216,14 @@ test('groups render in declared order with no empty sections', () => {
 test('a permission set that excludes a whole group drops that group', () => {
   // A marketer with no money permissions should see no Money heading at all.
   const grouped = groupedVisibleRoutes(['workflow:read', 'campaign:read'])
-  assert.deepEqual(grouped.map((g) => g.group), ['Work'])
+
+  // Setup survives on /settings alone, which carries NO permission: it manages the caller's own
+  // sign-in methods, not the workspace, and every operation behind it is scoped server-side to the
+  // user in the token. Money is still absent, which is what this test is actually about — a group
+  // whose every route is gated disappears for someone holding none of those gates.
+  assert.deepEqual(grouped.map((g) => g.group), ['Work', 'Setup'])
   assert.deepEqual(grouped[0].routes.map((r) => r.path), ['/workflow', '/campaigns'])
+  assert.deepEqual(grouped[1].routes.map((r) => r.path), ['/settings'])
 })
 
 test('empty permissions still show everything', () => {
@@ -1619,6 +1625,47 @@ test('onboarding re-mints the token so the header stops showing the provider nam
   const handler = app.slice(app.indexOf('const handleCompleteOnboarding'), app.indexOf('const handleCompleteOnboarding') + 700)
   assert.match(handler, /setAuthToken\(updated\.accessToken\)/)
   assert.match(handler, /applyBrandFromAuth\(updated\)/)
+})
+
+test('a failed social sign-in has somewhere to land and says what happened', () => {
+  // The DPS redirects failures to /login?error=<reason>. With no such route the redirect hit the
+  // catch-all, rendered the signed-out landing page, and dropped the message — so "an account
+  // already exists for this email, sign in with your password then link facebook" was
+  // indistinguishable from being randomly logged out.
+  const app = read('App.jsx')
+
+  assert.match(app, /path="\/login"/, 'the DPS error redirect needs a route to land on')
+  assert.match(app, /searchParams.*\.get\('error'\)|get\('error'\)/, 'the reason must be read from the URL')
+  assert.match(app, /authError=\{oauthErrorFromUrl \|\| authError\}/, 'and passed to the page that renders it')
+})
+
+test('the OAuth error is cleared from the URL once read', () => {
+  // Left in the query string it survives a reload and a bookmark, so a user who later returns to
+  // the URL is told again that a sign-in they have since completed had failed.
+  const app = read('App.jsx')
+  const at = app.indexOf("url.searchParams.delete('error')")
+  assert.ok(at > -1, 'the error parameter must be stripped after being read')
+  assert.match(app.slice(at, at + 400), /replaceState/, 'stripped via history, not a navigation')
+})
+
+test('connecting a provider goes through the DPS, never with a token in the URL', () => {
+  // The BFF endpoint needs a verified caller, and being signed in is the whole proof that the
+  // account belongs to whoever is attaching a provider to it. Sending the browser straight at the
+  // BFF would mean putting the access token in a query string — history, Referer, access logs.
+  const app = read('App.jsx')
+
+  assert.match(app, /\/dps\/auth\/connected-accounts\/\$\{provider\}\/start/)
+  assert.doesNotMatch(app, /connected-accounts.*access_token=/, 'no bearer token may travel in the URL')
+})
+
+test('settings is reachable without a workspace permission', () => {
+  // visibleRoutes filters on permissions.includes(route.permission). A route with no permission
+  // would match `includes(undefined)` and be hidden from everyone — including the page that manages
+  // the caller's own sign-in methods, which no workspace permission should gate.
+  const manifest = read('shell/routeManifest.js')
+
+  assert.match(manifest, /path: '\/settings'/)
+  assert.match(manifest, /!route\.permission \|\| permissions\.includes\(route\.permission\)/)
 })
 
 test('landing controls clear the 44px touch target floor', () => {

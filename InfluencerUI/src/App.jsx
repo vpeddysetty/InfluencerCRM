@@ -17,6 +17,7 @@ import MarketplacePage from './pages/MarketplacePage'
 import DashboardPage from './pages/DashboardPage'
 import PayoutsPage from './pages/PayoutsPage'
 import MembersPage from './pages/MembersPage'
+import SettingsPage from './pages/SettingsPage'
 import BillingPage from './pages/BillingPage'
 import ContentPage from './pages/ContentPage'
 import WorkspaceLayout from './components/WorkspaceLayout'
@@ -24,6 +25,8 @@ import { SessionProvider } from './shell/SessionContext'
 import {
   completeOnboarding,
   createBrand,
+  disconnectAccount,
+  listConnectedAccounts,
   createCampaign,
   createCreator,
   listWorkflowBoards,
@@ -399,6 +402,49 @@ function App() {
   // Blocks the first paint until the DPS has been asked whether a session exists. Without it the
   // login page renders for a moment before being replaced by the workspace, which reads as a
   // sign-in flashing past on every reload.
+  // The reason a social sign-in was refused, as the DPS put it in ?error=.
+  //
+  // Read once at mount rather than from the router: this arrives on a full-page redirect from the
+  // provider, so the value is in the URL before React has rendered anything, and it must survive
+  // the render that follows. Held in state so clearing the query string does not erase the message
+  // along with it.
+  const [oauthErrorFromUrl, setOauthErrorFromUrl] = useState(() => {
+    try {
+      return new URLSearchParams(window.location.search).get('error') || ''
+    } catch {
+      return ''
+    }
+  })
+
+  // Strip ?error= once it has been read. Left in place it survives a reload and a bookmark, so a
+  // user who signs in successfully and later returns to the URL is told again that they failed.
+  useEffect(() => {
+    if (!oauthErrorFromUrl && !linkedProviderNotice) {
+      return
+    }
+    try {
+      const url = new URL(window.location.href)
+      url.searchParams.delete('error')
+      url.searchParams.delete('linked')
+      // The provider appends #_=_ to the fragment on the way back; it is meaningless to the app and
+      // ugly in the address bar, so it goes at the same time.
+      const cleaned = url.pathname + url.search + (url.hash === '#_=_' ? '' : url.hash)
+      window.history.replaceState({}, '', cleaned)
+    } catch {
+      // A browser that refuses history rewriting keeps the query string. Harmless.
+    }
+  }, [oauthErrorFromUrl, linkedProviderNotice])
+
+  // Set when the browser returns from a successful provider link, so settings can confirm it
+  // happened. Read at mount for the same reason as the error above: it arrives on a redirect.
+  const [linkedProviderNotice] = useState(() => {
+    try {
+      return new URLSearchParams(window.location.search).get('linked') || ''
+    } catch {
+      return ''
+    }
+  })
+
   const [restoringSession, setRestoringSession] = useState(true)
   // Post-social-signup workspace details. Deliberately NOT persisted to localStorage: it describes
   // one moment in one tab, and a restored `open: true` would ambush a returning user with a form
@@ -947,12 +993,29 @@ function App() {
    * A full-page navigation also sidesteps popup blockers, and lands the user back on the shell
    * authenticated instead of on an intermediate page.
    */
+  /**
+   * Connects a provider to the account already signed in.
+   *
+   * <p>A full-page navigation rather than a fetch, for the same reason sign-in is: the next thing
+   * that happens is the provider's own consent screen, which cannot be rendered inside an XHR.
+   *
+   * <p>Routed through the DPS so the session cookie authenticates it. The BFF endpoint requires a
+   * verified caller — that requirement is the entire security property of linking, since being
+   * signed in is what proves the account belongs to the person attaching the provider to it.
+   */
+  const startProviderLink = (provider) => {
+    window.location.assign(`${DPS_BASE_URL}/dps/auth/connected-accounts/${provider}/start`)
+  }
+
   const handleSocialLogin = (
     provider,
     { brandName: socialBrandName = '', accountType = '', acceptedTerms = false } = {},
   ) => {
     setAuthError('')
     setWorkspaceError('')
+    // Clear the previous refusal before leaving for the provider. Kept, it would still be on screen
+    // when the browser returns, describing an attempt two redirects ago.
+    setOauthErrorFromUrl('')
 
     // Agency used to be refused here, because the type cannot ride the provider redirect and a
     // federated signup always provisions a `brand` account. It is no longer refused: the workspace
@@ -1974,6 +2037,28 @@ function App() {
     <Routes>
       {!isLoggedIn ? (
         <>
+          {/* Where the DPS sends a failed sign-in, carrying ?error= with the reason.
+
+              Until this route existed the redirect landed on the catch-all, which rendered the
+              signed-out landing page and dropped the message — so a refusal that had a specific,
+              actionable explanation ("an account already exists for this email, sign in with your
+              password then link facebook") was indistinguishable from being randomly logged out.
+              The server was explaining itself to nobody.
+
+              Rendered by LandingPage rather than a page of its own: the thing to do after a failed
+              sign-in is sign in, and that form is already here. */}
+          <Route
+            path="/login"
+            element={
+              <LandingPage
+                isSignUp={false}
+                setIsSignUp={setIsSignUp}
+                onAuthSubmit={handleAuthSubmit}
+                onSocialLogin={handleSocialLogin}
+                authError={oauthErrorFromUrl || authError}
+              />
+            }
+          />
           {/* Declared BEFORE the catch-all, which would otherwise swallow it and drop the token
               from the URL. An invitee almost never has an account yet, so this route existing
               signed-out is the point rather than an edge case. */}
@@ -2181,6 +2266,17 @@ function App() {
                   onLoadProviders={loadPayoutProviders}
                   onApproveCommission={approveCommissionRecord}
                   onCreatePayout={createPayoutRecord}
+                />
+              }
+            />
+            <Route
+              path="settings"
+              element={
+                <SettingsPage
+                  onLoadConnectedAccounts={() => listConnectedAccounts(authToken)}
+                  onConnect={startProviderLink}
+                  onDisconnect={(id) => disconnectAccount(authToken, id)}
+                  linkedNotice={linkedProviderNotice}
                 />
               }
             />

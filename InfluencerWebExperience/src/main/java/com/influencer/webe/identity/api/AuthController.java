@@ -22,15 +22,85 @@ public class AuthController {
     private final OAuthFlowService oauthFlowService;
     private final OAuthHandoffService oauthHandoffService;
     private final ConsentService consentService;
+    private final com.influencer.webe.shared.application.RequestUserResolver requestUserResolver;
 
     public AuthController(AuthService authService,
                           OAuthFlowService oauthFlowService,
                           OAuthHandoffService oauthHandoffService,
-                          ConsentService consentService) {
+                          ConsentService consentService,
+                          com.influencer.webe.shared.application.RequestUserResolver requestUserResolver) {
         this.authService = authService;
         this.oauthFlowService = oauthFlowService;
         this.oauthHandoffService = oauthHandoffService;
         this.consentService = consentService;
+        this.requestUserResolver = requestUserResolver;
+    }
+
+    /**
+     * The providers connected to the caller's account.
+     *
+     * <p>Only ever the caller's own: the user id comes from the verified token, so there is no
+     * parameter with which to ask about anyone else.
+     */
+    @GetMapping("/connected-accounts")
+    public java.util.List<ConnectedAccount> connectedAccounts(
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
+        java.util.UUID userId = requestUserResolver.requireTenantContext(authorization).userId();
+        return authService.linkedProviders(userId).stream()
+                .map(identity -> new ConnectedAccount(
+                        identity.id(),
+                        identity.provider(),
+                        identity.assertedEmail(),
+                        identity.emailVerifiedByIdp(),
+                        identity.linkedAt()))
+                .toList();
+    }
+
+    /**
+     * Begins connecting a provider to the account the caller is signed in to.
+     *
+     * <p>This is what the sign-in refusal points at. A social sign-in whose email matches an existing
+     * account is rejected when the provider will not say it verified the address — Facebook never
+     * does — so the link has to be made from a session that already proves ownership of the account.
+     * Being signed in IS the proof; that is why this endpoint requires a token and the sign-in path
+     * cannot be made to accept one.
+     *
+     * <p>Returns the provider URL as JSON rather than redirecting to it. The caller is the DPS, on a
+     * server-to-server call, and it is the one that redirects the browser — which is what keeps the
+     * access token off the wire the browser can see. A 302 here would have to be triggered by a
+     * browser navigation carrying the token in the query string, putting a bearer credential into
+     * history, the outbound Referer, and every access log on the path.
+     */
+    @GetMapping("/connected-accounts/{provider}/start")
+    public LinkStart startLink(
+            @PathVariable String provider,
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
+        java.util.UUID userId = requestUserResolver.requireTenantContext(authorization).userId();
+        return new LinkStart(oauthFlowService.authorizationUrlForLink(provider, userId));
+    }
+
+    public record LinkStart(String authorizationUrl) {
+    }
+
+    /** Disconnects a provider. Scoped to the caller's own identities. */
+    @DeleteMapping("/connected-accounts/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void unlink(@PathVariable java.util.UUID id,
+                       @RequestHeader(value = "Authorization", required = false) String authorization) {
+        java.util.UUID userId = requestUserResolver.requireTenantContext(authorization).userId();
+        authService.unlinkProvider(userId, id);
+    }
+
+    /**
+     * @param emailVerified whether the PROVIDER stated it verified the address. Google does;
+     *                      Facebook does not, which is why a Facebook identity never auto-links on
+     *                      sign-in and has to be connected from here instead.
+     */
+    public record ConnectedAccount(java.util.UUID id,
+                                   String provider,
+                                   String email,
+                                   boolean emailVerified,
+                                   java.time.Instant linkedAt) {
     }
 
     /**

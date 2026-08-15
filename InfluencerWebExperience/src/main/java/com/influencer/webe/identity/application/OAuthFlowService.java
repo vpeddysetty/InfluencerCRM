@@ -74,6 +74,17 @@ public class OAuthFlowService {
                 .build();
     }
 
+    /**
+     * Begins a provider link for a caller who is already signed in.
+     *
+     * <p>No consent check, unlike the signup paths: the terms were accepted when the account was
+     * created, and adding a second way to sign in to it is not a new agreement.
+     */
+    public String authorizationUrlForLink(String provider, java.util.UUID userId) {
+        OAuthStateService.PendingOAuthRequest request = oauthStateService.createForLink(provider, userId);
+        return authorizationUrlFor(provider, request);
+    }
+
     public ResponseEntity<Void> completeGoogle(String code, String state) {
         return completeSocial("google", code, state);
     }
@@ -107,6 +118,15 @@ public class OAuthFlowService {
                     ? properties.getOauth().getGoogle().getRedirectUri()
                     : properties.getOauth().getFacebook().getRedirectUri();
             String accessToken = oauthProfileService.exchangeAuthorizationCode(provider, code, redirectUri);
+
+            // A LINK, not a sign-in: the account already exists and the caller was signed in to it
+            // when the flow started. Attach the identity and send them back to settings; minting a
+            // fresh session here would be pointless, since they already hold one.
+            if (request.linkUserId() != null) {
+                authService.linkProvider(provider, request.linkUserId(), accessToken);
+                return redirectToDps("/dps/auth/oauth/complete?linked=" + encode(provider));
+            }
+
             AuthService.AuthResponse auth = "google".equals(provider)
                     ? authService.signupWithGoogle(accessToken, null, request.displayName(), request.brandName())
                     : authService.signupWithFacebook(accessToken, null, request.displayName(), request.brandName());
@@ -167,6 +187,17 @@ public class OAuthFlowService {
                                          String userAgent) {
         OAuthStateService.PendingOAuthRequest request =
                 oauthStateService.create(provider, brandName, displayName, acceptedTerms, ipAddress, userAgent);
+        return authorizationUrlFor(provider, request);
+    }
+
+    /**
+     * Builds the provider's authorization URL for an already-opened pending request.
+     *
+     * <p>Split out so the signup and link paths cannot drift: both must send the same client id,
+     * redirect URI and scopes, and the only difference between them belongs in the pending request
+     * rather than in the URL.
+     */
+    private String authorizationUrlFor(String provider, OAuthStateService.PendingOAuthRequest request) {
         WebExperienceProperties.Google google = properties.getOauth().getGoogle();
         WebExperienceProperties.Facebook facebook = properties.getOauth().getFacebook();
 
