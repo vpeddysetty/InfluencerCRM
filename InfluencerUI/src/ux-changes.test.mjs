@@ -1627,6 +1627,36 @@ test('onboarding re-mints the token so the header stops showing the provider nam
   assert.match(handler, /applyBrandFromAuth\(updated\)/)
 })
 
+test('no hook reads a const declared later in the component', () => {
+  // A `const` is not hoisted, so an effect referencing one declared below it throws ReferenceError
+  // on the FIRST render — and React unmounts the whole tree, so the entire app renders blank. This
+  // shipped: linkedProviderNotice was used on line 422 and declared on line 440, and every check
+  // that could have caught it passed. Node's test runner never mounts the component, the Vite build
+  // does not evaluate it, and every curl returned 200 because the HTML and assets were all fine.
+  //
+  // Checks declaration order for the state this component reads inside effects. Deliberately narrow:
+  // a general "no TDZ anywhere" rule needs a parser, and the failure mode worth guarding is the one
+  // that already happened.
+  const app = read('App.jsx')
+  const componentAt = app.indexOf('function App(')
+  const body = app.slice(componentAt)
+
+  for (const name of ['oauthErrorFromUrl', 'linkedProviderNotice', 'onboarding']) {
+    const declaredAt = body.search(new RegExp(`const \\[${name}[,\\]]`))
+    assert.ok(declaredAt > -1, `${name} must be declared`)
+
+    // First use inside a useEffect body, which is what runs during render.
+    const effectUse = body.indexOf(`!${name}`)
+    if (effectUse > -1) {
+      assert.ok(
+        declaredAt < effectUse,
+        `${name} is used at ${effectUse} but declared at ${declaredAt}: a const read before its ` +
+          'declaration throws ReferenceError on first render and blanks the entire page',
+      )
+    }
+  }
+})
+
 test('a failed social sign-in has somewhere to land and says what happened', () => {
   // The DPS redirects failures to /login?error=<reason>. With no such route the redirect hit the
   // catch-all, rendered the signed-out landing page, and dropped the message — so "an account

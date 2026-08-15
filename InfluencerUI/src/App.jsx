@@ -416,6 +416,21 @@ function App() {
     }
   })
 
+  // Set when the browser returns from a successful provider link, so settings can confirm it
+  // happened. Read at mount for the same reason as the error above: it arrives on a redirect.
+  //
+  // DECLARED BEFORE THE EFFECT THAT READS IT. `const` is not hoisted, so an effect referencing this
+  // from above lands in the temporal dead zone and throws ReferenceError on the very first render —
+  // which React treats as the whole tree failing to mount, and the page renders blank. The blankness
+  // is the symptom of any error thrown here, so declaration order in this block is load-bearing.
+  const [linkedProviderNotice] = useState(() => {
+    try {
+      return new URLSearchParams(window.location.search).get('linked') || ''
+    } catch {
+      return ''
+    }
+  })
+
   // Strip ?error= once it has been read. Left in place it survives a reload and a bookmark, so a
   // user who signs in successfully and later returns to the URL is told again that they failed.
   useEffect(() => {
@@ -434,16 +449,6 @@ function App() {
       // A browser that refuses history rewriting keeps the query string. Harmless.
     }
   }, [oauthErrorFromUrl, linkedProviderNotice])
-
-  // Set when the browser returns from a successful provider link, so settings can confirm it
-  // happened. Read at mount for the same reason as the error above: it arrives on a redirect.
-  const [linkedProviderNotice] = useState(() => {
-    try {
-      return new URLSearchParams(window.location.search).get('linked') || ''
-    } catch {
-      return ''
-    }
-  })
 
   const [restoringSession, setRestoringSession] = useState(true)
   // Post-social-signup workspace details. Deliberately NOT persisted to localStorage: it describes
