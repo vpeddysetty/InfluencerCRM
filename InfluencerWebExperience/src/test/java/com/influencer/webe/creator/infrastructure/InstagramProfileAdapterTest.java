@@ -52,7 +52,7 @@ class InstagramProfileAdapterTest {
 
     private InstagramProfileAdapter adapterReturning(String json) {
         return new InstagramProfileAdapter(
-                clientReturning(json, null), mapper, "test-token", "17841400000000000");
+                clientReturning(json, null), mapper, "test-token", "17841400000000000", "");
     }
 
     private static String discoveryBody(String inner) {
@@ -169,11 +169,11 @@ class InstagramProfileAdapterTest {
         // than return nulls for every Instagram creator.
         OutboundHttpClient http = clientReturning("{}", null);
 
-        assertFalse(new InstagramProfileAdapter(http, mapper, "", "17841400000000000").isConfigured());
-        assertFalse(new InstagramProfileAdapter(http, mapper, "token", "").isConfigured());
-        assertFalse(new InstagramProfileAdapter(http, mapper, "replace-me", "17841").isConfigured(),
+        assertFalse(new InstagramProfileAdapter(http, mapper, "", "17841400000000000", "").isConfigured());
+        assertFalse(new InstagramProfileAdapter(http, mapper, "token", "", "").isConfigured());
+        assertFalse(new InstagramProfileAdapter(http, mapper, "replace-me", "17841", "").isConfigured(),
                 "the placeholder convention must read as absent, not as a credential");
-        assertTrue(new InstagramProfileAdapter(http, mapper, "token", "17841").isConfigured());
+        assertTrue(new InstagramProfileAdapter(http, mapper, "token", "17841", "").isConfigured());
     }
 
     @Test
@@ -181,7 +181,7 @@ class InstagramProfileAdapterTest {
     void unconfiguredDoesNotCall() {
         AtomicReference<String> url = new AtomicReference<>();
         InstagramProfileAdapter adapter =
-                new InstagramProfileAdapter(clientReturning("{}", url), mapper, "", "");
+                new InstagramProfileAdapter(clientReturning("{}", url), mapper, "", "", "");
 
         assertNull(adapter.fetch("@creator"));
         assertNull(url.get(), "a call with no credentials would burn a request to learn it fails");
@@ -194,7 +194,7 @@ class InstagramProfileAdapterTest {
         // which would look identical to a creator who does not exist.
         AtomicReference<String> url = new AtomicReference<>();
         new InstagramProfileAdapter(clientReturning(discoveryBody("""
-                {"username":"creator","followers_count":1}"""), url), mapper, "t", "17841")
+                {"username":"creator","followers_count":1}"""), url), mapper, "t", "17841", "")
                 .fetch("@creator");
 
         assertNotNull(url.get());
@@ -221,5 +221,72 @@ class InstagramProfileAdapterTest {
         assertNotNull(profile, "the account exists; only its engagement is unknown");
         assertEquals(5_000L, profile.followerCount());
         assertNull(profile.engagementRate(), "zero would be a claim we cannot support");
+    }
+
+    @Test
+    @DisplayName("our own handle reads the account directly, not through business_discovery")
+    void ownHandleUsesDirectRead() {
+        // business_discovery is gated on Advanced Access and answers (#10) for EVERY target while
+        // the app is in review — including the account whose token we hold. Routing a self-lookup
+        // through it would return null for the one account we are authorised to read, leaving no
+        // way to demonstrate the integration to the reviewer who would grant the access.
+        AtomicReference<String> url = new AtomicReference<>();
+        OutboundHttpClient http = clientReturning("""
+                {"username":"tejduxtest","name":"Tejdux","followers_count":2,"media_count":1,
+                 "media":{"data":[{"like_count":0,"comments_count":0,
+                                   "timestamp":"2026-08-16T19:30:09+0000"}]}}""", url);
+
+        SocialProfileGateway.Profile profile =
+                new InstagramProfileAdapter(http, mapper, "t", "17841", "tejduxtest")
+                        .fetch("@tejduxtest");
+
+        assertNotNull(profile);
+        assertFalse(url.get().contains("business_discovery"),
+                "a self-lookup must not go through the endpoint for reading strangers");
+        assertEquals(2L, profile.followerCount());
+        assertEquals("platform_api", profile.source(),
+                "the direct read is no less real than discovery; only the endpoint differs");
+    }
+
+    @Test
+    @DisplayName("any other handle still goes through business_discovery")
+    void otherHandlesStillDiscover() {
+        AtomicReference<String> url = new AtomicReference<>();
+        OutboundHttpClient http = clientReturning(discoveryBody("""
+                {"username":"someone","followers_count":900}"""), url);
+
+        new InstagramProfileAdapter(http, mapper, "t", "17841", "tejduxtest").fetch("@someone");
+
+        assertTrue(url.get().contains("business_discovery"),
+                "reading a creator we do not own is exactly what discovery is for");
+    }
+
+    @Test
+    @DisplayName("the self-match ignores case and a leading @ on either side")
+    void selfMatchIsForgiving() {
+        // The configured value and the typed handle are written by different people at different
+        // times. A case difference silently routing to discovery would present as "(#10)" — an
+        // error about permissions, for what is really a spelling mismatch.
+        AtomicReference<String> url = new AtomicReference<>();
+        OutboundHttpClient http = clientReturning("""
+                {"username":"tejduxtest","followers_count":2}""", url);
+
+        new InstagramProfileAdapter(http, mapper, "t", "17841", "@TejduxTest").fetch("tejduxtest");
+
+        assertFalse(url.get().contains("business_discovery"));
+    }
+
+    @Test
+    @DisplayName("with no self-username configured, everything goes through discovery")
+    void blankSelfUsernameChangesNothing() {
+        // The safe default. A wrong match here would read OUR metrics and label them as another
+        // creator's — worse than a failed lookup, because it is plausible and wrong.
+        AtomicReference<String> url = new AtomicReference<>();
+        OutboundHttpClient http = clientReturning(discoveryBody("""
+                {"username":"anyone","followers_count":5}"""), url);
+
+        new InstagramProfileAdapter(http, mapper, "t", "17841", "").fetch("anyone");
+
+        assertTrue(url.get().contains("business_discovery"));
     }
 }

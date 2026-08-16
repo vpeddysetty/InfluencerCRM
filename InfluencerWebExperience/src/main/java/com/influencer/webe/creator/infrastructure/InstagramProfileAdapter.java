@@ -77,16 +77,19 @@ public class InstagramProfileAdapter implements SocialPlatformAdapter {
     private final ObjectMapper objectMapper;
     private final String accessToken;
     private final String businessAccountId;
+    private final String ownUsername;
 
     public InstagramProfileAdapter(
             OutboundHttpClient http,
             ObjectMapper objectMapper,
             @Value("${web-experience.creators.instagram-access-token:}") String accessToken,
-            @Value("${web-experience.creators.instagram-business-account-id:}") String businessAccountId) {
+            @Value("${web-experience.creators.instagram-business-account-id:}") String businessAccountId,
+            @Value("${web-experience.creators.instagram-own-username:}") String ownUsername) {
         this.http = http;
         this.objectMapper = objectMapper;
         this.accessToken = accessToken == null ? "" : accessToken.trim();
         this.businessAccountId = businessAccountId == null ? "" : businessAccountId.trim();
+        this.ownUsername = ownUsername == null ? "" : ownUsername.trim().replaceFirst("^@", "");
     }
 
     @Override
@@ -125,20 +128,7 @@ public class InstagramProfileAdapter implements SocialPlatformAdapter {
             return null;
         }
 
-        // One call. business_discovery nests the target's fields inside our own account's node, so
-        // the profile and the recent media that engagement is derived from arrive together.
-        String fields = "business_discovery.username(" + encode(normalized) + "){"
-                + "username,name,followers_count,media_count,profile_picture_url,"
-                + "media.limit(" + MEDIA_SAMPLE + "){like_count,comments_count,caption,timestamp}"
-                + "}";
-
-        Optional<JsonNode> response = http.getJson(
-                API + "/" + encode(businessAccountId)
-                        + "?fields=" + encode(fields)
-                        + "&access_token=" + encode(accessToken),
-                Map.of());
-
-        JsonNode discovery = response.map(node -> node.path("business_discovery")).orElse(null);
+        JsonNode discovery = isOwnAccount(normalized) ? readOwnAccount() : discover(normalized);
         if (discovery == null || discovery.isMissingNode() || discovery.isNull()) {
             // Ordinary and expected: a typo, a private account, or a personal account that
             // business_discovery structurally cannot see. Null, never a zeroed profile — writing 0
@@ -176,6 +166,69 @@ public class InstagramProfileAdapter implements SocialPlatformAdapter {
                 null,
                 discovery.path("name").asText(null),
                 recentCaptions(media));
+    }
+
+    /** The fields both endpoints return, so the two paths parse identically. */
+    private static final String PROFILE_FIELDS =
+            "username,name,followers_count,media_count,profile_picture_url,"
+                    + "media.limit(" + MEDIA_SAMPLE + "){like_count,comments_count,caption,timestamp}";
+
+    /**
+     * Reads another account through {@code business_discovery}.
+     *
+     * <p>The nesting is the endpoint's shape: the target's fields arrive inside OUR account's node,
+     * because the call is our connected account asking about theirs.
+     *
+     * <p><b>Returns null until Meta grants Advanced Access on {@code instagram_basic}.</b> Standard
+     * Access answers {@code (#10) Application does not have permission} for every target, including
+     * — verified 2026-08-16 — our own account. That is the access the app review requests.
+     */
+    private JsonNode discover(String username) {
+        String fields = "business_discovery.username(" + encode(username) + "){" + PROFILE_FIELDS + "}";
+        return http.getJson(
+                        API + "/" + encode(businessAccountId)
+                                + "?fields=" + encode(fields)
+                                + "&access_token=" + encode(accessToken),
+                        Map.of())
+                .map(node -> node.path("business_discovery"))
+                .orElse(null);
+    }
+
+    /**
+     * Reads the connected account directly, for a lookup of our own handle.
+     *
+     * <p><b>Why this exists.</b> {@code business_discovery} is gated on Advanced Access and answers
+     * {@code (#10)} for every target while the app is in review — so with only that path, the
+     * adapter returns null for everything, including the one account it is authorised to read. This
+     * endpoint is not gated: {@code /{ig-user-id}} answers today, with the same fields.
+     *
+     * <p>It is also the more correct call irrespective of review. Asking discovery about ourselves
+     * routes a self-lookup through the mechanism for reading strangers, which is a longer path to
+     * the same data and fails for a reason that has nothing to do with the account.
+     *
+     * <p><b>The provenance is unchanged.</b> Both paths return real platform data and report
+     * {@code platform_api}; only which endpoint answered differs. There is nothing to disclose here
+     * that {@code source} does not already say.
+     */
+    private JsonNode readOwnAccount() {
+        return http.getJson(
+                        API + "/" + encode(businessAccountId)
+                                + "?fields=" + encode(PROFILE_FIELDS)
+                                + "&access_token=" + encode(accessToken),
+                        Map.of())
+                .orElse(null);
+    }
+
+    /**
+     * Whether a handle names the account this adapter's token belongs to.
+     *
+     * <p>Compares against the configured username rather than resolving it, so the check costs no
+     * call. Blank configuration means "no self-account known", which routes everything to discovery
+     * — the previous behaviour, and the safe default: a wrong match here would read our own metrics
+     * and label them as some other creator's.
+     */
+    private boolean isOwnAccount(String username) {
+        return !ownUsername.isEmpty() && ownUsername.equalsIgnoreCase(username);
     }
 
     /**
