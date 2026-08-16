@@ -720,3 +720,90 @@
   .kpi-grid { grid-template-columns: 1fr; }
   .drawer-panel { width: 100%; }
 }
+
+/* --- Handle lookup and audience preview (C.2) ---------------------------------
+   Copied from InfluencerUI/src/components/ui/ui.css so this remote renders the
+   preview identically to the gateway's bundled fallback. Same obligation as the
+   duplicated provenance.js: change both, or one path shows a badge the other does
+   not. Every token used here is already defined above. */
+
+.metrics-provenance {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.metrics-provenance-age {
+  color: var(--fg-subtle);
+  font-size: var(--text-xs);
+}
+
+/* The read-only audience block in the creator drawer. Sunken rather than raised:
+   it is context for the form below, not another thing to fill in. */
+.audience-panel {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  margin-bottom: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+}
+
+.audience-panel-title {
+  margin: 0;
+  font-family: var(--sans);
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--fg-subtle-on-sunken);
+}
+
+.audience-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+  margin: 0;
+}
+
+.audience-stats dt {
+  font-size: var(--text-xs);
+  color: var(--fg-subtle-on-sunken);
+}
+
+.audience-stats dd {
+  margin: 0;
+  font-family: var(--display);
+  font-size: var(--text-lg);
+  font-weight: 700;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+
+/* What the preview will do, under the numbers it describes. */
+.audience-panel-note {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--fg-subtle-on-sunken);
+}
+
+/* Handle field plus its lookup button. The input keeps all the slack so the button
+   stays the width of its label; min-width:0 stops the flex item refusing to shrink
+   below its content and pushing the button out of the drawer. */
+.handle-lookup {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.handle-lookup input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.handle-lookup .ghost-btn {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}

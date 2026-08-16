@@ -9,9 +9,11 @@ import {
   EmptyState,
   Field,
   FilterBar,
+  MetricsProvenance,
   PageHeader,
   useToast,
 } from './components/ui'
+import { lookupMatchesHandle, metricsFromLookup } from './handleLookup'
 
 function sanitizePairs(pairs) {
   return Array.isArray(pairs)
@@ -26,7 +28,7 @@ const PLATFORM_OPTIONS = [
   { value: 'other', label: 'Other' },
 ]
 
-const EMPTY_DRAFT = { name: '', handle: '', platform: 'instagram', email: '', customAttributes: [] }
+const EMPTY_DRAFT = { name: '', handle: '', platform: 'instagram', email: '', customAttributes: [], resolvedMetrics: null }
 
 /** Two initials, for the row avatar. A list of names is far easier to scan with a shape beside it. */
 function initialsOf(name) {
@@ -92,6 +94,7 @@ function CreatorsPage({
   customAttributesToPairs,
   onCreateCreator,
   onUpdateCreator,
+  onLookupHandle,
 }) {
   const toast = useToast()
 
@@ -106,6 +109,15 @@ function CreatorsPage({
   const [confirmDiscard, setConfirmDiscard] = useState(false)
   const [createAttrValidation, setCreateAttrValidation] = useState({ hasDuplicateKeys: false, hasMissingKeys: false })
   const [editAttrValidation, setEditAttrValidation] = useState({ hasDuplicateKeys: false, hasMissingKeys: false })
+
+  // Handle lookup (C.2). `lookup` holds the last preview: null before anyone has looked,
+  // `{ resolved: false, reason }` for a handle the platform would not answer for, and the
+  // metrics object when it did. Kept out of the draft so that typing in the form never
+  // silently invalidates numbers already on screen — `lookupHandle` records which handle the
+  // preview belongs to, and the panel hides itself once the field no longer matches.
+  const [lookingUp, setLookingUp] = useState(false)
+  const [lookup, setLookup] = useState(null)
+  const [lookupHandle, setLookupHandle] = useState('')
 
   const [search, setSearch] = useState('')
   const [platformFilter, setPlatformFilter] = useState('')
@@ -156,11 +168,67 @@ function CreatorsPage({
     setSortDir('asc')
   }
 
+  const clearLookup = () => {
+    setLookup(null)
+    setLookupHandle('')
+    setLookingUp(false)
+  }
+
   const openCreate = () => {
     setFormError('')
     setEditingId('')
     setCreatorForm({ ...EMPTY_DRAFT })
+    clearLookup()
     setDrawerMode('create')
+  }
+
+  /**
+   * Ask the platform about this handle, and keep the answer as a preview (C.2).
+   *
+   * <p>Nothing is saved here. The numbers sit in the drawer until someone presses Add creator,
+   * so vetting several handles leaves no trail of half-added creators.
+   *
+   * <p>An unresolved handle is a normal outcome, not an error — private accounts, typos and
+   * deleted profiles all land there — so it renders as a note above the still-editable form
+   * rather than as a failure. Only a broken request becomes an error.
+   *
+   * <p>`onLookupHandle` comes from the gateway with the session token already bound, the same way
+   * `onCreateCreator` does. The remote holds no token of its own and must not acquire one.
+   */
+  const runLookup = async () => {
+    const handle = String(activeDraft.handle || '').trim()
+    if (!handle || lookingUp || !onLookupHandle) {
+      return
+    }
+    const platform = String(activeDraft.platform || 'instagram').toLowerCase()
+    try {
+      setLookingUp(true)
+      setFormError('')
+      const result = await onLookupHandle({ platform, handle })
+      setLookup(result)
+      setLookupHandle(handle)
+
+      const metrics = metricsFromLookup(result)
+      if (metrics) {
+        setActiveDraft((prev) => ({
+          ...prev,
+          // A display name only when the form is still empty: someone who typed a name meant it,
+          // and overwriting it with the platform's version would discard a deliberate choice.
+          name: String(prev.name || '').trim() ? prev.name : (result.name || result.displayName || prev.name),
+          resolvedMetrics: metrics,
+        }))
+      } else {
+        // A failed lookup must clear any earlier success, or the previous handle's audience
+        // would be saved against this one.
+        setActiveDraft((prev) => ({ ...prev, resolvedMetrics: null }))
+      }
+    } catch (error) {
+      setLookup(null)
+      setLookupHandle('')
+      setFormError(error instanceof Error ? error.message : 'Unable to look up that handle.')
+    } finally {
+      setLookingUp(false)
+    }
   }
 
   const openEdit = (creator) => {
@@ -184,6 +252,7 @@ function CreatorsPage({
     setEditSnapshot('')
     setFormError('')
     setConfirmDiscard(false)
+    clearLookup()
   }
 
   const requestClose = () => {
@@ -396,16 +465,84 @@ function CreatorsPage({
               />
             </Field>
 
-            <Field label="Handle" htmlFor="creator-handle" required>
-              <input
-                id="creator-handle"
-                type="text"
-                value={activeDraft.handle}
-                placeholder="@aririvera"
-                onChange={(event) => setActiveDraft((prev) => ({ ...prev, handle: event.target.value }))}
-                required
-              />
+            <Field
+              label="Handle"
+              htmlFor="creator-handle"
+              required
+              hint={drawerMode === 'create' && onLookupHandle
+                ? 'Look up the handle to read this creator’s audience from the platform before you add them.'
+                : undefined}
+            >
+              <div className="handle-lookup">
+                <input
+                  id="creator-handle"
+                  type="text"
+                  value={activeDraft.handle}
+                  placeholder="@aririvera"
+                  onChange={(event) => setActiveDraft((prev) => ({ ...prev, handle: event.target.value }))}
+                  required
+                />
+                {/* Create only, and only when the gateway supplied the handler — the standalone
+                    harness renders this page with no props at all, and a button that throws on
+                    click would make the dev entry point useless. */}
+                {drawerMode === 'create' && onLookupHandle ? (
+                  <button
+                    type="button"
+                    className="ghost-btn"
+                    onClick={runLookup}
+                    disabled={lookingUp || !String(activeDraft.handle || '').trim()}
+                  >
+                    {lookingUp ? 'Looking up…' : 'Look up'}
+                  </button>
+                ) : null}
+              </div>
             </Field>
+
+            {/* The preview. Shown only while it still describes what is in the field: editing the
+                handle after a lookup makes these numbers someone else's, and leaving them on
+                screen would invite adding a creator with another account's audience. */}
+            {drawerMode === 'create' && lookup && lookupMatchesHandle(lookupHandle, activeDraft.handle) ? (
+              lookup.resolved ? (
+                <section className="audience-panel" aria-live="polite">
+                  <h3 className="audience-panel-title">
+                    Audience for @{lookup.handle || lookupHandle}
+                  </h3>
+                  <dl className="audience-stats">
+                    {lookup.followerCount !== null && lookup.followerCount !== undefined ? (
+                      <div>
+                        <dt>Followers</dt>
+                        <dd>{Number(lookup.followerCount).toLocaleString()}</dd>
+                      </div>
+                    ) : null}
+                    {lookup.engagementRate !== null && lookup.engagementRate !== undefined ? (
+                      <div>
+                        <dt>Engagement</dt>
+                        <dd>{Number(lookup.engagementRate).toFixed(2)}%</dd>
+                      </div>
+                    ) : null}
+                    {lookup.averageViews !== null && lookup.averageViews !== undefined ? (
+                      <div>
+                        <dt>Avg. views</dt>
+                        <dd>{Number(lookup.averageViews).toLocaleString()}</dd>
+                      </div>
+                    ) : null}
+                  </dl>
+                  {/* Reads the same `metricsSource` the BFF stamped. This is the line that keeps a
+                      simulated figure legible as one. */}
+                  <MetricsProvenance
+                    source={lookup.metricsSource}
+                    fetchedAt={lookup.metricsFetchedAt}
+                  />
+                  <p className="audience-panel-note">
+                    Saved with this creator when you add them.
+                  </p>
+                </section>
+              ) : (
+                <p className="field-hint" role="status">
+                  {lookup.reason || 'The handle could not be resolved. Enter the details manually.'}
+                </p>
+              )
+            ) : null}
 
             <Field label="Platform" htmlFor="creator-platform">
               <select
