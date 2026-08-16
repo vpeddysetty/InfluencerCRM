@@ -111,6 +111,10 @@ tests/e2e/.video-build/
 tests/e2e/package-lock.json
 influencrm-e2e-journeys.mp4
 
+# OBS screen captures for the Meta App Review submission. Multi-hundred-MB mp4s that are
+# re-shot whenever the flow changes; the submitted cut lives with the review, not in git.
+recordings/
+
 # --- Terraform ---
 # Provider binaries and the module cache: ~700MB, machine-specific, and recreated by `terraform init`.
 **/.terraform/
@@ -133,10 +137,11 @@ influencrm-e2e-journeys.mp4
 # every service token are in there. The JSON form (`terraform show -json`) is worse, because it is
 # greppable plaintext.
 *.tfplan
-# `-out=tfplan` produces a file with NO extension, which *.tfplan does not match. Named here
-# explicitly, plus the numbered variants a sequence of plans leaves behind (tfplan7, tfplan8).
-tfplan
-tfplan[0-9]*
+# `-out=tfplan` produces a file with NO extension, which *.tfplan does not match. The glob covers
+# the bare name and every suffix a sequence of plans leaves behind: tfplan7, tfplanA, and the named
+# variants worth writing when several are in flight (tfplan-instagram). Previously `tfplan[0-9]*`,
+# which is why `tfplanA` sat untracked in this repo rather than ignored.
+tfplan*
 plan.json
 tfplan.json
 

@@ -1,0 +1,95 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+
+import { CARRIED_FIELDS, metricsFromLookup, lookupMatchesHandle } from './handleLookup.js'
+
+// A resolved Instagram lookup, shaped as CreatorOnboardingService.resolveHandle returns it.
+// demographics is absent on purpose: business_discovery cannot supply it for a creator who has
+// not authorised the app, so the adapter leaves it null rather than inventing a distribution.
+const RESOLVED = {
+  handle: 'aririvera',
+  platform: 'instagram',
+  resolved: true,
+  followerCount: 48210,
+  engagementRate: 3.42,
+  averageViews: 15300,
+  lastActiveAt: '2026-08-14T10:00:00Z',
+  metricsSource: 'platform_api',
+  metricsFetchedAt: '2026-08-16T12:00:00Z',
+  niche: 'fitness',
+  contentThemes: ['gym', 'nutrition'],
+}
+
+test('carries the platform-reported metrics', () => {
+  const metrics = metricsFromLookup(RESOLVED)
+  assert.equal(metrics.followerCount, 48210)
+  assert.equal(metrics.engagementRate, 3.42)
+  assert.equal(metrics.averageViews, 15300)
+  assert.deepEqual(metrics.contentThemes, ['gym', 'nutrition'])
+})
+
+test('the provenance stamp travels with the numbers', () => {
+  const metrics = metricsFromLookup(RESOLVED)
+  // The whole point. A follower count without its source renders as Unknown forever, and a
+  // simulated figure becomes indistinguishable from one Instagram answered with.
+  assert.equal(metrics.metricsSource, 'platform_api')
+  assert.equal(metrics.metricsFetchedAt, '2026-08-16T12:00:00Z')
+})
+
+test('a simulated lookup stays labelled as simulated', () => {
+  const metrics = metricsFromLookup({ ...RESOLVED, metricsSource: 'mock' })
+  // The adapter falls back to the simulation whenever it is not fully configured. That fallback
+  // must remain visible on the saved row: `mock` is what renders the warning badge.
+  assert.equal(metrics.metricsSource, 'mock')
+})
+
+test('does not forward request bookkeeping as creator columns', () => {
+  const metrics = metricsFromLookup(RESOLVED)
+  assert.equal(metrics.resolved, undefined)
+  assert.equal(metrics.reason, undefined)
+  // handle and platform are the form's own fields; the lookup must not fight the user for them.
+  assert.equal(metrics.handle, undefined)
+  assert.equal(metrics.platform, undefined)
+})
+
+test('an unresolved handle contributes nothing', () => {
+  // Null rather than an object of blanks: "nobody could be found" must not be recorded as
+  // "this creator has no audience", which is what a zeroed follower count would claim.
+  assert.equal(metricsFromLookup({ resolved: false, reason: 'Not found' }), null)
+  assert.equal(metricsFromLookup(null), null)
+  assert.equal(metricsFromLookup(undefined), null)
+})
+
+test('absent fields are omitted rather than written as null', () => {
+  const metrics = metricsFromLookup(RESOLVED)
+  // demographics is null for a discovered creator by design. Writing the null would overwrite
+  // anything already known about them.
+  assert.ok(!('audienceDemographics' in metrics))
+  assert.ok(!('averageViews' in metricsFromLookup({ ...RESOLVED, averageViews: null })))
+})
+
+test('a follower count of zero survives', () => {
+  // Zero followers is a real measurement and a different fact from "we did not look". A truthiness
+  // filter here would silently discard it.
+  const metrics = metricsFromLookup({ ...RESOLVED, followerCount: 0 })
+  assert.equal(metrics.followerCount, 0)
+})
+
+test('the preview follows the handle it was read for', () => {
+  assert.ok(lookupMatchesHandle('aririvera', 'aririvera'))
+  // Same account, typed differently — hiding the panel over an @ or a capital would read as a bug.
+  assert.ok(lookupMatchesHandle('aririvera', '@AriRivera'))
+  assert.ok(lookupMatchesHandle('@ari', ' ari '))
+  // A different creator entirely: the numbers on screen are not theirs.
+  assert.ok(!lookupMatchesHandle('aririvera', 'someoneelse'))
+  assert.ok(!lookupMatchesHandle('', 'aririvera'))
+  assert.ok(!lookupMatchesHandle('aririvera', ''))
+})
+
+test('the carried list stays an allow-list', () => {
+  // A guard against someone "simplifying" this to a spread of the response later: the two
+  // provenance fields are the ones whose loss is silent and permanent.
+  assert.ok(CARRIED_FIELDS.includes('metricsSource'))
+  assert.ok(CARRIED_FIELDS.includes('metricsFetchedAt'))
+  assert.ok(!CARRIED_FIELDS.includes('resolved'))
+})

@@ -214,6 +214,13 @@ services:
       STRIPE_SECRET_KEY: $${STRIPE_SECRET_KEY}
       WEBE_BILLING_WEBHOOK_SECRET: $${BILLING_WEBHOOK_SECRET}
       YOUTUBE_API_KEY: $${YOUTUBE_API_KEY}
+      # Instagram reads through business_discovery on the BUSINESS app referenced above — our own
+      # connected account asking about a public Business account by username, which is the only Graph
+      # endpoint that answers about an account that has not authorised us. Both values or neither:
+      # InstagramProfileAdapter.isConfigured() requires the pair, and a half-configured deployment
+      # falls back to the simulation rather than reporting nulls as "no audience".
+      INSTAGRAM_ACCESS_TOKEN: $${INSTAGRAM_ACCESS_TOKEN}
+      INSTAGRAM_BUSINESS_ACCOUNT_ID: $${INSTAGRAM_BUSINESS_ACCOUNT_ID}
       # STILL KEY-BASED. The instance role already holds ses:SendEmail, but SesEmailSender reads explicit
       # access keys from configuration, so the role alone would not be used.
       AWS_SES_ACCESS_KEY_ID: $${SES_ACCESS_KEY_ID}

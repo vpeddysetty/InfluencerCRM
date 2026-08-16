@@ -29,6 +29,7 @@ import {
   listConnectedAccounts,
   createCampaign,
   createCreator,
+  resolveCreatorHandle,
   listWorkflowBoards,
   createWorkflowBoard,
   updateWorkflowBoard,
@@ -502,6 +503,11 @@ function App() {
     email: '',
     ...(persistedState?.creatorForm || {}),
     customAttributes: customAttributesToPairs(persistedState?.creatorForm?.customAttributes),
+    // Deliberately NOT restored from persisted state, and listed after the spread so a stored
+    // value cannot win. A follower count is only meaningful next to the handle it was read for
+    // and the moment it was read: restoring one from a previous session would stamp a stale
+    // audience — possibly for a different creator entirely — onto the next record saved.
+    resolvedMetrics: null,
   })
   const [assignmentForm, setAssignmentForm] = useState(persistedState?.assignmentForm ?? {
     campaignId: defaultCampaignId,
@@ -1652,6 +1658,21 @@ function App() {
     }
   }
 
+  /**
+   * Look up a handle on its platform, for the create drawer (C.2).
+   *
+   * <p>Returns the preview rather than storing it. Nothing is persisted until someone presses
+   * Add creator, which keeps looking and saving as two separate acts — a brand vetting ten
+   * handles should not end up with ten rows in its CRM.
+   *
+   * <p>An unresolvable handle comes back as `resolved: false` with a reason and is NOT an error:
+   * private accounts and typos are the common case, and the drawer stays open on the manual
+   * fields. Only a failed request throws.
+   */
+  const lookupCreatorHandle = async ({ platform, handle }) => {
+    return resolveCreatorHandle(authToken, { platform, handle })
+  }
+
   const createCreatorRecord = async (event) => {
     event.preventDefault()
     if (!creatorForm.name.trim() || !creatorForm.handle.trim()) {
@@ -1673,11 +1694,20 @@ function App() {
           ? null
           : Number(creatorForm.preferredRate),
         customAttributes,
+        // Metrics from a handle lookup, when one resolved. Spread rather than set field by field
+        // so an absent lookup contributes nothing at all: writing `followerCount: null` would
+        // record "we looked and they have no audience", which is a different claim from "nobody
+        // looked". `metricsSource` travels with the numbers — a follower count saved without it
+        // renders as Unknown provenance forever, and a simulated figure would become
+        // indistinguishable from one Instagram answered with.
+        ...(creatorForm.resolvedMetrics || {}),
       })
 
       setCreators((prev) => [nextCreator, ...prev])
       setAssignmentForm((prev) => ({ ...prev, creatorId: nextCreator.id || prev.creatorId }))
-      setCreatorForm({ name: '', handle: '', platform: 'instagram', email: '', preferredRate: '', customAttributes: [] })
+      // resolvedMetrics cleared with the rest: carrying one creator's follower count into the next
+      // creator's form would attribute a real audience to the wrong person.
+      setCreatorForm({ name: '', handle: '', platform: 'instagram', email: '', preferredRate: '', customAttributes: [], resolvedMetrics: null })
     } catch (error) {
       setWorkspaceError(error instanceof Error ? error.message : 'Unable to create creator.')
     }
@@ -2190,6 +2220,7 @@ function App() {
                   customAttributesToPairs={customAttributesToPairs}
                   onCreateCreator={createCreatorRecord}
                   onUpdateCreator={updateCreatorRecord}
+                  onLookupHandle={lookupCreatorHandle}
                 />
               }
             />
