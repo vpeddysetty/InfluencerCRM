@@ -221,6 +221,17 @@ services:
       # falls back to the simulation rather than reporting nulls as "no audience".
       INSTAGRAM_ACCESS_TOKEN: $${INSTAGRAM_ACCESS_TOKEN}
       INSTAGRAM_BUSINESS_ACCOUNT_ID: $${INSTAGRAM_BUSINESS_ACCOUNT_ID}
+      # The connected account's own handle. Not a secret — it is a public username — so it is a
+      # literal here rather than another Secrets Manager entry.
+      #
+      # WHY IT MATTERS RIGHT NOW. business_discovery is gated on Advanced Access for
+      # instagram_basic and answers "(#10) Application does not have permission" for EVERY target
+      # while the app is in review — including our own account (verified against the live Graph API
+      # on 2026-08-16). Unset, isOwnAccount() is false for everything, every lookup takes the gated
+      # path, and the product can demonstrate nothing. Set, a lookup of this handle routes to
+      # /{ig-user-id}, which is not gated and answers today with the same fields and the same
+      # platform_api provenance.
+      INSTAGRAM_OWN_USERNAME: ${instagram_own_username}
       # STILL KEY-BASED. The instance role already holds ses:SendEmail, but SesEmailSender reads explicit
       # access keys from configuration, so the role alone would not be used.
       AWS_SES_ACCESS_KEY_ID: $${SES_ACCESS_KEY_ID}

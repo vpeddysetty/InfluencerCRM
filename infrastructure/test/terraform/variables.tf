@@ -249,6 +249,24 @@ variable "ses_from_address" {
   default     = "no-reply@tejdux.com"
 }
 
+variable "instagram_own_username" {
+  description = <<-EOT
+    The Instagram handle of the Business account the app's token belongs to.
+
+    Not a secret — a public username — so it lives here rather than in Secrets Manager.
+
+    WHAT IT UNLOCKS. business_discovery, which reads OTHER creators, is gated on Advanced Access
+    for instagram_basic and answers "(#10) Application does not have permission" for every target
+    while the app is in review. Setting this routes a lookup of THIS handle to /{ig-user-id}
+    instead, which is not gated and returns the same fields with the same platform_api provenance.
+    It is the only Instagram lookup that can be demonstrated before Meta approves the submission.
+
+    Unset, isOwnAccount() is false for every handle and every lookup takes the gated path.
+  EOT
+  type        = string
+  default     = ""
+}
+
 # ---------------------------------------------------------------------------
 # Static site hosting (the micro-frontends)
 # ---------------------------------------------------------------------------

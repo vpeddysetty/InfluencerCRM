@@ -406,6 +406,7 @@ locals {
     ses_from_address         = var.ses_from_address
     workflow_service_enabled = tostring(var.workflow_service_enabled)
     dao_tls_verification     = tostring(local.compose_dao_tls_verification)
+    instagram_own_username   = var.instagram_own_username
 
     # Secure cookies over HTTPS only, and SameSite=None only alongside Secure. With Caddy the
     # certificate exists as soon as api_domain does, so that is the condition rather than an ACM arn.
