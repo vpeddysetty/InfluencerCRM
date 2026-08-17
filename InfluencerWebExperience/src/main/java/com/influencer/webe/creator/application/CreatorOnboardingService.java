@@ -84,6 +84,15 @@ public class CreatorOnboardingService {
             return out;
         }
 
+        // The name the platform reports, so a caller previewing a handle can offer it as the
+        // creator's name rather than making someone retype what the lookup already knows.
+        // captureLead does the same thing server-side (see below); a UI that previews first and
+        // saves separately never reaches that code, so without this the field it would fill
+        // is simply absent and the form stays empty.
+        if (profile.displayName() != null) {
+            out.put("displayName", profile.displayName());
+        }
+
         applyMetrics(out, profile, false);   // preview: objects stay objects
         JsonNode classification = classify(profile);
         if (classification != null) {

@@ -68,6 +68,37 @@ test('absent fields are omitted rather than written as null', () => {
   assert.ok(!('averageViews' in metricsFromLookup({ ...RESOLVED, averageViews: null })))
 })
 
+test('demographics are serialized to text for the jsonb column', () => {
+  // Regression: production returned 400 "Cannot deserialize value of type String from Object
+  // value" on every save after a resolved lookup. audience_demographics is jsonb mapped to a Java
+  // String on the DAO entity, so an object here rejects the WHOLE creator, not just the field.
+  const metrics = metricsFromLookup({
+    ...RESOLVED,
+    audienceDemographics: { age: { '18-24': 0.4 }, country: { US: 0.6 } },
+  })
+  assert.equal(typeof metrics.audienceDemographics, 'string')
+  assert.deepEqual(JSON.parse(metrics.audienceDemographics), {
+    age: { '18-24': 0.4 },
+    country: { US: 0.6 },
+  })
+})
+
+test('an already-serialized demographics string is left alone', () => {
+  // Double-encoding would store a quoted blob that reads back as a string, not an object.
+  const already = '{"age":{"25-34":0.5}}'
+  const metrics = metricsFromLookup({ ...RESOLVED, audienceDemographics: already })
+  assert.equal(metrics.audienceDemographics, already)
+})
+
+test('unserializable demographics are dropped, not saved broken', () => {
+  const cyclic = {}
+  cyclic.self = cyclic
+  const metrics = metricsFromLookup({ ...RESOLVED, audienceDemographics: cyclic })
+  // The creator still saves; only the enrichment is lost.
+  assert.ok(!('audienceDemographics' in metrics))
+  assert.equal(metrics.followerCount, 48210)
+})
+
 test('a follower count of zero survives', () => {
   // Zero followers is a real measurement and a different fact from "we did not look". A truthiness
   // filter here would silently discard it.

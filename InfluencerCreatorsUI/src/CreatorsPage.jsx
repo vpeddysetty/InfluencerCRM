@@ -214,7 +214,9 @@ function CreatorsPage({
           ...prev,
           // A display name only when the form is still empty: someone who typed a name meant it,
           // and overwriting it with the platform's version would discard a deliberate choice.
-          name: String(prev.name || '').trim() ? prev.name : (result.name || result.displayName || prev.name),
+          // `displayName` is the only name resolveHandle returns — it has no `name` field, which
+          // is why this silently populated nothing until the BFF started sending it.
+          name: String(prev.name || '').trim() ? prev.name : (result.displayName || prev.name),
           resolvedMetrics: metrics,
         }))
       } else {

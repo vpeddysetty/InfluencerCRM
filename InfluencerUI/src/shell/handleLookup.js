@@ -23,6 +23,10 @@ export const CARRIED_FIELDS = Object.freeze([
   'engagementRate',
   'averageViews',
   'lastActiveAt',
+  // Serialized on the way out, NOT passed through — see metricsFromLookup. `resolveHandle`
+  // returns this as an object because a preview wants one, but `audience_demographics` is jsonb
+  // mapped to a Java String on the DAO entity, so it must arrive as JSON text. Sending the object
+  // fails the whole save with a 400 naming only "String from Object value".
   'audienceDemographics',
   'metricsPlatformVerified',
   'metricsSource',
@@ -58,6 +62,23 @@ export function metricsFromLookup(result) {
       metrics[field] = value
     }
   })
+
+  // jsonb-as-String: the DAO entity maps audience_demographics with @JdbcTypeCode(SqlTypes.JSON)
+  // over a String field, so it expects the JSON as TEXT. The preview shape is an object, and
+  // forwarding it rejects the entire creator with a 400 — the same trap CreatorOnboardingService
+  // documents on its own persistence path, which this route bypasses by saving through /api/creators.
+  //
+  // Serialization is deliberately allowed to fail quietly: demographics are enrichment, and losing
+  // them must not cost the creator. Dropping the key entirely is right — an unparseable string
+  // written to a jsonb column would fail the save just as hard.
+  if (metrics.audienceDemographics !== undefined && typeof metrics.audienceDemographics !== 'string') {
+    try {
+      metrics.audienceDemographics = JSON.stringify(metrics.audienceDemographics)
+    } catch {
+      delete metrics.audienceDemographics
+    }
+  }
+
   return metrics
 }
 
