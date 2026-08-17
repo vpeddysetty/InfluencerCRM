@@ -55,17 +55,31 @@ can disprove in one API call.
 
 ## The script
 
-Times are cumulative and approximate. Speak slower than feels natural.
+**Target 4:00.** The narration is ~450 words, which is about 3¼ minutes at a deliberate 140 wpm;
+the rest is page loads, the API call, and the pause on the consent dialog. Glance at the OBS timer
+at each section boundary:
+
+| By the end of | Clock should read |
+|---|---|
+| §1 what the app is | 0:20 |
+| §2 sign-in permissions | 1:15 |
+| §3 why creator data | 1:35 |
+| §4 Instagram lookup | 3:05 |
+| §5 deletion and privacy | 3:40 |
+| §6 close | 4:00 |
+
+Running long is not a failure — App Review has no time limit, and a rushed consent dialog is far
+worse than a video that runs to 4:30. If you are behind, cut §3 rather than hurrying §2 or §4.
+
+Speak slower than feels natural.
 
 ### 1 · What the app is (0:00 – 0:25)
 
 **Screen:** `https://www.tejdux.com/` — the signed-out landing page.
 
-> "This is Tejdux, a B2B influencer marketing CRM operated by KMPS Global Corporation. Brands and
-> agencies use it to manage partnerships with social media creators — tracking who they work with,
-> what those creators' audiences look like, and what each partnership returns.
->
-> I'll show where each requested permission is used."
+> "This is Tejdux, a B2B influencer marketing CRM operated by KMPS Global Corporation. Brands use it
+> to manage partnerships with social media creators. I'll show where each requested permission is
+> used."
 
 *Do not scroll the marketing page. One sentence of context, then move.*
 
@@ -126,10 +140,9 @@ Type `tejduxtest` in **Handle**. Click **Look up**. **Do not cut the wait.**
 > "Follower count and engagement come straight from the API.
 >
 > To be precise about what's on screen: this is our own connected Business account. The
-> `business_discovery` endpoint that reads other creators requires Advanced Access on
-> `instagram_basic`, which is what this submission requests — so today the only account we can read
-> is our own. Once approved, a brand types any public Business handle here and this same panel fills
-> in the same way."
+> `business_discovery` endpoint that reads other creators needs Advanced Access on
+> `instagram_basic` — which is what this submission requests. Once approved, a brand types any
+> public Business handle here and this panel fills the same way."
 
 **Point at the badge. Hover it so the tooltip shows.**
 
@@ -167,10 +180,10 @@ Scroll to the Facebook section. Pause on it.
 
 **Screen:** back on the creator record.
 
-> "To summarise: `email` and `public_profile` for sign-in and notices. `instagram_basic`,
-> `pages_show_list` and `pages_read_engagement` to read a creator's public audience metrics through
-> our connected Business account, so a brand can evaluate a partnership. That's every permission
-> requested and where each one is used."
+> "So: `email` and `public_profile` for sign-in and notices. `instagram_basic`, `pages_show_list`
+> and `pages_read_engagement` to read a creator's public audience metrics through our connected
+> Business account, so a brand can evaluate a partnership. That's every permission and where it's
+> used."
 
 Stop recording. Do not add an outro.
 
