@@ -38,11 +38,26 @@ export const CARRIED_FIELDS = Object.freeze([
   'metricsFetchedAt',
   // Classification travels too. It is derived from the same fetch, and the BFF stamps it with its
   // own `classificationSource` so a model's guess never reads as a platform's answer.
-  'niche',
-  'contentThemes',
-  'contentCategories',
-  'riskFlags',
-  'safetyNotes',
+])
+
+/**
+ * Classification, which arrives in a different shape from the metrics beside it.
+ *
+ * <p>`resolveHandle` NESTS the model's answer under `classification` and leaves the model's own
+ * snake_case keys intact; `captureLead` flattens the same object into camelCase columns. A UI that
+ * previews and then saves through /api/creators only ever sees the nested form, so it has to do the
+ * flattening the other path does server-side — matching applyClassification in
+ * CreatorOnboardingService, which is the definition of the shape the DAO accepts.
+ *
+ * <p>`content_themes` fills both `contentThemes` and `contentCategories` deliberately: the older
+ * column is the one the directory already reads, and keeping them in step is what that service
+ * does for the same reason.
+ */
+const CLASSIFICATION_FIELDS = Object.freeze([
+  ['niche', ['niche']],
+  ['content_themes', ['contentThemes', 'contentCategories']],
+  ['risk_flags', ['riskFlags']],
+  ['summary', ['safetyNotes']],
 ])
 
 /**
@@ -82,6 +97,20 @@ export function metricsFromLookup(result) {
     } catch {
       delete metrics.audienceDemographics
     }
+  }
+
+  const classification = result.classification
+  if (classification && typeof classification === 'object') {
+    CLASSIFICATION_FIELDS.forEach(([from, targets]) => {
+      const value = classification[from]
+      if (value !== null && value !== undefined) {
+        targets.forEach((to) => { metrics[to] = value })
+      }
+    })
+    // Stamped separately from metricsSource and never merged with it: one says a platform answered
+    // about the audience, the other says a model guessed at the content. Collapsing them is the
+    // single confusion the two `source` columns exist to prevent.
+    metrics.classificationSource = classification.source || 'llm'
   }
 
   return metrics

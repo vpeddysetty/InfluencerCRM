@@ -16,8 +16,13 @@ const RESOLVED = {
   lastActiveAt: '2026-08-14T10:00:00Z',
   metricsSource: 'platform_api',
   metricsFetchedAt: '2026-08-16T12:00:00Z',
-  niche: 'fitness',
-  contentThemes: ['gym', 'nutrition'],
+  // Classification is NESTED and snake_case on this endpoint — the flat camelCase shape an earlier
+  // version of this fixture used does not exist on any real response.
+  classification: {
+    niche: 'fitness',
+    content_themes: ['gym', 'nutrition'],
+    source: 'llm',
+  },
 }
 
 test('carries the platform-reported metrics', () => {
@@ -97,6 +102,49 @@ test('unserializable demographics are dropped, not saved broken', () => {
   // The creator still saves; only the enrichment is lost.
   assert.ok(!('audienceDemographics' in metrics))
   assert.equal(metrics.followerCount, 48210)
+})
+
+test('nested snake_case classification is flattened to the DAO shape', () => {
+  // resolveHandle nests this under `classification` with the model's own key names; captureLead
+  // flattens the same object to camelCase columns. Reading the flat names off the preview response
+  // matched nothing, so niche and themes were silently dropped from every saved creator.
+  const metrics = metricsFromLookup({
+    ...RESOLVED,
+    classification: {
+      niche: 'fitness',
+      content_themes: ['gym', 'nutrition'],
+      risk_flags: ['none'],
+      summary: 'Fitness creator posting workouts.',
+      source: 'llm',
+    },
+  })
+  assert.equal(metrics.niche, 'fitness')
+  assert.deepEqual(metrics.contentThemes, ['gym', 'nutrition'])
+  // Both columns, in step — the directory reads the older one.
+  assert.deepEqual(metrics.contentCategories, ['gym', 'nutrition'])
+  assert.deepEqual(metrics.riskFlags, ['none'])
+  assert.equal(metrics.safetyNotes, 'Fitness creator posting workouts.')
+  assert.equal(metrics.classificationSource, 'llm')
+})
+
+test('classification provenance stays separate from metrics provenance', () => {
+  // A platform answering about followers and a model guessing at content are different claims.
+  const metrics = metricsFromLookup({
+    ...RESOLVED,
+    metricsSource: 'platform_api',
+    classification: { niche: 'beauty', source: 'llm' },
+  })
+  assert.equal(metrics.metricsSource, 'platform_api')
+  assert.equal(metrics.classificationSource, 'llm')
+})
+
+test('an absent classifier leaves no classification fields', () => {
+  // classify() returns null when the agent is down, and that must not write empty columns.
+  const { classification, ...withoutClassifier } = RESOLVED
+  const metrics = metricsFromLookup(withoutClassifier)
+  assert.equal(metrics.followerCount, 48210)   // the metrics still land
+  assert.ok(!('niche' in metrics))
+  assert.ok(!('classificationSource' in metrics))
 })
 
 test('a follower count of zero survives', () => {
