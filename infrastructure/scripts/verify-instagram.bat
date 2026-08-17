@@ -75,7 +75,7 @@ REM --- 2 + 3. credentials, and the properties that read them ----------------
 REM Lengths only. The token is a live credential and printing it into a terminal
 REM would put it in scrollback, which is how the last one ended up needing rotation.
 set "PARAMS=%TEMP%\ig-verify-%RANDOM%.json"
-> "%PARAMS%" echo {"commands":["docker exec influencrm-web-experience-1 printenv INSTAGRAM_ACCESS_TOKEN 2>/dev/null | wc -c","docker exec influencrm-web-experience-1 printenv INSTAGRAM_BUSINESS_ACCOUNT_ID 2>/dev/null | wc -c","docker exec influencrm-web-experience-1 sh -c 'grep -c instagram-access-token /app/BOOT-INF/classes/application.properties 2>/dev/null || echo 0'"]}
+> "%PARAMS%" echo {"commands":["docker exec influencrm-web-experience-1 printenv INSTAGRAM_ACCESS_TOKEN 2>/dev/null | wc -c","docker exec influencrm-web-experience-1 printenv INSTAGRAM_BUSINESS_ACCOUNT_ID 2>/dev/null | wc -c","docker exec influencrm-web-experience-1 sh -c 'printenv INSTAGRAM_ACCESS_TOKEN >/dev/null 2>&1 && echo 1 || echo 0'"]}
 for /f "tokens=*" %%C in ('aws ssm send-command --region %AWS_REGION% --profile %AWS_PROFILE% --instance-ids !IID! --document-name AWS-RunShellScript --parameters file://%PARAMS% --query Command.CommandId --output text 2^>nul') do set "CID2=%%C"
 del "%PARAMS%" >nul 2>&1
 REM `timeout` reads the console and dies with "Input redirection is not supported"
@@ -93,17 +93,24 @@ for /f "tokens=*" %%O in ('aws ssm get-command-invocation --region %AWS_REGION% 
 
 echo   token len  !TOKLEN!   (expect ~217)
 echo   acct len   !ACCTLEN!  (expect ~18)
-echo   property   !PROPS!    (expect 1+; 0 means the image predates the adapter)
+echo   env bound  !PROPS!    (1 = the container exports the variable)
 
 if "!TOKLEN!"=="1" ( echo   ^>^> TOKEN EMPTY in the container. & goto :fail )
 if "!ACCTLEN!"=="1" ( echo   ^>^> ACCOUNT ID EMPTY in the container. & goto :fail )
 if "!PROPS!"=="0" (
     echo.
-    echo   ^>^> The image has the values but no property to read them through.
-    echo      This is exactly the v1.0.18 fault: an image built before the
-    echo      adapter's properties existed binds empty strings and simulates.
+    echo   ^>^> The container does not export INSTAGRAM_ACCESS_TOKEN at all.
+    echo      Check the compose file in S3 and the instance IAM policy.
     goto :fail
 )
+
+REM NOT CHECKED HERE: that the image's application.properties actually declares
+REM `web-experience.creators.instagram-*`. That is the v1.0.18 fault -- values
+REM present, no property to read them through -- and it is invisible from inside
+REM the container, because the app ships as a packaged /app/app.jar with no unzip
+REM or jar binary in the runtime image to look inside it. Verified out of band
+REM for v1.0.19 by copying the jar out and reading BOOT-INF/classes; the badge in
+REM the product is the check that covers it from here on.
 
 :api
 echo.
