@@ -1191,6 +1191,55 @@
 }
 
 /* ── Tablet: the board and dense tables ───────────────────────────────── */
+/* ── Sign-in methods (settings) ───────────────────────────────────────── */
+/* The markup shipped without any of these rules, so the list rendered as raw
+   <li> bullets and the two spans in each row ran together: "GoogleConnected as
+   …". Only ever visible once a provider was actually linked, which is why it
+   went unnoticed until the connected state could be reached at all. */
+.settings-provider-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.settings-provider-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-provider-row:last-child {
+  border-bottom: none;
+}
+
+/* The gap is what separates the provider name from its status. They are
+   adjacent elements with no whitespace between them in the JSX, so spacing has
+   to come from the layout rather than from the markup. */
+.settings-provider-detail {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.settings-provider-name {
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.settings-provider-meta {
+  font-size: var(--text-sm);
+  color: var(--fg-muted);
+  word-break: break-word;
+}
+
 @media (max-width: 1024px) {
   .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .columns { grid-auto-columns: minmax(240px, 80vw); }
@@ -1202,4 +1251,5 @@
   .page-header-action > * { width: 100%; }
   .kpi-grid { grid-template-columns: 1fr; }
   .drawer-panel { width: 100%; }
+  .settings-provider-row { flex-direction: column; align-items: stretch; gap: var(--space-2); }
 }
