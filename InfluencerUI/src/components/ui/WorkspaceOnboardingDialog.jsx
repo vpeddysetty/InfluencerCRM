@@ -11,19 +11,23 @@ import { useEffect, useRef, useState } from 'react'
  * is why the landing page used to refuse an agency selection outright and tell the user to go back
  * and use a password instead. This dialog is where both are put right.
  *
- * <p><b>Not a ConfirmDialog, and deliberately dismissible anyway.</b> Escape and the skip button
- * both close it. The workspace already exists and works under its provider-derived name; the only
- * cost of skipping is a name the user can change later in settings. Trapping someone in a form to
- * fix cosmetics would be a worse first thirty seconds than a slightly odd workspace name.
+ * <p><b>Not dismissible.</b> It used to be: Escape and a "Skip for now" button both closed it, on
+ * the reasoning that the name could be changed later in settings. That reasoning was wrong on the
+ * facts — there is no rename in settings, and the marker that opens this dialog is consumed on
+ * read, so nothing ever asks again. Skipping therefore did not defer the question, it answered it
+ * permanently with the provider's display name, and a personal name went on to stand in for a
+ * company across the sidebar, the header and every workspace screen. Asking once and accepting no
+ * answer is worse than not asking.
  *
  * <p>The name field is pre-filled with the current workspace name rather than left blank: for a
  * solo brand whose provider name IS their business name, the whole step becomes one Enter press.
+ * That default is the reason this dialog must be answered rather than merely shown — the value it
+ * pre-fills is exactly the one that was wrong.
  */
 function WorkspaceOnboardingDialog({
   initialName = '',
   initialAccountType = 'brand',
   onSubmit,
-  onSkip,
 }) {
   const [workspaceName, setWorkspaceName] = useState(initialName)
   const [accountType, setAccountType] = useState(
@@ -34,16 +38,6 @@ function WorkspaceOnboardingDialog({
   const panelRef = useRef(null)
   const nameRef = useRef(null)
 
-  // Held in refs so the effects below need not depend on their identity. See the note in Drawer:
-  // an effect that focuses and then lists a changing dependency re-runs on every keystroke, and
-  // steals the caret out of the field being typed into. Here it would also re-SELECT the text, so
-  // the second character would replace the first.
-  const onSkipRef = useRef(onSkip)
-  const busyRef = useRef(busy)
-  useEffect(() => {
-    onSkipRef.current = onSkip
-    busyRef.current = busy
-  }, [onSkip, busy])
 
   // MOUNT ONLY: entering and leaving the dialog, and the one-time focus of the name field.
   useEffect(() => {
@@ -62,9 +56,11 @@ function WorkspaceOnboardingDialog({
 
   useEffect(() => {
     const onKeyDown = (event) => {
-      if (event.key === 'Escape' && !busyRef.current) {
+      // Escape no longer dismisses. It was the same exit as "Skip for now" and left the same
+      // provider-named workspace behind; a modal that must be answered cannot keep a silent way
+      // out. Swallowed rather than ignored, so the key does not reach anything underneath.
+      if (event.key === 'Escape') {
         event.preventDefault()
-        onSkipRef.current?.()
         return
       }
 
@@ -193,10 +189,12 @@ function WorkspaceOnboardingDialog({
 
           {error ? <p className="field-error" role="alert">{error}</p> : null}
 
+          {/* No "Skip for now". A federated signup has no field to name the workspace in, so this
+              dialog is the ONLY place it is ever asked — skipping left the account named after the
+              provider's display name, and a personal name then stood in for a company across the
+              whole product. Nothing later prompted again, because the marker that opens this is
+              consumed on read. Asking once and accepting no answer is worse than not asking. */}
           <div className="confirm-actions">
-            <button type="button" className="ghost-btn" onClick={onSkip} disabled={busy}>
-              Skip for now
-            </button>
             <button type="submit" className="primary-btn" disabled={busy}>
               {busy ? 'Saving…' : 'Continue'}
             </button>

@@ -1191,6 +1191,20 @@
 }
 
 /* ── Tablet: the board and dense tables ───────────────────────────────── */
+/* ── Workspace rename (settings) ──────────────────────────────────────── */
+.settings-rename-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.settings-rename-form input {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
 /* ── Sign-in methods (settings) ───────────────────────────────────────── */
 /* The markup shipped without any of these rules, so the list rendered as raw
    <li> bullets and the two spans in each row ran together: "GoogleConnected as

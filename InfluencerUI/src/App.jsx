@@ -463,6 +463,10 @@ function App() {
   const [accountId, setAccountId] = useState(persistedState?.accountId ?? '')
   const [role, setRole] = useState(persistedState?.role ?? '')
   const [availableBrands, setAvailableBrands] = useState(persistedState?.availableBrands ?? [])
+  // Brand usage against the plan's cap, for the rail's "+ Add brand" control. Deliberately NOT
+  // persisted: the plan is kept out of the JWT so an upgrade takes effect immediately, and a
+  // restored copy would reintroduce exactly the staleness that decision avoids.
+  const [brandCapacity, setBrandCapacity] = useState(null)
   /**
    * Permissions for rendering decisions.
    *
@@ -798,6 +802,35 @@ function App() {
     }
   }, [isLoggedIn, authToken, brandId])
 
+  // Brand capacity for the rail control. Gated on isLoggedIn ALONE, not on authToken: a cookie
+  // session holds no bearer token, so an `!authToken` guard would skip this for exactly the
+  // federated sign-ins that land on the free tier.
+  useEffect(() => {
+    if (!isLoggedIn) {
+      return
+    }
+    let isActive = true
+    loadPlanUsage(authToken)
+      .then((usage) => {
+        if (!isActive) {
+          return
+        }
+        // PlanUsageResponse(plan, usage) with ResourceUsage(resource, label, used, limit);
+        // `resource` is the lowercased enum name, so BRAND arrives as "brand".
+        const brand = (usage?.usage || []).find((row) => row?.resource === 'brand')
+        setBrandCapacity(
+          brand ? { used: Number(brand.used ?? 0), limit: Number(brand.limit ?? -1) } : null,
+        )
+      })
+      .catch(() => {
+        // Non-fatal: capacity stays null, which leaves the control visible and lets the server
+        // remain the authority. Better than hiding a legitimate agency's only path to a brand.
+      })
+    return () => {
+      isActive = false
+    }
+  }, [isLoggedIn, authToken, brandId, availableBrands.length])
+
   useEffect(() => {
     if (!isLoggedIn || !authToken) {
       return
@@ -937,6 +970,23 @@ function App() {
     }
     applyBrandFromAuth(updated)
     setOnboarding({ open: false, accountType: 'brand' })
+  }
+
+  /**
+   * Renames the workspace from settings.
+   *
+   * <p>The same endpoint the onboarding dialog posts to, which is idempotent and renames the brand
+   * in the caller's own token — never one named in the body. accountType is omitted deliberately:
+   * that endpoint only ever upgrades, and a rename must not quietly change what kind of account
+   * this is. The response re-mints the session, so the sidebar and header follow immediately
+   * instead of showing the old name until the next sign-in.
+   */
+  const renameWorkspace = async (name) => {
+    const updated = await completeOnboarding(authToken, { workspaceName: name })
+    if (updated.accessToken) {
+      setAuthToken(updated.accessToken)
+    }
+    applyBrandFromAuth(updated)
   }
 
   /**
@@ -2163,6 +2213,7 @@ function App() {
                   activeBrandId={brandId}
                   onSwitchBrand={handleSwitchBrand}
                   onCreateBrand={createBrandRecord}
+                  brandCapacity={brandCapacity}
                   role={role}
                   permissions={permissions}
                   progress={{
@@ -2327,6 +2378,8 @@ function App() {
                   onConnect={startProviderLink}
                   onDisconnect={(id) => disconnectAccount(authToken, id)}
                   linkedNotice={linkedProviderNotice}
+                  workspaceName={brandName}
+                  onRenameWorkspace={renameWorkspace}
                 />
               }
             />
@@ -2424,7 +2477,6 @@ function App() {
         initialName={brandName}
         initialAccountType={onboarding.accountType}
         onSubmit={handleCompleteOnboarding}
-        onSkip={() => setOnboarding({ open: false, accountType: 'brand' })}
       />
     ) : null}
     </ToastProvider>

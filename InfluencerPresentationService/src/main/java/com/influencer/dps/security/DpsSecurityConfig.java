@@ -43,6 +43,34 @@ public class DpsSecurityConfig {
         this.properties = properties;
     }
 
+    /**
+     * The CSRF cookie, carrying the SAME Domain as the session cookie.
+     *
+     * <p><b>Why this is not the default.</b> Spring writes the token host-only, so on the deployed
+     * stack it landed on {@code api.tejdux.com} while the SPA runs on {@code www.tejdux.com}. The
+     * session cookie is shared across both because {@code dps.cookie-domain} puts it on
+     * {@code .tejdux.com}; the token was not, so {@code document.cookie} was empty where the app
+     * actually reads it. The header could never be sent, and every state-changing call through
+     * {@code /dps/api/**} came back 403 with no body — a handle lookup, adding a brand and renaming
+     * a workspace all failed identically, and none of them for the reason they appeared to.
+     *
+     * <p>Only a cookie-session user hit this. A bearer session sends no CSRF header at all and is
+     * not asked to, so the failure was invisible to password sign-in and to every same-origin test.
+     *
+     * <p>The domain is applied only when configured, for the reason spelled out on the session
+     * cookie: an empty Domain attribute is invalid and makes a browser drop the cookie outright,
+     * which would break local development instead of merely leaving it host-only.
+     */
+    private CookieCsrfTokenRepository csrfTokenRepository() {
+        CookieCsrfTokenRepository repository = CookieCsrfTokenRepository.withHttpOnlyFalse();
+        String domain = properties.getCookieDomain();
+        if (domain != null && !domain.isBlank()) {
+            String trimmed = domain.trim();
+            repository.setCookieCustomizer(cookie -> cookie.domain(trimmed));
+        }
+        return repository;
+    }
+
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         CsrfTokenRequestAttributeHandler csrfHandler = new CsrfTokenRequestAttributeHandler();
@@ -56,7 +84,7 @@ public class DpsSecurityConfig {
                         // Readable by JavaScript on purpose: the SPA has to echo it back. This is
                         // the double-submit pattern — knowing the value proves same-origin script
                         // execution, which a cross-site attacker cannot achieve.
-                        .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
+                        .csrfTokenRepository(csrfTokenRepository())
                         .csrfTokenRequestHandler(csrfHandler)
                         // Login and signup have no session to protect yet, and requiring a token
                         // before one exists would make first sign-in impossible. The OAuth legs are

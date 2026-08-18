@@ -21,11 +21,47 @@ const PROVIDERS = [
  * Linking from a signed-in session is the safe version of the same convenience — being signed in is
  * what proves the account is yours.
  */
-function SettingsPage({ onLoadConnectedAccounts, onConnect, onDisconnect, linkedNotice = '' }) {
+function SettingsPage({
+  onLoadConnectedAccounts,
+  onConnect,
+  onDisconnect,
+  linkedNotice = '',
+  workspaceName = '',
+  onRenameWorkspace,
+}) {
   const [accounts, setAccounts] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [pendingDisconnect, setPendingDisconnect] = useState(null)
+  const [nameDraft, setNameDraft] = useState(workspaceName)
+  const [renaming, setRenaming] = useState(false)
+  const [renameError, setRenameError] = useState('')
+  const [renamed, setRenamed] = useState(false)
+
+  // The prop is the authority: a rename elsewhere, or the re-minted session that follows one,
+  // should be reflected here rather than overwritten by a stale local draft.
+  useEffect(() => {
+    setNameDraft(workspaceName)
+  }, [workspaceName])
+
+  const submitRename = async (event) => {
+    event.preventDefault()
+    const next = nameDraft.trim()
+    if (!next || next === workspaceName) {
+      return
+    }
+    setRenaming(true)
+    setRenameError('')
+    setRenamed(false)
+    try {
+      await onRenameWorkspace(next)
+      setRenamed(true)
+    } catch (failure) {
+      setRenameError(failure instanceof Error ? failure.message : 'Could not rename the workspace.')
+    } finally {
+      setRenaming(false)
+    }
+  }
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -68,6 +104,49 @@ function SettingsPage({ onLoadConnectedAccounts, onConnect, onDisconnect, linked
       <h1 className="page-title">Settings</h1>
 
       <MdsSectionRule />
+
+      {/* The rename the rest of the product assumed existed. A social sign-up's workspace is
+          provisioned from the provider's display name, and the onboarding dialog was the only
+          place that could ever be corrected — so an account that got past it wore a personal name
+          permanently. Same endpoint the dialog uses; being signed in is the authority. */}
+      {onRenameWorkspace ? (
+        <>
+          <h2 className="section-title">Workspace name</h2>
+          <p className="section-lead">
+            The name shown in the sidebar and on everything this workspace owns. If you signed up
+            with Google or Facebook, this started as your provider profile name.
+          </p>
+
+          {renamed ? <MdsNote>Workspace renamed.</MdsNote> : null}
+          {renameError ? (
+            <p className="field-error" role="alert">{renameError}</p>
+          ) : null}
+
+          <form className="settings-rename-form" onSubmit={submitRename}>
+            <label className="visually-hidden" htmlFor="workspace-name">
+              Workspace name
+            </label>
+            <input
+              id="workspace-name"
+              type="text"
+              value={nameDraft}
+              onChange={(event) => setNameDraft(event.target.value)}
+              placeholder="Your brand name"
+              disabled={renaming}
+              required
+            />
+            <button
+              type="submit"
+              className="primary-btn"
+              disabled={renaming || !nameDraft.trim() || nameDraft.trim() === workspaceName}
+            >
+              {renaming ? 'Saving…' : 'Save'}
+            </button>
+          </form>
+
+          <MdsSectionRule />
+        </>
+      ) : null}
 
       <h2 className="section-title">Sign-in methods</h2>
       <p className="section-lead">
