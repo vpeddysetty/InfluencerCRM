@@ -33,6 +33,20 @@ let activeBrandId = ''
 let cookieMode = false
 let dpsBaseUrl = ''
 
+/**
+ * The auth endpoints a cookie session must NOT send through the DPS proxy.
+ *
+ * <p>These four are the session's own lifecycle — they create, rotate, or destroy the very thing
+ * the proxy authenticates with. Every other /api/auth/ path is a normal signed-in call and belongs
+ * on the proxy like any other.
+ */
+const UNPROXIED_AUTH_PATHS = [
+  '/api/auth/refresh',
+  '/api/auth/login',
+  '/api/auth/signup',
+  '/api/auth/logout',
+]
+
 export function useCookieSession(baseUrl) {
   cookieMode = true
   dpsBaseUrl = baseUrl || ''
@@ -181,10 +195,15 @@ export async function request(
   const payload = body == null ? undefined : isFormData ? body : JSON.stringify(body)
 
   // Cookie mode routes through the DPS proxy, which supplies the credential this client does not
-  // have. Auth endpoints are excluded: /api/auth/refresh rotates a token the browser is not
-  // holding, and login/signup are how a session begins, so neither can be proxied through a
-  // session that does not exist yet.
-  const proxied = cookieMode && !token && !path.startsWith('/api/auth/')
+  // have. Only the endpoints that ESTABLISH or ROTATE a session are excluded: /api/auth/refresh
+  // rotates a token the browser is not holding, and login/signup/logout are how a session begins
+  // and ends, so none can be proxied through a session that does not exist yet.
+  //
+  // Named individually rather than matched on the /api/auth/ prefix. The prefix also caught
+  // /api/auth/connected-accounts, which is an ordinary signed-in read: a cookie session sent it
+  // unproxied and tokenless, the BFF refused it, and the settings page rendered its empty state —
+  // so a linked provider showed as "Not connected" while the row sat in the database.
+  const proxied = cookieMode && !token && !UNPROXIED_AUTH_PATHS.some((prefix) => path.startsWith(prefix))
 
   const send = (bearer) => {
     if (proxied) {

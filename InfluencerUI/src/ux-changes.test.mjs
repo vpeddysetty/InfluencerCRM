@@ -2057,12 +2057,25 @@ test('cookie mode proxies through the DPS and sends the CSRF header', () => {
   assert.match(core, /X-XSRF-TOKEN/, 'double-submit CSRF token must be attached')
 })
 
-test('auth endpoints are never proxied', () => {
-  // /api/auth/refresh rotates a token the browser is not holding, and login/signup are how a
-  // session begins — none can travel through a session that does not exist yet.
+test('session-lifecycle endpoints are never proxied', () => {
+  // /api/auth/refresh rotates a token the browser is not holding, and login/signup/logout are how
+  // a session begins and ends — none can travel through a session that does not exist yet.
+  //
+  // Named individually rather than matched on the /api/auth/ prefix, which this test used to
+  // assert. That prefix also caught /api/auth/connected-accounts — an ordinary signed-in read —
+  // so a cookie session sent it unproxied and tokenless and a linked provider showed as
+  // "Not connected". See api/cookieProxyRouting.test.mjs for the routing behaviour itself.
   const core = read('api/core.js')
 
-  assert.match(core, /!path\.startsWith\('\/api\/auth\/'\)/)
+  assert.match(core, /const UNPROXIED_AUTH_PATHS = \[/)
+  for (const path of ['refresh', 'login', 'signup', 'logout']) {
+    assert.match(core, new RegExp(`'/api/auth/${path}'`), `${path} must stay off the proxy`)
+  }
+  assert.doesNotMatch(
+    core,
+    /!path\.startsWith\('\/api\/auth\/'\)/,
+    'the blanket prefix also excluded connected-accounts, which must be proxied',
+  )
 })
 
 test('a bearer session is unaffected by cookie mode existing', () => {
