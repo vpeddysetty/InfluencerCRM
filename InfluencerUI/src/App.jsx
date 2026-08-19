@@ -392,6 +392,9 @@ function App() {
    * state, harmless without a token, and keeping them is what lets a re-login land back in place.
    */
   const [isLoggedIn, setIsLoggedIn] = useState(false)
+  // Flipped once the transport is in cookie mode. The workspace effect depends on it because
+  // `authToken` never changes in that mode, so nothing else would re-run the effect.
+  const [cookieSessionReady, setCookieSessionReady] = useState(false)
   const [brandName, setBrandName] = useState(persistedState?.brandName ?? 'tejdux.io')
   const [userName, setUserName] = useState(persistedState?.userName ?? '')
   // Never seeded from persisted state: tokens are no longer written to localStorage, and an
@@ -625,6 +628,7 @@ function App() {
         // isLoggedIn, or the workspace effect fires one round of requests down the bearer path
         // with no token to send.
         useCookieSession(DPS_BASE_URL)
+        setCookieSessionReady(true)
         setCookiePermissions(Array.isArray(session.permissions) ? session.permissions : [])
         if (Array.isArray(session.availableBrands)) {
           setAvailableBrands(session.availableBrands)
@@ -833,7 +837,15 @@ function App() {
   }, [isLoggedIn, authToken, brandId, availableBrands.length])
 
   useEffect(() => {
-    if (!isLoggedIn || !authToken) {
+    // `authToken` is empty in cookie mode BY DESIGN — the DPS holds the credential and the browser
+    // never receives a bearer token. Requiring one here meant this effect returned early for every
+    // cookie session, so the workspace was never fetched: no creators, no campaigns, no coupons,
+    // and no request in the BFF log to explain it. The list looked empty while POST /api/creators
+    // answered 409 for a handle that was plainly there.
+    //
+    // isCookieSession() rather than a second state flag, because the transport already knows which
+    // mode it is in and two sources of that truth would drift.
+    if (!isLoggedIn || (!authToken && !isCookieSession())) {
       return
     }
 
@@ -858,7 +870,9 @@ function App() {
     return () => {
       isActive = false
     }
-  }, [authToken, isLoggedIn])
+    // cookieSessionReady is in the deps so establishing a cookie session re-runs this. Without it
+    // the effect only ever fires on an authToken change, which in cookie mode never happens.
+  }, [authToken, isLoggedIn, cookieSessionReady])
 
   const handleAuthSubmit = async (event, options = {}) => {
     const form = new FormData(event.currentTarget)
