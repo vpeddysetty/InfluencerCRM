@@ -68,7 +68,7 @@ try {
     })
     console.log('\n  NOT SIGNED IN. Stopping before the in-app beats.\n')
   } else {
-    // ---- Beat 2 tail: Settings -> Sign-in methods
+    // ---- Beat 2 tail: Settings -> Sign-in methods, plus the new rename panel
     await page.goto(`${BASE}/settings`, { waitUntil: 'domcontentloaded' }).catch(() => {})
     await page.waitForTimeout(3000)
     const settingsText = (await page.locator('body').innerText().catch(() => '')) || ''
@@ -76,7 +76,8 @@ try {
       page,
       'beat2-settings-signin-methods',
       `Facebook connected: ${/Facebook[\s\S]{0,40}Connected/i.test(settingsText)} | ` +
-        `run-together text present: ${/(Google|Facebook)Connected/i.test(settingsText)}`,
+        `run-together text present: ${/(Google|Facebook)Connected/i.test(settingsText)} | ` +
+        `rename panel: ${/Workspace name/i.test(settingsText)}`,
     )
 
     // ---- Beat 3: Creators directory
@@ -109,11 +110,15 @@ try {
           const panel = (await page.locator('body').innerText().catch(() => '')) || ''
           const simulated = /simulated/i.test(panel)
           const verified = /platform[- ]verified/i.test(panel)
+          // A refusal is not a badge. Reported separately so "no badge" cannot be read as a
+          // lookup that merely returned nothing.
+          const refused = /forbidden|unauthori[sz]ed|error|failed/i.test(panel)
           await shot(
             page,
             'beat4-audience-panel',
-            `badge — Simulated: ${simulated} | Platform verified: ${verified}` +
-              (simulated ? '  <-- SCRIPT SAYS THIS IS A STOP' : ''),
+            `badge — Simulated: ${simulated} | Platform verified: ${verified} | refused: ${refused}` +
+              (simulated ? '  <-- SCRIPT SAYS THIS IS A STOP' : '') +
+              (refused && !verified ? '  <-- LOOKUP REFUSED, no panel to film' : ''),
           )
         } else {
           await shot(page, 'beat4-no-lookup-button', 'no "Look up" control found')

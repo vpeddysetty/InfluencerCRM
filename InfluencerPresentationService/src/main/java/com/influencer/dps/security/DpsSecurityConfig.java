@@ -61,14 +61,42 @@ public class DpsSecurityConfig {
      * cookie: an empty Domain attribute is invalid and makes a browser drop the cookie outright,
      * which would break local development instead of merely leaving it host-only.
      */
-    private CookieCsrfTokenRepository csrfTokenRepository() {
+    // Package-private, not private, so CsrfCookieDomainTest can exercise the real thing. The
+    // sibling session-cookie test mirrors its builder inline instead, and that is precisely why it
+    // could not catch a domain the production path accepted and Tomcat did not.
+    CookieCsrfTokenRepository csrfTokenRepository() {
         CookieCsrfTokenRepository repository = CookieCsrfTokenRepository.withHttpOnlyFalse();
-        String domain = properties.getCookieDomain();
-        if (domain != null && !domain.isBlank()) {
-            String trimmed = domain.trim();
-            repository.setCookieCustomizer(cookie -> cookie.domain(trimmed));
+        String domain = normalizedCookieDomain();
+        if (domain != null) {
+            repository.setCookieCustomizer(cookie -> cookie.domain(domain));
         }
         return repository;
+    }
+
+    /**
+     * The configured cookie domain WITHOUT a leading dot, or null when none is configured.
+     *
+     * <p>The dot has to go. {@code dps.cookie-domain} is {@code .tejdux.com} in production, which
+     * the session cookie accepts because it is written through Spring's {@code ResponseCookie}.
+     * This one is written by Tomcat, whose RFC 6265 processor rejects it outright —
+     * {@code IllegalArgumentException: An invalid domain [.tejdux.com] was specified for this
+     * cookie} — and that throws inside the CSRF filter, so every request through the DPS 500s and
+     * the whole API is down. Verified the hard way: the first deploy of this fix did exactly that.
+     *
+     * <p>Dropping the dot does not narrow the scope. RFC 6265 made the leading dot redundant:
+     * {@code Domain=tejdux.com} already matches the host and every subdomain, which is precisely
+     * the sharing between {@code www} and {@code api} this fix exists to restore.
+     */
+    private String normalizedCookieDomain() {
+        String domain = properties.getCookieDomain();
+        if (domain == null || domain.isBlank()) {
+            return null;
+        }
+        String trimmed = domain.trim();
+        while (trimmed.startsWith(".")) {
+            trimmed = trimmed.substring(1);
+        }
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     @Bean
