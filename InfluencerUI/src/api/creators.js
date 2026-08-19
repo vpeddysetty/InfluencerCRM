@@ -37,6 +37,20 @@ export async function updateCreator(token, id, payload) {
   return request(`/api/creators/${id}`, { method: 'PUT', token, body: payload })
 }
 
+/**
+ * Remove a creator from this brand's list (MANAGER and above).
+ *
+ * <p>The BFF checks CREATOR_DELETE and then that the row belongs to the caller's brand, answering
+ * 404 rather than 403 for another tenant's id — confirming an id exists is itself a disclosure. So
+ * a 404 here means "not yours or not there", and neither is worth distinguishing to the caller.
+ *
+ * <p>Deletes the creator for THIS brand only. The same person under another brand is a separate
+ * row with its own rate, notes and score, and is untouched.
+ */
+export async function deleteCreator(token, id) {
+  return request(`/api/creators/${id}`, { method: 'DELETE', token })
+}
+
 export async function listCampaignCreators(token) {
   const payload = await request('/api/campaign-creators', { token })
   return unwrapList(payload)

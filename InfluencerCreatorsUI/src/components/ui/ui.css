@@ -807,3 +807,10 @@
   flex: 0 0 auto;
   white-space: nowrap;
 }
+
+/* Delete, pushed to the opposite end of the drawer footer from Save changes.
+   Copy of the rule in InfluencerUI/src/components/ui/ui.css — see the note in provenance.js
+   about why this layer is duplicated until it is extracted to @influencer/ui. */
+.drawer-actions-danger {
+  margin-right: auto;
+}

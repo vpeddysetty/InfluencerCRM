@@ -1267,3 +1267,11 @@
   .drawer-panel { width: 100%; }
   .settings-provider-row { flex-direction: column; align-items: stretch; gap: var(--space-2); }
 }
+
+/* Delete, pushed to the opposite end of the drawer footer from Save changes.
+   The footer is flex/flex-end, so `margin-right:auto` on the first child takes all the slack
+   and separates the destructive action from the one people click by habit. Adjacency is the
+   whole risk here: the two buttons differ by one mis-click and only one is reversible. */
+.drawer-actions-danger {
+  margin-right: auto;
+}

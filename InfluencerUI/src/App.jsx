@@ -29,6 +29,7 @@ import {
   listConnectedAccounts,
   createCampaign,
   createCreator,
+  deleteCreator,
   resolveCreatorHandle,
   listWorkflowBoards,
   createWorkflowBoard,
@@ -1763,6 +1764,29 @@ function App() {
     }
   }
 
+  /**
+   * Remove a creator from this brand (MANAGER and above).
+   *
+   * <p>NOT optimistic. The other creator mutations update local state first because a failed edit
+   * leaves the row visible and re-editable; a failed delete that already removed the row leaves
+   * someone believing a record is gone when it is not. So the server answers first.
+   *
+   * <p>Also clears the row from any pending assignment selection: a form still pointing at a
+   * deleted creator submits an id the DAO will reject, and the error names a foreign key rather
+   * than the thing that happened.
+   */
+  const deleteCreatorRecord = async (id) => {
+    try {
+      setWorkspaceError('')
+      await deleteCreator(authToken, id)
+      setCreators((prev) => prev.filter((creator) => creator.id !== id))
+      setAssignmentForm((prev) => (prev.creatorId === id ? { ...prev, creatorId: '' } : prev))
+    } catch (error) {
+      setWorkspaceError(error instanceof Error ? error.message : 'Unable to delete creator.')
+      throw error
+    }
+  }
+
   const updateCreatorRecord = async (id, payload) => {
     const existing = creators.find((creator) => creator.id === id)
     if (!existing) {
@@ -2272,6 +2296,10 @@ function App() {
                   onCreateCreator={createCreatorRecord}
                   onUpdateCreator={updateCreatorRecord}
                   onLookupHandle={lookupCreatorHandle}
+                  onDeleteCreator={deleteCreatorRecord}
+                  // Passed rather than read from context: the federated remote that serves this
+                  // page in production has no SessionContext, and a prop works in both copies.
+                  canDeleteCreator={permissions.includes('creator:delete')}
                 />
               }
             />

@@ -118,6 +118,8 @@ function CreatorsPage({
   onCreateCreator,
   onUpdateCreator,
   onLookupHandle,
+  onDeleteCreator,
+  canDeleteCreator = false,
 }) {
   const toast = useToast()
   const navigate = useNavigate()
@@ -131,6 +133,10 @@ function CreatorsPage({
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState('')
   const [confirmDiscard, setConfirmDiscard] = useState(false)
+  // Separate from confirmDiscard: discarding edits and deleting a record are different questions
+  // and must never share a dialog, because the wrong one answered destroys data.
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [createAttrValidation, setCreateAttrValidation] = useState({ hasDuplicateKeys: false, hasMissingKeys: false })
   const [editAttrValidation, setEditAttrValidation] = useState({ hasDuplicateKeys: false, hasMissingKeys: false })
 
@@ -406,6 +412,29 @@ function CreatorsPage({
       ],
       rows,
     })
+  }
+
+  const runDelete = async () => {
+    if (!editingId || deleting) {
+      return
+    }
+    try {
+      setDeleting(true)
+      setFormError('')
+      await onDeleteCreator(editingId)
+      // Read before the state clears — closeDrawer resets editDraft and the toast would name nobody.
+      const name = editDraft.name.trim() || 'Creator'
+      setConfirmDelete(false)
+      closeDrawer()
+      toast.success(`${name} deleted.`)
+    } catch (error) {
+      // Kept open on failure, with the dialog dismissed: the row still exists and the drawer is
+      // where someone would retry or give up. A closed drawer would imply it worked.
+      setConfirmDelete(false)
+      setFormError(error instanceof Error ? error.message : 'Unable to delete creator.')
+    } finally {
+      setDeleting(false)
+    }
   }
 
   const columns = [
@@ -802,15 +831,39 @@ function CreatorsPage({
             {formError ? <p className="field-error" role="alert">{formError}</p> : null}
 
             <div className="drawer-actions">
-              <button type="button" className="ghost-btn" onClick={requestClose} disabled={saving}>
+              {/* Edit only, and only for a role that may delete. Pushed to the far left by
+                  `drawer-actions-danger` so it is nowhere near Save changes — the two are one
+                  mis-click apart otherwise, and only one of them is reversible. */}
+              {drawerMode === 'edit' && canDeleteCreator && onDeleteCreator ? (
+                <button
+                  type="button"
+                  className="danger-btn drawer-actions-danger"
+                  onClick={() => setConfirmDelete(true)}
+                  disabled={saving || deleting}
+                >
+                  {deleting ? 'Deleting…' : 'Delete'}
+                </button>
+              ) : null}
+              <button type="button" className="ghost-btn" onClick={requestClose} disabled={saving || deleting}>
                 Cancel
               </button>
-              <button type="submit" className="primary-btn" disabled={saving}>
+              <button type="submit" className="primary-btn" disabled={saving || deleting}>
                 {saving ? 'Saving…' : drawerMode === 'create' ? 'Add creator' : 'Save changes'}
               </button>
             </div>
           </form>
         </Drawer>
+      ) : null}
+
+      {confirmDelete ? (
+        <ConfirmDialog
+          title={`Delete ${editDraft.name.trim() || 'this creator'}?`}
+          consequence="Their campaign assignments, coupons and workflow cards for this brand go with them. This cannot be undone."
+          confirmLabel={deleting ? 'Deleting…' : 'Delete'}
+          cancelLabel="Keep creator"
+          onConfirm={runDelete}
+          onCancel={() => setConfirmDelete(false)}
+        />
       ) : null}
 
       {confirmDiscard ? (
