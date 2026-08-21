@@ -162,6 +162,36 @@
   min-width: 0;
 }
 
+/* Names the active window beside the controls that set it. Pushed right so it reads as a
+   caption on the filter rather than as another control. */
+.filter-bar-caption {
+  margin-left: auto;
+  color: var(--fg-subtle);
+  font-size: var(--text-sm);
+}
+
+.range-picker {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* ── Page section ─────────────────────────────────────────────────────────
+   A titled block within a page — the leaderboard, the channel breakdown. The
+   dashboard previously separated these with decorative rules inside one card;
+   a heading and spacing carry the same structure and land in the document
+   outline, where a rule does not. */
+.page-section {
+  margin-top: var(--space-6);
+}
+
+.section-title {
+  margin: 0 0 var(--space-3);
+  font-family: var(--display);
+  font-size: var(--text-xl);
+  font-weight: 700;
+  color: var(--fg);
+}
+
 /* ── Data table ───────────────────────────────────────────────────────── */
 .data-table-wrap {
   border: 1px solid var(--border);
@@ -242,6 +272,263 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* ── Row selection ────────────────────────────────────────────────────────
+   The checkbox column is sized to its content so it never steals width from
+   the data. 44px is the WCAG 2.2 SC 2.5.8 minimum target size, and a checkbox
+   in a dense row is the smallest thing anyone has to hit in this app. */
+.data-table-select {
+  width: 44px;
+  padding-left: var(--space-3);
+  padding-right: 0;
+}
+
+.data-table-select input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
+/* Selected rows tint. Kept lighter than the hover state so a hovered selected
+   row still reads as hovered rather than flattening into one colour. */
+.data-table tbody tr.is-selected {
+  background: var(--info-bg);
+}
+
+.data-table tbody tr.is-selected:hover,
+.data-table tbody tr.is-selected:focus-visible {
+  background: var(--surface-sunken);
+}
+
+/* ── Creator record page ──────────────────────────────────────────────────
+   Identity first, then audience, then the relationship: campaigns, codes,
+   commissions, workflow. The order answers "who are they", "can I trust the
+   numbers", "what have we done together" — in that sequence. */
+.record-identity {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin-bottom: var(--space-5);
+}
+
+.avatar-lg {
+  width: 56px;
+  height: 56px;
+  font-size: 1.1rem;
+}
+
+.record-identity-meta {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.record-identity-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.record-rate {
+  margin: 0;
+  font-family: var(--display);
+  font-size: var(--text-xl);
+  font-weight: 700;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+
+.record-rate span {
+  font-family: var(--sans);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  color: var(--fg-subtle);
+}
+
+/* An unset rate is stated, not blanked. "No rate agreed" and "$0" are different
+   facts, and the second is one someone would quote back in a negotiation. */
+.record-rate-unset {
+  font-family: var(--sans);
+  font-size: var(--text-md);
+  font-weight: 500;
+  color: var(--fg-subtle);
+}
+
+/* Row-level secondary action, sized down so it does not compete with the data. */
+.ghost-btn-sm {
+  height: var(--control-h-sm);
+  padding: 0 var(--space-3);
+  font-size: var(--text-xs);
+}
+
+/* ── Metrics provenance ───────────────────────────────────────────────────
+   The number and where it came from, always together. A follower count with
+   no provenance is exactly the claim influencer fraud exploits. */
+.audience-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  justify-content: flex-end;
+}
+
+.audience-count {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.metrics-provenance {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.metrics-provenance-age {
+  color: var(--fg-subtle);
+  font-size: var(--text-xs);
+}
+
+/* The read-only audience block at the top of the creator drawer. Sunken rather
+   than raised: it is context for the form below, not another thing to fill in. */
+.audience-panel {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  margin-bottom: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+}
+
+.audience-panel-title {
+  margin: 0;
+  font-family: var(--sans);
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--fg-subtle-on-sunken);
+}
+
+.audience-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+  margin: 0;
+}
+
+.audience-stats dt {
+  font-size: var(--text-xs);
+  color: var(--fg-subtle-on-sunken);
+}
+
+.audience-stats dd {
+  margin: 0;
+  font-family: var(--display);
+  font-size: var(--text-lg);
+  font-weight: 700;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+
+/* What the preview will do, under the numbers it describes. Subtle: it answers a question
+   someone is about to ask rather than asking for anything. */
+.audience-panel-note {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--fg-subtle-on-sunken);
+}
+
+/* Handle field plus its lookup button. The input keeps all the slack so the button stays the
+   width of its label — a lookup control that grows with the drawer reads as the primary action,
+   which it is not; adding the creator is. */
+.handle-lookup {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.handle-lookup input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.handle-lookup .ghost-btn {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+/* ── Theme toggle ─────────────────────────────────────────────────────────
+   A three-way segmented control in the rail footer. Sized to --control-h-sm so
+   it sits beside the log-out button without out-weighting it. */
+.theme-toggle {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface-sunken);
+}
+
+.theme-toggle-option {
+  flex: 1;
+  min-width: 0;
+  height: var(--control-h-sm);
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--fg-subtle);
+  font-size: var(--text-md);
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color var(--motion-fast) ease, color var(--motion-fast) ease;
+}
+
+.theme-toggle-option:hover {
+  color: var(--fg);
+}
+
+.theme-toggle-option.is-active {
+  background: var(--surface);
+  color: var(--fg);
+  box-shadow: var(--shadow-popover);
+}
+
+/* ── Bulk action bar ──────────────────────────────────────────────────────
+   Sits between the filter bar and the table, appearing only when a selection
+   exists. Sticky so the actions stay reachable while scrolling a long
+   selection — picking row 200 and then scrolling back to the top to act on it
+   is the failure mode this avoids. */
+.bulk-action-bar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--info-border);
+  border-radius: var(--radius-md);
+  background: var(--info-bg);
+}
+
+.bulk-action-count {
+  font-size: var(--text-md);
+  font-weight: 700;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+
+.bulk-action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
 /* ── Identity cell ────────────────────────────────────────────────────── */
 .identity-cell {
   display: flex;
@@ -302,10 +589,14 @@
   white-space: nowrap;
 }
 
-.badge-success { border-color: var(--success-border); background: var(--success-bg); color: var(--success); }
-.badge-warning { border-color: var(--warning-border); background: var(--warning-bg); color: var(--warning); }
-.badge-danger  { border-color: var(--danger-border);  background: var(--danger-bg);  color: var(--danger); }
-.badge-info    { border-color: var(--info-border);    background: var(--info-bg);    color: var(--info); }
+/* Text colours are the *-on-tint tokens, not the semantic accents. A badge is an 11px label on a
+   tinted ground: --success and --warning are tuned to carry a large shape at 3:1 and measure
+   4.35:1 and 4.24:1 here, both under the 4.5:1 AA floor for text this size. Caught by measuring
+   before shipping the provenance badges, which use exactly those two tones. */
+.badge-success { border-color: var(--success-border); background: var(--success-bg); color: var(--success-on-tint); }
+.badge-warning { border-color: var(--warning-border); background: var(--warning-bg); color: var(--warning-on-tint); }
+.badge-danger  { border-color: var(--danger-border);  background: var(--danger-bg);  color: var(--danger-on-tint); }
+.badge-info    { border-color: var(--info-border);    background: var(--info-bg);    color: var(--info-on-tint); }
 
 /* ── Empty state ──────────────────────────────────────────────────────── */
 .empty-state {
@@ -607,6 +898,49 @@
   white-space: nowrap;
 }
 
+/* Create-a-brand, in the rail beside the brand it adds to. Understated by intent: it is used
+   once or twice in an account's life and must not compete with navigation for attention. */
+.rail-brand-add {
+  appearance: none;
+  border: 1px dashed var(--border);
+  background: transparent;
+  color: var(--fg-subtle);
+  font: inherit;
+  font-size: 0.78rem;
+  text-align: left;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm, 6px);
+  cursor: pointer;
+}
+
+.rail-brand-add:hover {
+  color: var(--fg);
+  border-color: var(--fg-subtle);
+}
+
+.rail-brand-form { display: grid; gap: var(--space-2); }
+
+.rail-brand-form input {
+  width: 100%;
+  min-width: 0;
+  font: inherit;
+  font-size: 0.85rem;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--bg, #fff);
+  color: var(--fg);
+}
+
+/* The rail is narrow; side-by-side buttons would wrap mid-word at common widths. */
+.rail-brand-form-actions { display: grid; gap: var(--space-1); }
+
+.rail-brand-form-actions button {
+  width: 100%;
+  font-size: 0.8rem;
+  padding: var(--space-1) var(--space-2);
+}
+
 .rail-nav { display: grid; gap: var(--space-5); }
 .rail-group { display: grid; gap: var(--space-1); }
 
@@ -665,6 +999,10 @@
 .workspace-main {
   padding: var(--space-5) var(--space-6);
   display: grid;
+  /* min-width:0 on the grid itself is not enough — the implicit *track* is still `auto`, so a
+     wide table sized the column by its own content and pushed past the viewport. Both the
+     container and its track need a zero floor for the scroll to stay inside .data-table-wrap. */
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-5);
   align-content: start;
   min-width: 0;
@@ -707,7 +1045,215 @@
   .workspace-main { padding: var(--space-4); }
 }
 
+/* ── Plan and usage (M2.3) ────────────────────────────────────────────────
+   Sunken, like the audience panel: this is context about the account, not
+   another thing to act on. Every colour is a theme variable rather than a
+   literal, so the panel follows the theme toggle instead of staying light. */
+.plan-usage {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+}
+
+.plan-usage-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.plan-usage-name { color: var(--fg); }
+
+.plan-usage-list {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Auto-fit rather than fixed columns: four resources sit in a row on a wide
+   screen and stack on a narrow one without a second breakpoint. */
+.plan-usage-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+
+.plan-usage-label {
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  text-transform: capitalize;
+}
+
+/* The explanatory line spans both columns so it wraps under the badge rather
+   than squeezing the label into a narrow ribbon. */
+.plan-usage-message {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+/* ── Subscription and billing (M2.1/M2.2) ─────────────────────────────── */
+.billing-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.billing-status-plan {
+  font-size: var(--text-lg);
+  text-transform: capitalize;
+}
+
+.billing-actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-top: var(--space-3);
+}
+
+/* Louder than a plain note. This is the one saying no money was taken — if it blends in, a
+   simulated subscription starts looking like a real one, which is the failure the whole
+   provider design exists to prevent. */
+.billing-unpaid-note {
+  border-left: 3px solid var(--warning-border);
+}
+
+.billing-unpaid-note strong {
+  display: block;
+  margin-bottom: var(--space-1);
+}
+
+.billing-tier-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.billing-tier-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+}
+
+.billing-tier-name {
+  margin: 0;
+  font-weight: 700;
+  font-size: var(--text-lg);
+}
+
+.billing-tier-list {
+  margin: 0;
+  padding-left: var(--space-4);
+  display: grid;
+  gap: var(--space-1);
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+}
+
+/* The button sits at the bottom so cards with unequal lists still line up. */
+.billing-tier-card .primary-btn {
+  margin-top: auto;
+}
+
+.billing-invoice-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: var(--space-2);
+}
+
+.billing-invoice-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.billing-invoice-amount {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
 /* ── Tablet: the board and dense tables ───────────────────────────────── */
+/* ── Workspace rename (settings) ──────────────────────────────────────── */
+.settings-rename-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.settings-rename-form input {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+/* ── Sign-in methods (settings) ───────────────────────────────────────── */
+/* The markup shipped without any of these rules, so the list rendered as raw
+   <li> bullets and the two spans in each row ran together: "GoogleConnected as
+   …". Only ever visible once a provider was actually linked, which is why it
+   went unnoticed until the connected state could be reached at all. */
+.settings-provider-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.settings-provider-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-provider-row:last-child {
+  border-bottom: none;
+}
+
+/* The gap is what separates the provider name from its status. They are
+   adjacent elements with no whitespace between them in the JSX, so spacing has
+   to come from the layout rather than from the markup. */
+.settings-provider-detail {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.settings-provider-name {
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.settings-provider-meta {
+  font-size: var(--text-sm);
+  color: var(--fg-muted);
+  word-break: break-word;
+}
+
 @media (max-width: 1024px) {
   .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .columns { grid-auto-columns: minmax(240px, 80vw); }
@@ -719,98 +1265,71 @@
   .page-header-action > * { width: 100%; }
   .kpi-grid { grid-template-columns: 1fr; }
   .drawer-panel { width: 100%; }
-}
-
-/* --- Handle lookup and audience preview (C.2) ---------------------------------
-   Copied from InfluencerUI/src/components/ui/ui.css so this remote renders the
-   preview identically to the gateway's bundled fallback. Same obligation as the
-   duplicated provenance.js: change both, or one path shows a badge the other does
-   not. Every token used here is already defined above. */
-
-.metrics-provenance {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  flex-wrap: wrap;
-}
-
-.metrics-provenance-age {
-  color: var(--fg-subtle);
-  font-size: var(--text-xs);
-}
-
-/* The read-only audience block in the creator drawer. Sunken rather than raised:
-   it is context for the form below, not another thing to fill in. */
-.audience-panel {
-  display: grid;
-  gap: var(--space-3);
-  padding: var(--space-4);
-  margin-bottom: var(--space-4);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--surface-sunken);
-}
-
-.audience-panel-title {
-  margin: 0;
-  font-family: var(--sans);
-  font-size: var(--text-2xs);
-  font-weight: 700;
-  letter-spacing: var(--tracking-caps);
-  text-transform: uppercase;
-  color: var(--fg-subtle-on-sunken);
-}
-
-.audience-stats {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-5);
-  margin: 0;
-}
-
-.audience-stats dt {
-  font-size: var(--text-xs);
-  color: var(--fg-subtle-on-sunken);
-}
-
-.audience-stats dd {
-  margin: 0;
-  font-family: var(--display);
-  font-size: var(--text-lg);
-  font-weight: 700;
-  color: var(--fg);
-  font-variant-numeric: tabular-nums;
-}
-
-/* What the preview will do, under the numbers it describes. */
-.audience-panel-note {
-  margin: 0;
-  font-size: var(--text-xs);
-  color: var(--fg-subtle-on-sunken);
-}
-
-/* Handle field plus its lookup button. The input keeps all the slack so the button
-   stays the width of its label; min-width:0 stops the flex item refusing to shrink
-   below its content and pushing the button out of the drawer. */
-.handle-lookup {
-  display: flex;
-  gap: var(--space-2);
-  align-items: center;
-}
-
-.handle-lookup input {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.handle-lookup .ghost-btn {
-  flex: 0 0 auto;
-  white-space: nowrap;
+  .settings-provider-row { flex-direction: column; align-items: stretch; gap: var(--space-2); }
 }
 
 /* Delete, pushed to the opposite end of the drawer footer from Save changes.
-   Copy of the rule in InfluencerUI/src/components/ui/ui.css — see the note in provenance.js
-   about why this layer is duplicated until it is extracted to @influencer/ui. */
+   The footer is flex/flex-end, so `margin-right:auto` on the first child takes all the slack
+   and separates the destructive action from the one people click by habit. Adjacency is the
+   whole risk here: the two buttons differ by one mis-click and only one is reversible. */
 .drawer-actions-danger {
   margin-right: auto;
+}
+
+/* ── Skeletons ────────────────────────────────────────────────────────────
+   Placeholders that reserve the height real content will occupy, so the page
+   does not reflow when a fetch lands.
+
+   Built from --border rather than a fixed grey, so the shimmer inverts with the
+   theme instead of glowing white on a dark page.
+
+   Deliberately NOT --surface-sunken for the base. A skeleton usually sits on
+   --bg, and sunken (#f1f5f9) against bg (#f6f7fb) is a 2% difference — the
+   placeholder was there in the DOM and invisible on screen. --border is the
+   token that is *defined* to be perceptible against the page, in both themes. */
+.skeleton {
+  display: block;
+  background-color: var(--border);
+  background-image: linear-gradient(
+    90deg,
+    transparent 25%,
+    var(--border-strong) 37%,
+    transparent 63%
+  );
+  background-size: 400% 100%;
+  animation: skeleton-sweep 1.4s ease-in-out infinite;
+}
+
+@keyframes skeleton-sweep {
+  0% { background-position: 100% 50%; }
+  100% { background-position: 0 50%; }
+}
+
+.skeleton-text {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.skeleton-table {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.skeleton-table-row {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: var(--space-4);
+  align-items: center;
+  /* Matches the real row's vertical rhythm. A shorter placeholder would still shift the page
+     on arrival, which is the whole failure this component exists to prevent. */
+  min-height: var(--space-6);
+}
+
+/* The sweep is decorative. Holding it still for a user who asked for less motion loses nothing —
+   the reserved space, which is the actual purpose, is unaffected. */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
 }

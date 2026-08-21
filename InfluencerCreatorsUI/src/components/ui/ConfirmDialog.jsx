@@ -22,6 +22,18 @@ function ConfirmDialog({
   const cancelRef = useRef(null)
   const openerRef = useRef(null)
 
+  // Refs so the effects below need not depend on their identity. An effect that focuses and lists
+  // a changing dependency re-runs whenever the parent re-renders, and pulls focus with it — the
+  // same defect that made typing impossible in the Drawer. Here `busy` flipping mid-confirm would
+  // have yanked focus back to Cancel while the user was acting.
+  const onCancelRef = useRef(onCancel)
+  const busyRef = useRef(busy)
+  useEffect(() => {
+    onCancelRef.current = onCancel
+    busyRef.current = busy
+  }, [onCancel, busy])
+
+  // MOUNT ONLY: entering and leaving the dialog.
   useEffect(() => {
     openerRef.current = document.activeElement
 
@@ -32,10 +44,19 @@ function ConfirmDialog({
     // destructive turns a reflexive Enter keypress into data loss.
     cancelRef.current?.focus()
 
+    return () => {
+      document.body.style.overflow = originalOverflow
+      if (openerRef.current instanceof HTMLElement) {
+        openerRef.current.focus()
+      }
+    }
+  }, [])
+
+  useEffect(() => {
     const onKeyDown = (event) => {
-      if (event.key === 'Escape' && !busy) {
+      if (event.key === 'Escape' && !busyRef.current) {
         event.preventDefault()
-        onCancel()
+        onCancelRef.current()
         return
       }
 
@@ -62,14 +83,8 @@ function ConfirmDialog({
     }
 
     document.addEventListener('keydown', onKeyDown)
-    return () => {
-      document.body.style.overflow = originalOverflow
-      document.removeEventListener('keydown', onKeyDown)
-      if (openerRef.current instanceof HTMLElement) {
-        openerRef.current.focus()
-      }
-    }
-  }, [onCancel, busy])
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [])
 
   return (
     <div className="confirm-overlay" role="presentation" onClick={busy ? undefined : onCancel}>

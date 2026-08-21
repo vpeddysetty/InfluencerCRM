@@ -265,7 +265,7 @@ function LandingBuilder({
               background: '#fff',
             }}
           >
-            {uploading ? 'Uploading…' : '🖼 Upload image'}
+            {uploading ? 'Uploading…' : 'Upload image'}
             <input
               type="file"
               accept="image/png,image/jpeg,image/gif,image/webp,image/avif"
@@ -289,7 +289,7 @@ function LandingBuilder({
             if (doc) onPreview?.(doc)
           }}
         >
-          👁 Preview
+          Preview
         </button>
         <button
           type="button"
