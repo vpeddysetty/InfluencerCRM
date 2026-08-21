@@ -1,7 +1,11 @@
 terraform {
-  # 1.5+ for `check` blocks and the improved `moved` semantics. Pinned as a floor rather than an
-  # exact version so a newer CLI still works; the provider is where drift actually hurts.
-  required_version = ">= 1.5.0"
+  # A floor, not an exact version, so a newer CLI still works; the provider is where drift hurts.
+  #
+  # Was 1.5.0 (for `check` blocks and `moved` semantics). Raised to 1.10.0 because the S3 backend
+  # below uses `use_lockfile`, which older Terraform rejects outright with "An argument named
+  # use_lockfile is not expected here" -- a backend error that says nothing about the version being
+  # the cause. This floor turns it into a clear version error. Verified on 1.15.9.
+  required_version = ">= 1.10.0"
 
   required_providers {
     aws = {
@@ -17,24 +21,33 @@ terraform {
     }
   }
 
-  # STATE IS LOCAL BY DEFAULT, WHICH IS WRONG FOR ANYTHING SHARED.
+  # STATE IS REMOTE AS OF 2026-08-19. It was local until then -- one file, on one machine, holding
+  # the only record of ~147 live resource instances. Losing it would have meant rebuilding the
+  # environment by hand from the console.
   #
-  # Left commented rather than configured because a backend cannot be created by the configuration
-  # that uses it (the chicken-and-egg: the S3 bucket holding the state would be described by the
-  # state it holds). Create the bucket and lock table once, by hand or in a separate root module,
-  # then uncomment.
+  # The bucket is NOT managed by this configuration, deliberately: a backend cannot be created by
+  # the configuration that uses it (the bucket holding the state would be described by the state it
+  # holds). It was created once by hand -- versioned, AES256-encrypted, all public access blocked --
+  # and versioning is the real safety net: every previous state revision is recoverable.
   #
-  # Until then the state file sits on one machine: a second person running `apply` creates a SECOND
-  # copy of every resource rather than seeing the first, and losing the file means Terraform no
-  # longer knows anything it built. Do this before more than one person deploys.
+  # State lives in S3, versioned and encrypted, with S3-NATIVE LOCKING.
   #
-  # backend "s3" {
-  #   bucket       = "influencrm-tfstate-<account-id>"
-  #   key          = "influencrm/prod/terraform.tfstate"
-  #   region       = "us-east-1"
-  #   encrypt      = true
-  #   use_lockfile = true          # S3-native locking; no DynamoDB table needed on provider >= 5.40
-  # }
+  # `use_lockfile` writes a .tflock object beside the state and relies on S3 conditional writes.
+  # It replaces the DynamoDB table the old pattern required: one bucket instead of two resources,
+  # nothing to keep in sync, and no second service to pay for. It needs Terraform >= 1.10 -- on
+  # 1.9.8 `init` fails with "An argument named use_lockfile is not expected here", which is what
+  # prompted the upgrade to 1.15.9.
+  #
+  # The key says `test`, not `prod`, even though every RESOURCE here is named influencrm-prod-*
+  # (see account-guard.tf for why that name is stuck). Production gets its own account and its own
+  # bucket; naming this key `prod` would have meant either a collision or a stranger name later.
+  backend "s3" {
+    bucket       = "influencrm-tfstate-099933382956"
+    key          = "influencrm/test/terraform.tfstate"
+    region       = "us-east-1"
+    encrypt      = true
+    use_lockfile = true
+  }
 }
 
 provider "aws" {

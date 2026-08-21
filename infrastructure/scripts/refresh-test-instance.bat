@@ -2,7 +2,17 @@
 setlocal enabledelayedexpansion
 
 REM ===========================================================================
-REM  Roll the production instance onto the current launch template.
+REM  Roll the TEST instance onto the current launch template.
+REM
+REM  WHICH ENVIRONMENT. This targets the TEST environment, in account
+REM  099933382956. Every resource there is named `influencrm-prod-*` because
+REM  `environment` defaults to "prod" in infrastructure/test/terraform -- a
+REM  historical accident, not a statement about what the environment is. The
+REM  account id below is the real guard; the name never was. See
+REM  MASTER-ROADMAP.md section 7.1 for why renaming was declined.
+REM
+REM  Note that test currently serves the live tejdux.com domain, so "test" here
+REM  means "the only environment", not "somewhere safe to break things".
 REM
 REM  WHY THIS EXISTS. `terraform apply` updates the launch template; it does not
 REM  move the running instance onto it. Until an instance refresh runs, the box
@@ -27,7 +37,7 @@ set "ASG=influencrm-prod-compose-2026081023183701630000000a"
 
 echo.
 echo ============================================================
-echo   InfluenCRM  --  production instance refresh
+echo   InfluenCRM  --  TEST instance refresh  (account 099933382956)
 echo ============================================================
 echo.
 

@@ -283,9 +283,14 @@ resource "aws_cloudfront_distribution" "ui" {
   }
 
   dynamic "ordered_cache_behavior" {
-    # The API and both DPS prefixes, generated rather than written out three times: they differ only in
-    # the path pattern.
-    for_each = local.cloudfront_backend_origin_domain != "" ? ["/api/*", "/dps", "/dps/*"] : []
+    # The API, both DPS prefixes, and the public hosted landing pages — generated rather than written
+    # out four times: they differ only in the path pattern.
+    #
+    # `/s/*` is served by WebExperience, the same origin as /api/*. Without it the apex falls through
+    # to the default (the SPA bucket), which answers 200 with the marketing shell — so a published
+    # landing page looks reachable at tejdux.com/s/... and is not. The builder shows brands that
+    # link, so the dead one is the one they copy to creators.
+    for_each = local.cloudfront_backend_origin_domain != "" ? ["/api/*", "/dps", "/dps/*", "/s/*"] : []
     content {
       path_pattern     = ordered_cache_behavior.value
       target_origin_id = "api-origin"

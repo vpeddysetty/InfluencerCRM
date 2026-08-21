@@ -66,7 +66,7 @@ if errorlevel 1 (
     echo   ^>^> NOT RUNNING %EXPECT_TAG%.
     echo      Terraform can be applied and the image still not be live: the launch
     echo      template changes, the running box does not. Roll it with
-    echo      infrastructure\scripts\refresh-prod-instance.bat, then re-run this.
+    echo      infrastructure\scripts\refresh-test-instance.bat, then re-run this.
     goto :fail
 )
 echo   ^>^> running the expected image

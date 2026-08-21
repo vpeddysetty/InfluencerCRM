@@ -128,7 +128,7 @@ echo.
 echo The instance is still running the previous image. Terraform updated the
 echo launch template; only an instance refresh moves the running box onto it.
 echo.
-echo   Step 3:  infrastructure\scripts\refresh-prod-instance.bat
+echo   Step 3:  infrastructure\scripts\refresh-test-instance.bat
 echo.
 echo That step logs everyone out and takes the API down for a few minutes, so it
 echo is left as a deliberate, separate action rather than something this script
