@@ -57,6 +57,25 @@ export function clearCookieSession() {
   dpsBaseUrl = ''
 }
 
+/**
+ * Absolute URL for a public hosted landing page (`/s/...`).
+ *
+ * <p>These paths are served by WebExperience, NOT by the SPA's own origin, and CloudFront does not
+ * route `/s/*` on the apex — a bare relative link there resolves to the marketing shell and returns
+ * 200, so the brand copies a dead link that looks alive. Resolving against the same base the API
+ * layer uses keeps the link correct in every environment instead of hardcoding a host.
+ */
+export function publicPageUrl(path) {
+  const base =
+    dpsBaseUrl ||
+    import.meta?.env?.VITE_BFF_URL ||
+    (typeof window !== 'undefined' && window.location?.origin ? window.location.origin : '')
+  if (!base) {
+    return path
+  }
+  return new URL(path, base).toString()
+}
+
 export function isCookieSession() {
   return cookieMode
 }
