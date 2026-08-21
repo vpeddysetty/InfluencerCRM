@@ -107,15 +107,54 @@ public class CreatorProvisioningService implements CreatorProvisioningPort {
         link.setCampaignId(campaignId);
         link.setCreatorId(creatorId);
 
+        applyLinkDefaults(link);
+
+        CampaignCreator saved = campaignCreatorRepository.save(link);
+        return new ProvisionResult(saved.getId(), existing.isEmpty());
+    }
+
+    /**
+     * Fills the columns the database declares {@code not null default ...} but Hibernate still
+     * writes explicitly.
+     *
+     * <p>A Postgres column default only fires when the column is <em>omitted</em> from the INSERT.
+     * These columns are mapped fields on the entity, so Hibernate always names them, and an unset
+     * field is sent as an explicit NULL — which the not-null constraint then rejects. The DDL
+     * default is therefore unreachable for any row this service creates, and a spreadsheet import
+     * that mapped a campaign_creator column failed the whole batch on its first row.
+     *
+     * <p>The values mirror {@code schema/influencer_crm_schema.sql} exactly. Kept together in one
+     * place so a new not-null column with a default is defaulted here too, rather than discovered
+     * later as a constraint violation with no column name in the message.
+     */
+    private void applyLinkDefaults(CampaignCreator link) {
         if (link.getTags() == null) {
             link.setTags(new ArrayList<>());
         }
         if (link.getCustomAttributes() == null) {
             link.setCustomAttributes("{}");
         }
-
-        CampaignCreator saved = campaignCreatorRepository.save(link);
-        return new ProvisionResult(saved.getId(), existing.isEmpty());
+        if (link.getPerformanceMetrics() == null) {
+            link.setPerformanceMetrics("{}");
+        }
+        if (link.getOutreachStatus() == null) {
+            link.setOutreachStatus("new");
+        }
+        if (link.getContractStatus() == null) {
+            link.setContractStatus("not_sent");
+        }
+        if (link.getDeliverableStatus() == null) {
+            link.setDeliverableStatus("pending");
+        }
+        if (link.getPaymentStatus() == null) {
+            link.setPaymentStatus("pending");
+        }
+        if (link.getContentReviewStatus() == null) {
+            link.setContentReviewStatus("not_requested");
+        }
+        if (link.getFeeCurrency() == null) {
+            link.setFeeCurrency("USD");
+        }
     }
 
     @Override

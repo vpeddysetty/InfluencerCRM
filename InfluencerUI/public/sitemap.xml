@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The four pages that exist without a session. Everything else in this product is behind
+  authentication and is excluded in robots.txt.
+
+  The legal pages are listed deliberately: they are served from a separate S3 bucket and CloudFront
+  behaviour, so nothing links them into this document automatically, and they are the pages that
+  identify the operating company. A crawler that finds them finds a real business.
+-->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://www.tejdux.com/</loc>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://www.tejdux.com/privacy/</loc>
+    <changefreq>yearly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>https://www.tejdux.com/terms/</loc>
+    <changefreq>yearly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>https://www.tejdux.com/data-deletion/</loc>
+    <changefreq>yearly</changefreq>
+    <priority>0.5</priority>
+  </url>
+</urlset>

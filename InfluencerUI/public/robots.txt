@@ -1,0 +1,24 @@
+# Tejdux — KMPS Global Corporation
+# https://www.tejdux.com/
+
+User-agent: *
+Allow: /
+
+# The signed-in application. Nothing here is reachable without a session, so crawling it yields
+# nothing but redirects — and a crawler repeatedly hitting authenticated routes is itself a signal
+# worth not producing.
+Disallow: /workflow
+Disallow: /campaigns
+Disallow: /creators
+Disallow: /content
+Disallow: /dashboard
+Disallow: /coupons
+Disallow: /payouts
+Disallow: /marketplace
+Disallow: /import
+Disallow: /members
+Disallow: /billing
+Disallow: /settings
+Disallow: /accept-invitation
+
+Sitemap: https://www.tejdux.com/sitemap.xml

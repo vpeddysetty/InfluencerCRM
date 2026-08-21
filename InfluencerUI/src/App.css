@@ -359,6 +359,43 @@
   color: var(--fg);
 }
 
+/* The signup consent checkbox.
+ *
+ * Variables rather than literal colours throughout: literals in this file already override the
+ * design system on specificity and break dark mode, so a hardcoded colour here would read fine in
+ * light and be unreadable in dark. */
+.auth-consent {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 4px 0 14px;
+  color: var(--fg-muted);
+  font-size: 0.8rem;
+  line-height: 1.45;
+  /* The label is the hit target, so the whole line is clickable, not just the 13px box. */
+  cursor: pointer;
+}
+
+.auth-consent input[type='checkbox'] {
+  /* Nudged down to sit on the first line's baseline rather than its box top. */
+  margin-top: 2px;
+  flex: none;
+  width: 15px;
+  height: 15px;
+  accent-color: var(--accent, currentColor);
+  cursor: pointer;
+}
+
+.auth-consent a {
+  color: var(--fg);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.auth-consent a:hover {
+  color: var(--accent, var(--fg));
+}
+
 .auth-switch {
   background: var(--surface-sunken);
   border: 1px solid var(--border);
@@ -430,12 +467,12 @@
 }
 
 .members-identity strong {
-  color: #0f172a;
+  color: var(--fg);
 }
 
 .members-self,
 .members-meta {
-  color: #64748b;
+  color: var(--fg-subtle);
   font-size: 0.82rem;
 }
 
@@ -1204,7 +1241,7 @@ textarea:focus {
 .mapping-advanced-panel summary {
   cursor: pointer;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--fg);
   list-style: none;
 }
 
@@ -1231,7 +1268,7 @@ textarea:focus {
 }
 
 .mapping-helper-text {
-  color: #64748b;
+  color: var(--fg-subtle);
   font-size: 0.84rem;
 }
 
@@ -1261,7 +1298,7 @@ textarea:focus {
 }
 
 .mapping-row-label {
-  color: #64748b;
+  color: var(--fg-subtle);
   font-size: 0.76rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -1269,7 +1306,7 @@ textarea:focus {
 }
 
 .mapping-row-source strong {
-  color: #0f172a;
+  color: var(--fg);
   word-break: break-word;
 }
 
@@ -1279,8 +1316,8 @@ textarea:focus {
   border: 1px solid rgba(148, 163, 184, 0.5);
   border-radius: 12px;
   padding: 12px 14px;
-  background: rgba(248, 250, 252, 0.95);
-  color: #0f172a;
+  background: var(--surface-sunken);
+  color: var(--fg);
   font: 0.85rem/1.45 'Cascadia Code', 'Consolas', monospace;
 }
 
@@ -1403,7 +1440,7 @@ textarea:focus {
 }
 
 .import-result-card strong {
-  color: #0f172a;
+  color: var(--fg);
   font-size: 1.05rem;
   line-height: 1.25;
 }
@@ -1568,7 +1605,7 @@ textarea:focus {
 .custom-attribute-handle {
   cursor: grab;
   user-select: none;
-  color: #64748b;
+  color: var(--fg-subtle);
   font-weight: 700;
   letter-spacing: 0.04em;
 }
@@ -1622,7 +1659,7 @@ textarea:focus {
 
 .custom-attributes-empty {
   margin: 0;
-  color: #64748b;
+  color: var(--fg-subtle);
   font-size: 0.82rem;
 }
 
@@ -1657,7 +1694,7 @@ textarea:focus {
 
 .edit-drawer-header h4 {
   margin: 0;
-  color: #0f172a;
+  color: var(--fg);
 }
 
 .mds-prose .simple-list li {
@@ -1682,14 +1719,15 @@ textarea:focus {
   font-size: 0.82rem;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: #1e3a8a;
-  background: rgba(30, 58, 138, 0.08);
+  /* Was #1e3a8a on a fixed navy tint — a dark ink on a dark ground once the theme flips. */
+  color: var(--fg-accent);
+  background: var(--surface-sunken);
 }
 
 .mds-theme th,
 .mds-theme td {
   padding: 10px 12px;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.34);
+  border-bottom: 1px solid var(--border);
 }
 
 .mds-theme tbody tr:last-child td {
@@ -1698,11 +1736,12 @@ textarea:focus {
 
 .mds-theme blockquote {
   margin: 8px 0;
-  border-left: 4px solid #2563eb;
+  border-left: 4px solid var(--info-border);
   border-radius: 8px;
   padding: 10px 12px;
-  background: rgba(37, 99, 235, 0.08);
-  color: #1e40af;
+  background: var(--info-bg);
+  /* --info-on-tint exists precisely for text sitting on --info-bg, and it flips with the theme. */
+  color: var(--info-on-tint);
   font-style: italic;
 }
 
@@ -1743,25 +1782,27 @@ textarea:focus {
   margin-top: 12px;
 }
 
+/* These were #1d4ed8/#1e40af — mid-dark blues that all but vanish against the dark surface. The
+   dark palette already defines --fg-accent as #93b4fc for exactly this role. */
 .mds-theme a {
-  color: #1d4ed8;
+  color: var(--fg-accent);
   text-decoration: underline;
-  text-decoration-color: rgba(37, 99, 235, 0.45);
+  text-decoration-color: var(--info-border);
   text-underline-offset: 2px;
   transition: color 120ms ease, text-decoration-color 120ms ease;
 }
 
 .mds-theme a:hover {
-  color: #1e40af;
-  text-decoration-color: rgba(30, 64, 175, 0.85);
+  color: var(--info);
+  text-decoration-color: currentColor;
 }
 
 .mds-theme :not(pre) > code {
-  border: 1px solid rgba(30, 64, 175, 0.22);
+  border: 1px solid var(--info-border);
   border-radius: 7px;
   padding: 1px 6px;
-  background: rgba(30, 64, 175, 0.08);
-  color: #1e3a8a;
+  background: var(--info-bg);
+  color: var(--info-on-tint);
   font-family: 'Cascadia Code', 'Consolas', monospace;
   font-size: 0.83rem;
 }
@@ -1780,7 +1821,7 @@ textarea:focus {
   border: 0;
   height: 1px;
   margin: 12px 0;
-  background: linear-gradient(90deg, rgba(30, 58, 138, 0.35), rgba(30, 58, 138, 0));
+  background: linear-gradient(90deg, var(--border-strong), transparent);
 }
 
 /* var(--fg), not #0f172a. The literal is the light-mode ink, so in dark mode every <strong>
@@ -1866,7 +1907,7 @@ textarea:focus {
 }
 
 .workflow-stage-drag-handle {
-  color: #64748b;
+  color: var(--fg-subtle);
   font-weight: 700;
   cursor: grab;
   user-select: none;
@@ -1918,7 +1959,7 @@ textarea:focus {
 
 .workflow-lane-drag-handle {
   font-weight: 700;
-  color: #64748b;
+  color: var(--fg-subtle);
   background: transparent !important;
   padding: 0 !important;
   cursor: grab;
@@ -2811,7 +2852,7 @@ textarea:focus {
   font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.03em;
-  color: #64748b;
+  color: var(--fg-subtle);
 }
 .perso-status.perso-approved { color: #0f766e; }
 .perso-status.perso-pending { color: #b45309; }

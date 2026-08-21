@@ -28,9 +28,16 @@ export function Field({ label, hint, error, htmlFor, children, required }) {
   )
 }
 
-/** Status pill. Encodes state in colour *and* text, so it survives greyscale and colour-blindness. */
-export function Badge({ tone = 'neutral', children }) {
-  return <span className={`badge badge-${tone}`}>{children}</span>
+/**
+ * Status pill. Encodes state in colour *and* text, so it survives greyscale and colour-blindness.
+ *
+ * <p>Extra props are forwarded to the span. A badge is sometimes more than decoration — the plan
+ * panel renders one as a usage meter and needs `role`/`aria-value*` to land on the element that
+ * carries the text. Without the passthrough those attributes were silently dropped, which looks
+ * identical on screen and is why it went unnoticed.
+ */
+export function Badge({ tone = 'neutral', children, ...rest }) {
+  return <span className={`badge badge-${tone}`} {...rest}>{children}</span>
 }
 
 /**

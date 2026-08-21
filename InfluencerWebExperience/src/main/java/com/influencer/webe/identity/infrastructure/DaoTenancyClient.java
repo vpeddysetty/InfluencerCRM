@@ -69,6 +69,24 @@ public class DaoTenancyClient {
                 .put("name", name));
     }
 
+    /**
+     * Renames an existing brand.
+     *
+     * <p>Used by the post-social-signup onboarding step. A federated signup has no brand field to
+     * fill in before the redirect, so the workspace is provisioned named after the person's provider
+     * display name — "Ari Rivera" rather than their company. This is what corrects it once they say
+     * what the workspace is actually called.
+     *
+     * <p>Sends only the name: the DAO's PUT leaves status and custom attributes untouched when they
+     * are absent, so a rename cannot silently reset the rest of the record.
+     */
+    public JsonNode renameBrand(UUID brandId, String name) {
+        return gatewayClient.put("/tenancy/brands/" + brandId,
+                com.fasterxml.jackson.databind.node.JsonNodeFactory.instance
+                        .objectNode()
+                        .put("name", name));
+    }
+
     public JsonNode members(UUID accountId) {
         return gatewayClient.get("/tenancy/accounts/" + accountId + "/members", Map.of());
     }

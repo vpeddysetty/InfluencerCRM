@@ -25,7 +25,11 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = resolve(HERE, '..', '..')
 const ARTIFACTS = join(HERE, 'artifacts')
 const WORK = join(HERE, '.video-build')
-const OUTPUT = join(REPO_ROOT, 'influencrm-e2e-journeys.mp4')
+
+// VIDEO_OUT lets a caller place the recording alongside the notes it belongs to — the brand-owner
+// journey writes into brands/<date>/ so the video and its write-up stay together. Default is
+// unchanged so the existing suite still lands at the repo root.
+const OUTPUT = process.env.VIDEO_OUT || join(REPO_ROOT, 'influencrm-e2e-journeys.mp4')
 
 /** 720p, matching the recording size — rescaling would only soften the text. */
 const WIDTH = 1280
@@ -109,11 +113,18 @@ function collectClips() {
   }
 
   if (clips.length === 0) {
-    // No report — fall back to whatever recordings are on disk so the video is still produced.
+    // No usable report — fall back to whatever recordings are on disk so the video is still
+    // produced. VIDEO_TITLE / VIDEO_GROUP override the lossy directory name, which is truncated
+    // and hash-infixed and reads as garbage on a title card.
     for (const dir of readdirSync(ARTIFACTS)) {
       const video = join(ARTIFACTS, dir, 'video.webm')
       if (existsSync(video)) {
-        clips.push({ group: '', title: prettifyDirName(dir), status: 'unknown', path: video })
+        clips.push({
+          group: process.env.VIDEO_GROUP || '',
+          title: process.env.VIDEO_TITLE || prettifyDirName(dir),
+          status: process.env.VIDEO_STATUS || 'unknown',
+          path: video,
+        })
       }
     }
   }
@@ -177,6 +188,8 @@ function main() {
 
   rmSync(WORK, { recursive: true, force: true })
   mkdirSync(WORK, { recursive: true })
+  // VIDEO_OUT may point somewhere that does not exist yet (a dated journey folder, say).
+  mkdirSync(dirname(OUTPUT), { recursive: true })
 
   const segments = []
   clips.forEach((clip, index) => {

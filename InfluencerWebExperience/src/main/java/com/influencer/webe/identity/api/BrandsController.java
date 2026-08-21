@@ -5,17 +5,21 @@ import com.influencer.webe.identity.infrastructure.DaoTenancyClient;
 import com.influencer.webe.security.Permission;
 import com.influencer.webe.security.TenantContext;
 import com.influencer.webe.shared.application.RequestUserResolver;
+import com.influencer.webe.identity.application.AuthService;
 import com.influencer.webe.identity.application.BulkMemberInvitationService;
+import com.influencer.webe.identity.application.ConsentService;
 import com.influencer.webe.identity.application.EntitlementService;
 import com.influencer.webe.identity.application.MemberInvitationService;
 import com.influencer.webe.identity.application.PlanPolicy;
 import com.influencer.webe.identity.application.SessionService;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.Size;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Arrays;
 import java.util.List;
@@ -37,19 +41,22 @@ public class BrandsController {
     private final MemberInvitationService invitationService;
     private final BulkMemberInvitationService bulkInvitations;
     private final EntitlementService entitlements;
+    private final ConsentService consentService;
 
     public BrandsController(DaoTenancyClient tenancyClient,
                             RequestUserResolver requestUserResolver,
                             SessionService sessionService,
                             MemberInvitationService invitationService,
                             BulkMemberInvitationService bulkInvitations,
-                            EntitlementService entitlements) {
+                            EntitlementService entitlements,
+                            ConsentService consentService) {
         this.tenancyClient = tenancyClient;
         this.requestUserResolver = requestUserResolver;
         this.sessionService = sessionService;
         this.invitationService = invitationService;
         this.bulkInvitations = bulkInvitations;
         this.entitlements = entitlements;
+        this.consentService = consentService;
     }
 
     /** Every brand the caller may reach, with the role they hold on each. */
@@ -102,6 +109,68 @@ public class BrandsController {
         // actually distinguishes the plans rather than merely sizing them.
         entitlements.requireCapacity(context.accountId(), PlanPolicy.Resource.BRAND);
         return tenancyClient.createBrand(context.accountId(), request.name());
+    }
+
+    /**
+     * Names the caller's workspace after a social signup, and optionally makes it an agency.
+     *
+     * <p><b>Why this exists.</b> A federated signup has no workspace fields to fill in: the user
+     * clicks "Continue with Facebook" and the next thing that happens is a redirect to Meta. There
+     * is no moment before the account exists at which they could be asked what their brand is
+     * called. So {@code AuthService.signupWithSocial} provisions the workspace named after the
+     * provider's display name, and this endpoint is where the person corrects it once they are back.
+     *
+     * <p>It also finishes the job the landing page could not: federated signup always created a
+     * {@code brand} account, and the UI refused an agency selection outright with "use email and
+     * password instead". An agency signing up with Google now becomes an agency here.
+     *
+     * <p><b>Scoped to the caller's own token.</b> Both the brand and the account come from the
+     * verified {@link TenantContext}, never from the request body — a brandId a caller could supply
+     * would let anyone rename anyone else's workspace.
+     *
+     * <p>Idempotent, and safe to call from a step the user may reload: renaming to the same name and
+     * promoting an account that is already an agency both settle to the same state. Demotion is
+     * deliberately not offered — an agency with client brands cannot become a solo brand without
+     * deciding what happens to them, which is not a decision this endpoint should make silently.
+     */
+    @PostMapping("/onboarding")
+    public OnboardingResponse completeOnboarding(
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @Valid @RequestBody OnboardingRequest request) {
+
+        TenantContext context = requestUserResolver.requirePermission(authorization, Permission.BRAND_UPDATE);
+
+        String name = request.workspaceName() == null ? "" : request.workspaceName().trim();
+        if (name.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "workspaceName is required");
+        }
+        tenancyClient.renameBrand(context.brandId(), name);
+
+        // Only ever an upgrade — see the note above on demotion.
+        String requestedType = request.accountType() == null ? "" : request.accountType().trim().toLowerCase();
+        boolean promoted = false;
+        if (AuthService.ACCOUNT_TYPE_AGENCY.equals(requestedType)) {
+            tenancyClient.promoteAccountType(context.accountId(), AuthService.ACCOUNT_TYPE_AGENCY);
+            promoted = true;
+        } else if (!requestedType.isEmpty() && !AuthService.ACCOUNT_TYPE_BRAND.equals(requestedType)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "accountType must be 'brand' or 'agency'");
+        }
+
+        // The session carries brandName, so a stale token would keep showing the provider display
+        // name in the header until the next sign-in. Re-minting against the same brand refreshes it.
+        SessionService.SessionInfo session =
+                sessionService.switchBrand(context, context.brandId(), "onboarding");
+
+        return new OnboardingResponse(
+                session.token(),
+                "Bearer",
+                session.brandId(),
+                session.brandName(),
+                session.accountId(),
+                promoted ? AuthService.ACCOUNT_TYPE_AGENCY : AuthService.ACCOUNT_TYPE_BRAND,
+                session.role(),
+                session.expiresAt());
     }
 
     /**
@@ -283,11 +352,33 @@ public class BrandsController {
      * caller is not yet a member. The token is the authorization, and the service additionally
      * checks it was issued to this user's email.
      */
+    /**
+     * <p>Consent is captured here as well as at signup because an invited teammate may never have
+     * seen the signup form: they arrive from an email, join someone else's account, and are bound by
+     * the same terms. Without this they would be the one class of user with no record of accepting
+     * anything.
+     */
     @PostMapping("/members/invitations/accept")
     public JsonNode acceptInvitation(@RequestHeader(value = "Authorization", required = false) String authorization,
-                                     @Valid @RequestBody AcceptInviteRequest request) {
+                                     @Valid @RequestBody AcceptInviteRequest request,
+                                     HttpServletRequest httpRequest) {
         TenantContext context = requestUserResolver.requireTenantContext(authorization);
-        return invitationService.accept(request.token(), context.userId(), context.email());
+        consentService.requireAccepted(request.acceptedTerms());
+
+        JsonNode result = invitationService.accept(request.token(), context.userId(), context.email());
+
+        // The unique index makes this a no-op for someone who already consented at signup and is now
+        // joining a second account — the same person, the same document version, one row. Accepting
+        // an invitation is still the moment to ASK, because it is a fresh agreement to be bound.
+        consentService.recordSignupConsent(
+                ConsentService.SUBJECT_USER,
+                context.userId(),
+                context.email(),
+                "invitation_accept",
+                httpRequest,
+                null);
+
+        return result;
     }
 
     @PutMapping("/members/{userId}")
@@ -372,7 +463,11 @@ public class BrandsController {
     public record InviteResponse(JsonNode invitation, String token, boolean emailDelivered) {
     }
 
-    public record AcceptInviteRequest(@NotBlank String token) {
+    /**
+     * @param acceptedTerms the invitee's acceptance. Boxed, as elsewhere, so an absent field is not
+     *     mistaken for a deliberate refusal — both are rejected, but only one is a client bug.
+     */
+    public record AcceptInviteRequest(@NotBlank String token, Boolean acceptedTerms) {
     }
 
     public record UpdateMemberRequest(@NotBlank String role) {
@@ -389,5 +484,27 @@ public class BrandsController {
     }
 
     public record CreateBrandRequest(@NotBlank String name) {
+    }
+
+    /**
+     * @param workspaceName what the brand or agency is actually called
+     * @param accountType   {@code brand} or {@code agency}; blank is treated as {@code brand}
+     */
+    public record OnboardingRequest(@NotBlank String workspaceName, String accountType) {
+    }
+
+    /**
+     * Carries a re-minted token, because the old one still names the workspace after the provider
+     * profile. The UI must swap it in, or the header keeps showing the pre-onboarding name.
+     */
+    public record OnboardingResponse(
+            String accessToken,
+            String tokenType,
+            UUID brandId,
+            String brandName,
+            UUID accountId,
+            String accountType,
+            String role,
+            java.time.Instant expiresAt) {
     }
 }

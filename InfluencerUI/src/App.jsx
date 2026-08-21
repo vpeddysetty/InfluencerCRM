@@ -2,7 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import { useCallback, useEffect, useState } from 'react'
 import './App.css'
 import './components/ui/ui.css'
-import { SessionExpiredDialog, ToastProvider } from './components/ui'
+import { SessionExpiredDialog, ToastProvider, WorkspaceOnboardingDialog } from './components/ui'
 import { DEFAULT_ROUTE } from './shell/routeManifest'
 import { msUntilRefresh } from './shell/sessionExpiry'
 import LandingPage from './pages/LandingPage'
@@ -17,14 +17,20 @@ import MarketplacePage from './pages/MarketplacePage'
 import DashboardPage from './pages/DashboardPage'
 import PayoutsPage from './pages/PayoutsPage'
 import MembersPage from './pages/MembersPage'
+import SettingsPage from './pages/SettingsPage'
 import BillingPage from './pages/BillingPage'
 import ContentPage from './pages/ContentPage'
 import WorkspaceLayout from './components/WorkspaceLayout'
 import { SessionProvider } from './shell/SessionContext'
 import {
+  completeOnboarding,
   createBrand,
+  disconnectAccount,
+  listConnectedAccounts,
   createCampaign,
   createCreator,
+  deleteCreator,
+  resolveCreatorHandle,
   listWorkflowBoards,
   createWorkflowBoard,
   updateWorkflowBoard,
@@ -117,9 +123,22 @@ import { createImportMappingJson, createImportMappingJsonFromAgent, parseSpreads
 // risk showing one brand's data under another's name.
 const STORAGE_KEY = 'tejdux_ui_state_v3'
 
+// Set immediately before a social SIGN-UP redirect and read once the browser comes back, to decide
+// whether to ask for workspace details. sessionStorage rather than localStorage: the marker is only
+// meaningful for the tab that left for the provider, and a localStorage copy would outlive the flow
+// and greet the user with an onboarding step on some unrelated later visit.
+//
+// This is deliberately client-side. The alternative — a "needsOnboarding" flag threaded through the
+// DPS session, the BFF and the DAO — would mean editing the OAuth path that has to work for Meta's
+// review, to carry a hint the browser already has.
+const PENDING_SOCIAL_SIGNUP_KEY = 'tejdux_pending_social_signup'
+const PENDING_ACCOUNT_TYPE_KEY = 'tejdux_pending_account_type'
+
 // Origin of the Digital Presentation Service, which owns federated sign-in end to end. Kept in
 // step with the same constant in shell/gateway/PresentationGateway.js.
-const DPS_BASE_URL = import.meta.env?.VITE_DPS_URL || 'http://localhost:8090'
+const DPS_BASE_URL =
+  import.meta.env?.VITE_DPS_URL ||
+  (typeof window !== 'undefined' && window.location?.origin ? window.location.origin : 'http://localhost:8090')
 const CAMPAIGN_TYPE_OPTIONS = [
   { value: 'product seeding', label: 'Product Seeding' },
   { value: 'sponsored content', label: 'Sponsored Content' },
@@ -373,6 +392,9 @@ function App() {
    * state, harmless without a token, and keeping them is what lets a re-login land back in place.
    */
   const [isLoggedIn, setIsLoggedIn] = useState(false)
+  // Flipped once the transport is in cookie mode. The workspace effect depends on it because
+  // `authToken` never changes in that mode, so nothing else would re-run the effect.
+  const [cookieSessionReady, setCookieSessionReady] = useState(false)
   const [brandName, setBrandName] = useState(persistedState?.brandName ?? 'tejdux.io')
   const [userName, setUserName] = useState(persistedState?.userName ?? '')
   // Never seeded from persisted state: tokens are no longer written to localStorage, and an
@@ -385,7 +407,59 @@ function App() {
   // Blocks the first paint until the DPS has been asked whether a session exists. Without it the
   // login page renders for a moment before being replaced by the workspace, which reads as a
   // sign-in flashing past on every reload.
+  // The reason a social sign-in was refused, as the DPS put it in ?error=.
+  //
+  // Read once at mount rather than from the router: this arrives on a full-page redirect from the
+  // provider, so the value is in the URL before React has rendered anything, and it must survive
+  // the render that follows. Held in state so clearing the query string does not erase the message
+  // along with it.
+  const [oauthErrorFromUrl, setOauthErrorFromUrl] = useState(() => {
+    try {
+      return new URLSearchParams(window.location.search).get('error') || ''
+    } catch {
+      return ''
+    }
+  })
+
+  // Set when the browser returns from a successful provider link, so settings can confirm it
+  // happened. Read at mount for the same reason as the error above: it arrives on a redirect.
+  //
+  // DECLARED BEFORE THE EFFECT THAT READS IT. `const` is not hoisted, so an effect referencing this
+  // from above lands in the temporal dead zone and throws ReferenceError on the very first render —
+  // which React treats as the whole tree failing to mount, and the page renders blank. The blankness
+  // is the symptom of any error thrown here, so declaration order in this block is load-bearing.
+  const [linkedProviderNotice] = useState(() => {
+    try {
+      return new URLSearchParams(window.location.search).get('linked') || ''
+    } catch {
+      return ''
+    }
+  })
+
+  // Strip ?error= once it has been read. Left in place it survives a reload and a bookmark, so a
+  // user who signs in successfully and later returns to the URL is told again that they failed.
+  useEffect(() => {
+    if (!oauthErrorFromUrl && !linkedProviderNotice) {
+      return
+    }
+    try {
+      const url = new URL(window.location.href)
+      url.searchParams.delete('error')
+      url.searchParams.delete('linked')
+      // The provider appends #_=_ to the fragment on the way back; it is meaningless to the app and
+      // ugly in the address bar, so it goes at the same time.
+      const cleaned = url.pathname + url.search + (url.hash === '#_=_' ? '' : url.hash)
+      window.history.replaceState({}, '', cleaned)
+    } catch {
+      // A browser that refuses history rewriting keeps the query string. Harmless.
+    }
+  }, [oauthErrorFromUrl, linkedProviderNotice])
+
   const [restoringSession, setRestoringSession] = useState(true)
+  // Post-social-signup workspace details. Deliberately NOT persisted to localStorage: it describes
+  // one moment in one tab, and a restored `open: true` would ambush a returning user with a form
+  // asking them to name a workspace they named weeks ago.
+  const [onboarding, setOnboarding] = useState({ open: false, accountType: 'brand' })
   const [userId, setUserId] = useState(persistedState?.userId ?? '')
   // Active brand plus the set the user may switch to. Solo accounts have exactly one entry,
   // which is why the switcher can be hidden without needing a separate code path.
@@ -393,6 +467,10 @@ function App() {
   const [accountId, setAccountId] = useState(persistedState?.accountId ?? '')
   const [role, setRole] = useState(persistedState?.role ?? '')
   const [availableBrands, setAvailableBrands] = useState(persistedState?.availableBrands ?? [])
+  // Brand usage against the plan's cap, for the rail's "+ Add brand" control. Deliberately NOT
+  // persisted: the plan is kept out of the JWT so an upgrade takes effect immediately, and a
+  // restored copy would reintroduce exactly the staleness that decision avoids.
+  const [brandCapacity, setBrandCapacity] = useState(null)
   /**
    * Permissions for rendering decisions.
    *
@@ -433,6 +511,11 @@ function App() {
     email: '',
     ...(persistedState?.creatorForm || {}),
     customAttributes: customAttributesToPairs(persistedState?.creatorForm?.customAttributes),
+    // Deliberately NOT restored from persisted state, and listed after the spread so a stored
+    // value cannot win. A follower count is only meaningful next to the handle it was read for
+    // and the moment it was read: restoring one from a previous session would stamp a stale
+    // audience — possibly for a different creator entirely — onto the next record saved.
+    resolvedMetrics: null,
   })
   const [assignmentForm, setAssignmentForm] = useState(persistedState?.assignmentForm ?? {
     campaignId: defaultCampaignId,
@@ -545,6 +628,7 @@ function App() {
         // isLoggedIn, or the workspace effect fires one round of requests down the bearer path
         // with no token to send.
         useCookieSession(DPS_BASE_URL)
+        setCookieSessionReady(true)
         setCookiePermissions(Array.isArray(session.permissions) ? session.permissions : [])
         if (Array.isArray(session.availableBrands)) {
           setAvailableBrands(session.availableBrands)
@@ -553,6 +637,20 @@ function App() {
           userName: session.userName || '',
           brandName: session.brandName || '',
         })
+
+        // A social SIGN-UP that has just landed back here still has a workspace named after the
+        // provider profile, and — for an agency — the wrong account type. Ask now, while the
+        // intent is fresh; the marker is consumed either way so a reload does not re-ask.
+        try {
+          if (window.sessionStorage.getItem(PENDING_SOCIAL_SIGNUP_KEY)) {
+            window.sessionStorage.removeItem(PENDING_SOCIAL_SIGNUP_KEY)
+            const pendingType = window.sessionStorage.getItem(PENDING_ACCOUNT_TYPE_KEY) || 'brand'
+            window.sessionStorage.removeItem(PENDING_ACCOUNT_TYPE_KEY)
+            setOnboarding({ open: true, accountType: pendingType })
+          }
+        } catch {
+          // Storage unavailable: skip the step rather than block a signed-in user behind it.
+        }
       } finally {
         if (isActive) {
           setRestoringSession(false)
@@ -709,8 +807,45 @@ function App() {
     }
   }, [isLoggedIn, authToken, brandId])
 
+  // Brand capacity for the rail control. Gated on isLoggedIn ALONE, not on authToken: a cookie
+  // session holds no bearer token, so an `!authToken` guard would skip this for exactly the
+  // federated sign-ins that land on the free tier.
   useEffect(() => {
-    if (!isLoggedIn || !authToken) {
+    if (!isLoggedIn) {
+      return
+    }
+    let isActive = true
+    loadPlanUsage(authToken)
+      .then((usage) => {
+        if (!isActive) {
+          return
+        }
+        // PlanUsageResponse(plan, usage) with ResourceUsage(resource, label, used, limit);
+        // `resource` is the lowercased enum name, so BRAND arrives as "brand".
+        const brand = (usage?.usage || []).find((row) => row?.resource === 'brand')
+        setBrandCapacity(
+          brand ? { used: Number(brand.used ?? 0), limit: Number(brand.limit ?? -1) } : null,
+        )
+      })
+      .catch(() => {
+        // Non-fatal: capacity stays null, which leaves the control visible and lets the server
+        // remain the authority. Better than hiding a legitimate agency's only path to a brand.
+      })
+    return () => {
+      isActive = false
+    }
+  }, [isLoggedIn, authToken, brandId, availableBrands.length])
+
+  useEffect(() => {
+    // `authToken` is empty in cookie mode BY DESIGN — the DPS holds the credential and the browser
+    // never receives a bearer token. Requiring one here meant this effect returned early for every
+    // cookie session, so the workspace was never fetched: no creators, no campaigns, no coupons,
+    // and no request in the BFF log to explain it. The list looked empty while POST /api/creators
+    // answered 409 for a handle that was plainly there.
+    //
+    // isCookieSession() rather than a second state flag, because the transport already knows which
+    // mode it is in and two sources of that truth would drift.
+    if (!isLoggedIn || (!authToken && !isCookieSession())) {
       return
     }
 
@@ -735,9 +870,11 @@ function App() {
     return () => {
       isActive = false
     }
-  }, [authToken, isLoggedIn])
+    // cookieSessionReady is in the deps so establishing a cookie session re-runs this. Without it
+    // the effect only ever fires on an authToken change, which in cookie mode never happens.
+  }, [authToken, isLoggedIn, cookieSessionReady])
 
-  const handleAuthSubmit = async (event) => {
+  const handleAuthSubmit = async (event, options = {}) => {
     const form = new FormData(event.currentTarget)
     const rawIdentifier = String(form.get('email') || '')
     const email = isSignUp ? rawIdentifier : normalizeLoginEmail(rawIdentifier)
@@ -750,13 +887,24 @@ function App() {
     // The landing page's workspace-type radio. Absent on the login tab, and defaulted rather
     // than sent blank so the server's own default stays the single source of that rule.
     const accountType = String(form.get('accountType') || 'brand')
+    // The consent checkbox, passed in by the caller rather than read from the form.
+    //
+    // It used to come from FormData, which worked only while the checkbox sat inside <form>. When
+    // it moved below the form — to sit under BOTH sign-up paths, since it governs the social
+    // buttons too — FormData stopped seeing it, so every signup was sent with acceptedTerms=false
+    // and the server refused it with "You must accept the Terms of Service and Privacy Policy".
+    // The page renders the box, the user ticks it, and the value never left the browser.
+    //
+    // The fallback keeps the old behaviour for any caller that still relies on the field being in
+    // the form, so this cannot silently break a second entry point.
+    const acceptedTerms = options.acceptedTerms ?? (form.get('acceptedTerms') === 'on')
 
     try {
       setAuthError('')
       setWorkspaceError('')
 
       const authResponse = isSignUp
-        ? await signup({ email, password, brandName: company, accountType })
+        ? await signup({ email, password, brandName: company, accountType, acceptedTerms })
         : await login({ email, password })
 
       // One path establishes a session. This used to repeat establishSession's body line for
@@ -818,6 +966,42 @@ function App() {
     } catch (error) {
       setWorkspaceError(error instanceof Error ? error.message : 'Unable to switch brand.')
     }
+  }
+
+  /**
+   * Finishes a social sign-up by naming the workspace, and promoting it to an agency if asked.
+   *
+   * <p>The server re-mints the token for the same reason switching does: the current one carries
+   * the provider-derived brandName the session was created with, so keeping it would leave the
+   * header showing "Ari Rivera" after the workspace had been renamed.
+   *
+   * <p>Cookie sessions carry no bearer token, and `request` sends the cookie instead — passing an
+   * empty authToken is correct there rather than a bug.
+   */
+  const handleCompleteOnboarding = async ({ workspaceName, accountType }) => {
+    const updated = await completeOnboarding(authToken, { workspaceName, accountType })
+    if (updated.accessToken) {
+      setAuthToken(updated.accessToken)
+    }
+    applyBrandFromAuth(updated)
+    setOnboarding({ open: false, accountType: 'brand' })
+  }
+
+  /**
+   * Renames the workspace from settings.
+   *
+   * <p>The same endpoint the onboarding dialog posts to, which is idempotent and renames the brand
+   * in the caller's own token — never one named in the body. accountType is omitted deliberately:
+   * that endpoint only ever upgrades, and a rename must not quietly change what kind of account
+   * this is. The response re-mints the session, so the sidebar and header follow immediately
+   * instead of showing the old name until the next sign-in.
+   */
+  const renameWorkspace = async (name) => {
+    const updated = await completeOnboarding(authToken, { workspaceName: name })
+    if (updated.accessToken) {
+      setAuthToken(updated.accessToken)
+    }
+    applyBrandFromAuth(updated)
   }
 
   /**
@@ -893,21 +1077,65 @@ function App() {
    * A full-page navigation also sidesteps popup blockers, and lands the user back on the shell
    * authenticated instead of on an intermediate page.
    */
-  const handleSocialLogin = (provider, { brandName: socialBrandName = '', accountType = '' } = {}) => {
+  /**
+   * Connects a provider to the account already signed in.
+   *
+   * <p>A full-page navigation rather than a fetch, for the same reason sign-in is: the next thing
+   * that happens is the provider's own consent screen, which cannot be rendered inside an XHR.
+   *
+   * <p>Routed through the DPS so the session cookie authenticates it. The BFF endpoint requires a
+   * verified caller — that requirement is the entire security property of linking, since being
+   * signed in is what proves the account belongs to the person attaching the provider to it.
+   */
+  const startProviderLink = (provider) => {
+    window.location.assign(`${DPS_BASE_URL}/dps/auth/connected-accounts/${provider}/start`)
+  }
+
+  const handleSocialLogin = (
+    provider,
+    { brandName: socialBrandName = '', accountType = '', acceptedTerms = false } = {},
+  ) => {
     setAuthError('')
     setWorkspaceError('')
+    // Clear the previous refusal before leaving for the provider. Kept, it would still be on screen
+    // when the browser returns, describing an attempt two redirects ago.
+    setOauthErrorFromUrl('')
 
-    // Federated sign-up always creates a brand workspace: carrying the type would mean threading
-    // it through the signed OAuth state and both provider callbacks, which is roadmap Stage 1
-    // follow-up work. Say so rather than letting an agency selection be silently dropped.
-    if (accountType === 'agency') {
-      setAuthError(
-        'Agency workspaces are created with email and password for now. Use the form above, then add client brands once you are in.',
-      )
-      return
+    // Agency used to be refused here, because the type cannot ride the provider redirect and a
+    // federated signup always provisions a `brand` account. It is no longer refused: the workspace
+    // is created as a brand and the post-OAuth onboarding step promotes it, which is also where the
+    // workspace gets its real name. Remembering the selection across the redirect is what makes
+    // that step arrive pre-filled rather than asking the same question twice.
+    // Only on sign-up: accountType is blank when this handler is reused for sign-in, and someone
+    // signing in already named their workspace.
+    if (accountType) {
+      try {
+        window.sessionStorage.setItem(PENDING_SOCIAL_SIGNUP_KEY, '1')
+        window.sessionStorage.setItem(PENDING_ACCOUNT_TYPE_KEY, accountType)
+      } catch {
+        // A blocked sessionStorage (private mode, hardened settings) costs a pre-filled radio
+        // button, not the signup. Without the marker the step is skipped and the workspace keeps
+        // its provider-derived name, which the user can still change in settings.
+      }
     }
 
-    const query = socialBrandName ? `?brandName=${encodeURIComponent(socialBrandName)}` : ''
+    // Both values ride the URL because this is a NAVIGATION, not a fetch — there is no body to
+    // put them in. acceptedTerms is forwarded by the DPS to the BFF, which refuses to start the
+    // flow without it, so the redirect cannot begin for someone who has not consented.
+    const params = new URLSearchParams()
+    if (socialBrandName) {
+      params.set('brandName', socialBrandName)
+    }
+    if (acceptedTerms) {
+      params.set('acceptedTerms', 'true')
+    }
+    // Says "Log in", not "Sign up". The server skips the consent question on this path — consent
+    // belongs to registration, and the Log in tab has no checkbox to tick — and in exchange refuses
+    // to CREATE an account, so this cannot become a way to register without agreeing to anything.
+    if (!accountType) {
+      params.set('signInOnly', 'true')
+    }
+    const query = params.toString() ? `?${params}` : ''
     window.location.assign(`${DPS_BASE_URL}/dps/auth/oauth/${provider}/start${query}`)
   }
 
@@ -1495,6 +1723,21 @@ function App() {
     }
   }
 
+  /**
+   * Look up a handle on its platform, for the create drawer (C.2).
+   *
+   * <p>Returns the preview rather than storing it. Nothing is persisted until someone presses
+   * Add creator, which keeps looking and saving as two separate acts — a brand vetting ten
+   * handles should not end up with ten rows in its CRM.
+   *
+   * <p>An unresolvable handle comes back as `resolved: false` with a reason and is NOT an error:
+   * private accounts and typos are the common case, and the drawer stays open on the manual
+   * fields. Only a failed request throws.
+   */
+  const lookupCreatorHandle = async ({ platform, handle }) => {
+    return resolveCreatorHandle(authToken, { platform, handle })
+  }
+
   const createCreatorRecord = async (event) => {
     event.preventDefault()
     if (!creatorForm.name.trim() || !creatorForm.handle.trim()) {
@@ -1516,13 +1759,45 @@ function App() {
           ? null
           : Number(creatorForm.preferredRate),
         customAttributes,
+        // Metrics from a handle lookup, when one resolved. Spread rather than set field by field
+        // so an absent lookup contributes nothing at all: writing `followerCount: null` would
+        // record "we looked and they have no audience", which is a different claim from "nobody
+        // looked". `metricsSource` travels with the numbers — a follower count saved without it
+        // renders as Unknown provenance forever, and a simulated figure would become
+        // indistinguishable from one Instagram answered with.
+        ...(creatorForm.resolvedMetrics || {}),
       })
 
       setCreators((prev) => [nextCreator, ...prev])
       setAssignmentForm((prev) => ({ ...prev, creatorId: nextCreator.id || prev.creatorId }))
-      setCreatorForm({ name: '', handle: '', platform: 'instagram', email: '', preferredRate: '', customAttributes: [] })
+      // resolvedMetrics cleared with the rest: carrying one creator's follower count into the next
+      // creator's form would attribute a real audience to the wrong person.
+      setCreatorForm({ name: '', handle: '', platform: 'instagram', email: '', preferredRate: '', customAttributes: [], resolvedMetrics: null })
     } catch (error) {
       setWorkspaceError(error instanceof Error ? error.message : 'Unable to create creator.')
+    }
+  }
+
+  /**
+   * Remove a creator from this brand (MANAGER and above).
+   *
+   * <p>NOT optimistic. The other creator mutations update local state first because a failed edit
+   * leaves the row visible and re-editable; a failed delete that already removed the row leaves
+   * someone believing a record is gone when it is not. So the server answers first.
+   *
+   * <p>Also clears the row from any pending assignment selection: a form still pointing at a
+   * deleted creator submits an id the DAO will reject, and the error names a foreign key rather
+   * than the thing that happened.
+   */
+  const deleteCreatorRecord = async (id) => {
+    try {
+      setWorkspaceError('')
+      await deleteCreator(authToken, id)
+      setCreators((prev) => prev.filter((creator) => creator.id !== id))
+      setAssignmentForm((prev) => (prev.creatorId === id ? { ...prev, creatorId: '' } : prev))
+    } catch (error) {
+      setWorkspaceError(error instanceof Error ? error.message : 'Unable to delete creator.')
+      throw error
     }
   }
 
@@ -1899,6 +2174,28 @@ function App() {
     <Routes>
       {!isLoggedIn ? (
         <>
+          {/* Where the DPS sends a failed sign-in, carrying ?error= with the reason.
+
+              Until this route existed the redirect landed on the catch-all, which rendered the
+              signed-out landing page and dropped the message — so a refusal that had a specific,
+              actionable explanation ("an account already exists for this email, sign in with your
+              password then link facebook") was indistinguishable from being randomly logged out.
+              The server was explaining itself to nobody.
+
+              Rendered by LandingPage rather than a page of its own: the thing to do after a failed
+              sign-in is sign in, and that form is already here. */}
+          <Route
+            path="/login"
+            element={
+              <LandingPage
+                isSignUp={false}
+                setIsSignUp={setIsSignUp}
+                onAuthSubmit={handleAuthSubmit}
+                onSocialLogin={handleSocialLogin}
+                authError={oauthErrorFromUrl || authError}
+              />
+            }
+          />
           {/* Declared BEFORE the catch-all, which would otherwise swallow it and drop the token
               from the URL. An invitee almost never has an account yet, so this route existing
               signed-out is the point rather than an edge case. */}
@@ -1954,6 +2251,7 @@ function App() {
                   activeBrandId={brandId}
                   onSwitchBrand={handleSwitchBrand}
                   onCreateBrand={createBrandRecord}
+                  brandCapacity={brandCapacity}
                   role={role}
                   permissions={permissions}
                   progress={{
@@ -2011,6 +2309,11 @@ function App() {
                   customAttributesToPairs={customAttributesToPairs}
                   onCreateCreator={createCreatorRecord}
                   onUpdateCreator={updateCreatorRecord}
+                  onLookupHandle={lookupCreatorHandle}
+                  onDeleteCreator={deleteCreatorRecord}
+                  // Passed rather than read from context: the federated remote that serves this
+                  // page in production has no SessionContext, and a prop works in both copies.
+                  canDeleteCreator={permissions.includes('creator:delete')}
                 />
               }
             />
@@ -2110,6 +2413,19 @@ function App() {
               }
             />
             <Route
+              path="settings"
+              element={
+                <SettingsPage
+                  onLoadConnectedAccounts={() => listConnectedAccounts(authToken)}
+                  onConnect={startProviderLink}
+                  onDisconnect={(id) => disconnectAccount(authToken, id)}
+                  linkedNotice={linkedProviderNotice}
+                  workspaceName={brandName}
+                  onRenameWorkspace={renameWorkspace}
+                />
+              }
+            />
+            <Route
               path="members"
               element={
                 <MembersPage
@@ -2193,6 +2509,16 @@ function App() {
         error={sessionRetryError}
         onRetry={handleSessionRetry}
         onSignOut={handleSessionSignOut}
+      />
+    ) : null}
+    {/* After sessionPrompt, so an expired session is never hidden behind a cosmetic question.
+        The two cannot realistically coincide — this fires seconds after a fresh sign-in — but the
+        ordering costs nothing and makes the precedence explicit. */}
+    {isLoggedIn && !sessionPrompt && onboarding.open ? (
+      <WorkspaceOnboardingDialog
+        initialName={brandName}
+        initialAccountType={onboarding.accountType}
+        onSubmit={handleCompleteOnboarding}
       />
     ) : null}
     </ToastProvider>

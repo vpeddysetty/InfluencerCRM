@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { MdsKicker, MdsSectionRule, MdsNote } from '../components/Mds'
 import LandingBuilder from '../components/LandingBuilder'
+import { publicPageUrl } from '../api/core'
 
 const EMPTY_CONTENT = { summary: '', goals: '', dos: '', donts: '', talkingPoints: '' }
 
@@ -448,7 +449,7 @@ function ContentPage({
 
             <div className="row-actions">
               <button type="button" className="ghost-btn" onClick={draftBrief} disabled={drafting}>
-                {drafting ? 'Drafting…' : '✨ Draft with AI'}
+                {drafting ? 'Drafting…' : 'Draft with AI'}
               </button>
               <button type="submit" className="primary-btn" disabled={saving}>
                 {saving ? 'Saving…' : currentBrief ? 'Update brief' : 'Create brief'}
@@ -518,8 +519,8 @@ function ContentPage({
               {currentTemplate ? (
                 <p className="mds-note">
                   Brand page:{' '}
-                  <a href={`/s/${currentTemplate.publicSlug}`} target="_blank" rel="noreferrer">
-                    /s/{currentTemplate.publicSlug}
+                  <a href={publicPageUrl(`/s/${currentTemplate.publicSlug}`)} target="_blank" rel="noreferrer">
+                    {publicPageUrl(`/s/${currentTemplate.publicSlug}`)}
                   </a>
                 </p>
               ) : null}
@@ -573,7 +574,7 @@ function ContentPage({
               {savingTemplate ? 'Saving…' : currentTemplate ? 'Update landing page' : 'Create landing page'}
             </button>
             <button type="button" className="ghost-btn" onClick={previewLanding} disabled={previewing}>
-              {previewing ? 'Rendering…' : '👁 Preview'}
+              {previewing ? 'Rendering…' : 'Preview'}
             </button>
           </div>
 
@@ -599,7 +600,7 @@ function ContentPage({
               <label className="auth-label">Personalized pages (one per creator)</label>
               <ul className="simple-list">
                 {campaignCoupons.map((c) => {
-                  const url = currentTemplate ? `/s/${currentTemplate.publicSlug}/${c.publicSlug}` : ''
+                  const url = currentTemplate ? publicPageUrl(`/s/${currentTemplate.publicSlug}/${c.publicSlug}`) : ''
                   return (
                     <li key={c.id}>
                       <strong className="mds-inline-code">{c.code}</strong>

@@ -128,23 +128,36 @@ fi
 #
 # THIS IS THE ONE PLACE THE SECRETS EXIST ON DISK. The ECS execution role injected them straight into the
 # container environment and never wrote them down, which was strictly better; this is the cost of leaving
-# ECS. /run is tmpfs, so the file does not survive a reboot and is re-fetched on every boot.
-echo "--- fetching secrets ---"
+# ECS.
+#
+# WRITTEN AS ITS OWN SCRIPT AND ITS OWN UNIT, not inline here, and that is a bug fix rather than tidying:
+# the env file lives on /run, which is tmpfs and is WIPED BY A REBOOT — while cloud-init runs user data
+# only on FIRST boot. Inline, a reboot therefore left no env file, and influencrm.service failed
+# permanently with `Failed to load environment files: No such file or directory`. Observed on a live
+# instance; the platform did not come back until the file was recreated by hand.
+#
+# As a unit that influencrm.service Requires=, it re-runs on every boot, which also means a secret
+# rotation is picked up by `systemctl restart influencrm-secrets influencrm` with no redeploy.
+echo "--- installing the secret fetcher ---"
+cat > /usr/local/bin/influencrm-fetch-secrets.sh <<'FETCH'
+#!/bin/bash
+# Populate /run/influencrm/platform.env from Secrets Manager. Runs on EVERY boot.
+set -uo pipefail
+REGION="__REGION__"
 ENV_DIR=/run/influencrm
 ENV_FILE="$ENV_DIR/platform.env"
+
 mkdir -p "$ENV_DIR"
 chmod 0700 "$ENV_DIR"
-
 : > "$ENV_FILE"
 chmod 0600 "$ENV_FILE"
 
 fetch_secret() {
-  local var_name="$1" secret_id="$2"
-  local value
+  local var_name="$1" secret_id="$2" value
   value=$(aws secretsmanager get-secret-value --region "$REGION" \
           --secret-id "$secret_id" --query SecretString --output text 2>/dev/null)
   if [ -z "$value" ] || [ "$value" = "None" ]; then
-    echo "  WARNING: $var_name ($secret_id) is empty; the service that needs it will fail" >&2
+    logger -t influencrm-secrets "WARNING: $var_name ($secret_id) is empty; the service that needs it will fail"
     return 1
   fi
   # printf %s with no interpretation: a secret containing a backslash must not be mangled on its way
@@ -155,7 +168,37 @@ fetch_secret() {
 %{ for var_name, secret_arn in secret_env ~}
 fetch_secret "${var_name}" "${secret_arn}"
 %{ endfor ~}
-echo "  wrote $(grep -c '=' "$ENV_FILE") secrets to $ENV_FILE"
+
+logger -t influencrm-secrets "wrote $(grep -c '=' "$ENV_FILE") secrets to $ENV_FILE"
+FETCH
+
+# The heredoc above is quoted ('FETCH'), so the shell expands nothing inside it — but Terraform renders
+# this file before the shell ever sees it, so its own interpolations are already resolved by then. The
+# region is left as the marker __REGION__ and substituted below, because a Terraform interpolation
+# written inside that quoted heredoc would read to a human exactly like a shell variable.
+sed -i "s|__REGION__|${region}|" /usr/local/bin/influencrm-fetch-secrets.sh
+chmod 0750 /usr/local/bin/influencrm-fetch-secrets.sh
+
+cat > /etc/systemd/system/influencrm-secrets.service <<'UNIT'
+[Unit]
+Description=InfluenCRM secret fetch (repopulates the tmpfs env file)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/influencrm-fetch-secrets.sh
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+systemctl daemon-reload
+systemctl enable influencrm-secrets.service >/dev/null 2>&1
+systemctl start influencrm-secrets.service \
+  && echo "  secrets fetched: $(grep -c '=' /run/influencrm/platform.env 2>/dev/null)" \
+  || echo "  WARNING: secret fetch failed"
 
 # ---------------------------------------------------------------------------
 # 4. The compose stack
@@ -191,7 +234,11 @@ cat > /etc/systemd/system/influencrm.service <<'UNIT'
 [Unit]
 Description=InfluenCRM platform (docker compose)
 Requires=docker.service
-After=docker.service network-online.target
+# REQUIRES the secret fetch, not merely After. The env file lives on tmpfs and is gone after a reboot;
+# without this the unit starts, finds no EnvironmentFile, and fails permanently with
+# `Failed to load environment files` — which is what happened on the first real reboot of this instance.
+Requires=influencrm-secrets.service
+After=docker.service network-online.target influencrm-secrets.service
 # The EFS mounts are not Requires=: a failed mount must not stop the platform from starting, because a
 # running platform writing logs to the instance disk is better than no platform at all. The boot script
 # has already warned if a mount failed.
@@ -245,5 +292,78 @@ UNIT
 systemctl daemon-reload
 systemctl enable --now influencrm-spot-watch.service >/dev/null 2>&1 \
   && echo "  spot watcher started"
+
+# ---------------------------------------------------------------------------
+# 6. Certificate expiry metric
+# ---------------------------------------------------------------------------
+# The DAO's TLS certificate is self-signed and NOTHING renews it. Caddy's public certificate renews
+# itself; this internal one expires silently, and when it does the BFF fails every call to the DAO.
+#
+# READ FROM THE LIVE ENDPOINT rather than from the secret, deliberately: the question worth alarming on
+# is what the DAO is actually serving. Reading the secret would report health for a certificate that had
+# been rotated but never reached the container -- the exact drift that went unnoticed on 2026-08-10.
+cat > /usr/local/bin/influencrm-cert-metric.sh <<'CERT'
+#!/bin/bash
+# Publish days-until-expiry for the certificate the DAO is currently serving.
+set -uo pipefail
+REGION="__REGION__"
+
+# RUN INSIDE THE DAO CONTAINER, not on the host. Port 8443 is published to the compose bridge only --
+# nothing binds it on the host -- so `openssl s_client -connect localhost:8443` from here is refused,
+# and the script would fail silently every hour while the alarm read "missing" as breaching.
+#
+# -servername dao: the certificate carries dns:dao, and SNI has to match or openssl reports the wrong
+# chain on a server that ever serves more than one name.
+END=$(docker exec influencrm-dao-1 sh -c \
+        'echo | openssl s_client -connect localhost:8443 -servername dao 2>/dev/null | openssl x509 -noout -enddate' \
+      2>/dev/null | cut -d= -f2)
+
+if [ -z "$END" ]; then
+    # No metric rather than a zero. The alarm treats missing data as breaching, so a DAO that is down or
+    # unreachable raises the alarm instead of quietly reporting a healthy number.
+    logger -t influencrm-cert "could not read the DAO certificate; publishing nothing"
+    exit 1
+fi
+
+DAYS=$(( ( $(date -d "$END" +%s) - $(date +%s) ) / 86400 ))
+aws cloudwatch put-metric-data --region "$REGION" \
+    --namespace "InfluenCRM/TLS" \
+    --metric-name "DaoCertificateDaysRemaining" \
+    --value "$DAYS" --unit Count >/dev/null 2>&1 \
+  && logger -t influencrm-cert "DAO certificate expires in $DAYS days ($END)" \
+  || logger -t influencrm-cert "FAILED to publish the expiry metric"
+CERT
+sed -i "s|__REGION__|${region}|" /usr/local/bin/influencrm-cert-metric.sh
+chmod 0750 /usr/local/bin/influencrm-cert-metric.sh
+
+cat > /etc/systemd/system/influencrm-cert-metric.service <<'UNIT'
+[Unit]
+Description=Publish the DAO certificate expiry metric
+After=influencrm.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/influencrm-cert-metric.sh
+UNIT
+
+cat > /etc/systemd/system/influencrm-cert-metric.timer <<'UNIT'
+[Unit]
+Description=Hourly DAO certificate expiry check
+
+[Timer]
+# 10 minutes after boot so the DAO has finished starting, then hourly. Persistent=true so an instance
+# that was down over its scheduled run publishes on the next boot rather than waiting a full hour --
+# which matters because the alarm treats missing data as breaching.
+OnBootSec=10min
+OnUnitActiveSec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+UNIT
+
+systemctl daemon-reload
+systemctl enable --now influencrm-cert-metric.timer >/dev/null 2>&1 \
+  && echo "  certificate expiry metric scheduled hourly"
 
 echo "=== boot complete $(date -u +%FT%TZ) ==="

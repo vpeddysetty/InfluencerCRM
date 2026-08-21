@@ -17,6 +17,7 @@ import {
   useToast,
 } from '../components/ui'
 import { useUrlFilters } from '../shell/useUrlFilters'
+import { lookupMatchesHandle, metricsFromLookup } from '../shell/handleLookup'
 
 function sanitizePairs(pairs) {
   return Array.isArray(pairs)
@@ -31,7 +32,7 @@ const PLATFORM_OPTIONS = [
   { value: 'other', label: 'Other' },
 ]
 
-const EMPTY_DRAFT = { name: '', handle: '', platform: 'instagram', email: '', preferredRate: '', customAttributes: [] }
+const EMPTY_DRAFT = { name: '', handle: '', platform: 'instagram', email: '', preferredRate: '', customAttributes: [], resolvedMetrics: null }
 
 /**
  * Formats the per-brand negotiated rate for display.
@@ -116,6 +117,9 @@ function CreatorsPage({
   customAttributesToPairs,
   onCreateCreator,
   onUpdateCreator,
+  onLookupHandle,
+  onDeleteCreator,
+  canDeleteCreator = false,
 }) {
   const toast = useToast()
   const navigate = useNavigate()
@@ -129,8 +133,21 @@ function CreatorsPage({
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState('')
   const [confirmDiscard, setConfirmDiscard] = useState(false)
+  // Separate from confirmDiscard: discarding edits and deleting a record are different questions
+  // and must never share a dialog, because the wrong one answered destroys data.
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [createAttrValidation, setCreateAttrValidation] = useState({ hasDuplicateKeys: false, hasMissingKeys: false })
   const [editAttrValidation, setEditAttrValidation] = useState({ hasDuplicateKeys: false, hasMissingKeys: false })
+
+  // Handle lookup (C.2). `lookup` holds the last preview: null before anyone has looked,
+  // `{ resolved: false, reason }` for a handle the platform would not answer for, and the
+  // metrics object when it did. Kept out of the draft so that typing in the form never
+  // silently invalidates numbers already on screen — `lookupHandle` records which handle the
+  // preview belongs to, and the panel hides itself once the field no longer matches.
+  const [lookingUp, setLookingUp] = useState(false)
+  const [lookup, setLookup] = useState(null)
+  const [lookupHandle, setLookupHandle] = useState('')
 
   // Filters live in the URL, so a filtered directory is a link someone can send. See
   // useUrlFilters — this is also the groundwork for saved views.
@@ -203,11 +220,70 @@ function CreatorsPage({
     toast.success(`Exported ${selectedVisible.length} creator${selectedVisible.length === 1 ? '' : 's'}.`)
   }
 
+  const clearLookup = () => {
+    setLookup(null)
+    setLookupHandle('')
+    setLookingUp(false)
+  }
+
   const openCreate = () => {
     setFormError('')
     setEditingId('')
     setCreatorForm({ ...EMPTY_DRAFT })
+    clearLookup()
     setDrawerMode('create')
+  }
+
+  /**
+   * Ask the platform about this handle, and keep the answer as a preview (C.2).
+   *
+   * <p>Nothing is saved here. The numbers sit in the drawer until someone presses Add creator,
+   * so vetting several handles leaves no trail of half-added creators.
+   *
+   * <p>An unresolved handle is a normal outcome, not an error — private accounts, typos and
+   * deleted profiles all land there — so it renders as a note above the still-editable form
+   * rather than as a failure. Only a broken request becomes an error.
+   *
+   * <p>The metrics are stored on the draft exactly as the BFF returned them, `metricsSource`
+   * included. That field is what later renders as "Platform verified" or "Simulated", and
+   * dropping it here would make the two indistinguishable on the record forever.
+   */
+  const runLookup = async () => {
+    const handle = String(activeDraft.handle || '').trim()
+    if (!handle || lookingUp) {
+      return
+    }
+    const platform = String(activeDraft.platform || 'instagram').toLowerCase()
+    try {
+      setLookingUp(true)
+      setFormError('')
+      const result = await onLookupHandle({ platform, handle })
+      setLookup(result)
+      setLookupHandle(handle)
+
+      const metrics = metricsFromLookup(result)
+      if (metrics) {
+        setActiveDraft((prev) => ({
+          ...prev,
+          // A display name only when the form is still empty: someone who typed a name meant it,
+          // and overwriting it with the platform's version would discard a deliberate choice.
+          // `displayName` is the only name resolveHandle returns — it has no `name` field, which
+          // is why this silently populated nothing until the BFF started sending it.
+          name: String(prev.name || '').trim() ? prev.name : (result.displayName || prev.name),
+          resolvedMetrics: metrics,
+        }))
+      } else {
+        // A failed lookup must clear any earlier success, or the previous handle's audience
+        // would be saved against this one.
+        setActiveDraft((prev) => ({ ...prev, resolvedMetrics: null }))
+      }
+    } catch (error) {
+      setLookup(null)
+      setLookupHandle('')
+      setFormError(error instanceof Error ? error.message : 'Unable to look up that handle.')
+    } finally {
+      setLookingUp(false)
+    }
   }
 
   const openEdit = (creator) => {
@@ -234,6 +310,7 @@ function CreatorsPage({
     setEditSnapshot('')
     setFormError('')
     setConfirmDiscard(false)
+    clearLookup()
   }
 
   const requestClose = () => {
@@ -335,6 +412,29 @@ function CreatorsPage({
       ],
       rows,
     })
+  }
+
+  const runDelete = async () => {
+    if (!editingId || deleting) {
+      return
+    }
+    try {
+      setDeleting(true)
+      setFormError('')
+      await onDeleteCreator(editingId)
+      // Read before the state clears — closeDrawer resets editDraft and the toast would name nobody.
+      const name = editDraft.name.trim() || 'Creator'
+      setConfirmDelete(false)
+      closeDrawer()
+      toast.success(`${name} deleted.`)
+    } catch (error) {
+      // Kept open on failure, with the dialog dismissed: the row still exists and the drawer is
+      // where someone would retry or give up. A closed drawer would imply it worked.
+      setConfirmDelete(false)
+      setFormError(error instanceof Error ? error.message : 'Unable to delete creator.')
+    } finally {
+      setDeleting(false)
+    }
   }
 
   const columns = [
@@ -598,16 +698,84 @@ function CreatorsPage({
               />
             </Field>
 
-            <Field label="Handle" htmlFor="creator-handle" required>
-              <input
-                id="creator-handle"
-                type="text"
-                value={activeDraft.handle}
-                placeholder="@aririvera"
-                onChange={(event) => setActiveDraft((prev) => ({ ...prev, handle: event.target.value }))}
-                required
-              />
+            <Field
+              label="Handle"
+              htmlFor="creator-handle"
+              required
+              hint={drawerMode === 'create'
+                ? 'Look up the handle to read this creator’s audience from the platform before you add them.'
+                : undefined}
+            >
+              <div className="handle-lookup">
+                <input
+                  id="creator-handle"
+                  type="text"
+                  value={activeDraft.handle}
+                  placeholder="@aririvera"
+                  onChange={(event) => setActiveDraft((prev) => ({ ...prev, handle: event.target.value }))}
+                  required
+                />
+                {/* Create only. On an existing creator the audience panel above already shows what
+                    was read and when, and re-reading it belongs with the record's refresh rather
+                    than in a form whose job is editing the fields a human owns. */}
+                {drawerMode === 'create' ? (
+                  <button
+                    type="button"
+                    className="ghost-btn"
+                    onClick={runLookup}
+                    disabled={lookingUp || !String(activeDraft.handle || '').trim()}
+                  >
+                    {lookingUp ? 'Looking up…' : 'Look up'}
+                  </button>
+                ) : null}
+              </div>
             </Field>
+
+            {/* The preview. Shown only while it still describes what is in the field: editing the
+                handle after a lookup makes these numbers someone else's, and leaving them on
+                screen would invite adding a creator with another account's audience. */}
+            {drawerMode === 'create' && lookup && lookupMatchesHandle(lookupHandle, activeDraft.handle) ? (
+              lookup.resolved ? (
+                <section className="audience-panel" aria-live="polite">
+                  <h3 className="audience-panel-title">
+                    Audience for @{lookup.handle || lookupHandle}
+                  </h3>
+                  <dl className="audience-stats">
+                    {lookup.followerCount !== null && lookup.followerCount !== undefined ? (
+                      <div>
+                        <dt>Followers</dt>
+                        <dd>{Number(lookup.followerCount).toLocaleString()}</dd>
+                      </div>
+                    ) : null}
+                    {lookup.engagementRate !== null && lookup.engagementRate !== undefined ? (
+                      <div>
+                        <dt>Engagement</dt>
+                        <dd>{Number(lookup.engagementRate).toFixed(2)}%</dd>
+                      </div>
+                    ) : null}
+                    {lookup.averageViews !== null && lookup.averageViews !== undefined ? (
+                      <div>
+                        <dt>Avg. views</dt>
+                        <dd>{Number(lookup.averageViews).toLocaleString()}</dd>
+                      </div>
+                    ) : null}
+                  </dl>
+                  {/* The same badge the record page uses, from the same `metricsSource` the BFF
+                      stamped. This is the line that keeps a simulated figure legible as one. */}
+                  <MetricsProvenance
+                    source={lookup.metricsSource}
+                    fetchedAt={lookup.metricsFetchedAt}
+                  />
+                  <p className="audience-panel-note">
+                    Saved with this creator when you add them.
+                  </p>
+                </section>
+              ) : (
+                <p className="field-hint" role="status">
+                  {lookup.reason || 'The handle could not be resolved. Enter the details manually.'}
+                </p>
+              )
+            ) : null}
 
             <Field label="Platform" htmlFor="creator-platform">
               <select
@@ -663,15 +831,39 @@ function CreatorsPage({
             {formError ? <p className="field-error" role="alert">{formError}</p> : null}
 
             <div className="drawer-actions">
-              <button type="button" className="ghost-btn" onClick={requestClose} disabled={saving}>
+              {/* Edit only, and only for a role that may delete. Pushed to the far left by
+                  `drawer-actions-danger` so it is nowhere near Save changes — the two are one
+                  mis-click apart otherwise, and only one of them is reversible. */}
+              {drawerMode === 'edit' && canDeleteCreator && onDeleteCreator ? (
+                <button
+                  type="button"
+                  className="danger-btn drawer-actions-danger"
+                  onClick={() => setConfirmDelete(true)}
+                  disabled={saving || deleting}
+                >
+                  {deleting ? 'Deleting…' : 'Delete'}
+                </button>
+              ) : null}
+              <button type="button" className="ghost-btn" onClick={requestClose} disabled={saving || deleting}>
                 Cancel
               </button>
-              <button type="submit" className="primary-btn" disabled={saving}>
+              <button type="submit" className="primary-btn" disabled={saving || deleting}>
                 {saving ? 'Saving…' : drawerMode === 'create' ? 'Add creator' : 'Save changes'}
               </button>
             </div>
           </form>
         </Drawer>
+      ) : null}
+
+      {confirmDelete ? (
+        <ConfirmDialog
+          title={`Delete ${editDraft.name.trim() || 'this creator'}?`}
+          consequence="Their campaign assignments, coupons and workflow cards for this brand go with them. This cannot be undone."
+          confirmLabel={deleting ? 'Deleting…' : 'Delete'}
+          cancelLabel="Keep creator"
+          onConfirm={runDelete}
+          onCancel={() => setConfirmDelete(false)}
+        />
       ) : null}
 
       {confirmDiscard ? (

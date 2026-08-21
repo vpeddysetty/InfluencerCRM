@@ -51,6 +51,26 @@ public class WebExperienceProperties {
         this.daoBaseUrl = daoBaseUrl;
     }
 
+    /**
+     * The UI's PRIMARY origin — the one to put in a link someone will click.
+     *
+     * <p>{@code ui-base-url} may hold a comma-separated list, because the same site is served from
+     * more than one hostname and CORS has to allow all of them. Anything building a URL wants one
+     * value, and quietly gets the first: a share link reading
+     * {@code https://tejdux.com,https://www.tejdux.com/share/abc} is not a link at all.
+     *
+     * <p>Kept as a separate accessor rather than trimming at the call site, so the distinction
+     * between "which origins may call us" and "where do we send people" is visible in the API
+     * instead of being rediscovered by whoever writes the next feature.
+     */
+    public String getPrimaryUiBaseUrl() {
+        String configured = getUiBaseUrl();
+        if (configured == null || configured.isBlank()) {
+            return configured;
+        }
+        return configured.split(",")[0].trim();
+    }
+
     public String getUiBaseUrl() {
         return uiBaseUrl;
     }
@@ -272,6 +292,42 @@ public class WebExperienceProperties {
         private String clientSecret;
         private String redirectUri;
         private String userinfoUri;
+
+        /**
+         * Scopes requested at the consent screen.
+         *
+         * <p><b>This only works against a CONSUMER-type Meta app, and that is deliberate.</b> The
+         * two app types authenticate differently, and the difference is not a matter of which
+         * permissions are listed here:
+         *
+         * <ul>
+         *   <li><b>Consumer</b> — plain Facebook Login. {@code scope} is the mechanism, and
+         *       {@code email,public_profile} is exactly what a sign-in needs.</li>
+         *   <li><b>Business</b> — Facebook Login for Business. Meta's documentation states that
+         *       {@code config_id} <em>replaces</em> {@code scope}: permissions come from a Business
+         *       Login Configuration built in the dashboard, and a {@code scope} parameter is
+         *       rejected with {@code Invalid Scopes: email} no matter what it contains. Adding
+         *       {@code pages_show_list} here does not help, because the parameter itself is the
+         *       wrong mechanism.</li>
+         * </ul>
+         *
+         * <p>Sign-in therefore runs on a Consumer app. The Instagram Graph API needs a Business one,
+         * but that is a separate integration on a separate timeline (roadmap M6) reading creator
+         * metrics — not the same flow as a brand owner signing in, and no reason to make signing in
+         * wait for it. See docs/platform-app-registration.md.
+         *
+         * <p>Still a property rather than a literal: it is what lets the scope be corrected with a
+         * restart instead of a rebuild while the dashboard side is being settled.
+         */
+        private String scope = "email,public_profile";
+
+        public String getScope() {
+            return scope;
+        }
+
+        public void setScope(String scope) {
+            this.scope = scope;
+        }
 
         public String getAuthorizationUri() {
             return authorizationUri;

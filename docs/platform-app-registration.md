@@ -95,13 +95,20 @@ local account. Before that, no such lookup was possible.
 | Permission | For | Phase |
 |---|---|---|
 | `instagram_basic` | Read profile and media | C |
-| `instagram_manage_insights` | Follower count, reach, audience demographics | C, C3 |
 | `instagram_content_publish` | Publish posts | F |
 | `pages_show_list`, `pages_read_engagement` | Link the Facebook Page | C |
 
-**Request all four in the initial submission**, even though Phase F is months away. A second review
+**Request these in the initial submission**, even though Phase F is months away. A second review
 round later costs another 2–4 weeks, and reviewers do not object to a coherent product asking for a
 coherent set.
+
+**`instagram_manage_insights` was dropped from this list on 2026-08-16**, having been listed here on
+the assumption that audience demographics were reachable for any creator a brand named. They are
+not. `InstagramProfileAdapter` reads through `business_discovery`, and the `insights` edge answers
+only for the account that authorised the app — so `demographics()` returns null by design rather
+than by omission. Asking for a permission the product cannot exercise invites the reviewer to ask
+where it is used, and the honest answer would be nowhere. The submission copy in
+[`snapshots/README.md`](../snapshots/README.md) is the authority on what is actually requested.
 
 ### Screenshots for the submission
 
@@ -112,6 +119,62 @@ with a README mapping each one to the permission it justifies. Regenerate them w
 Note what they do **not** show: live Instagram metrics, because the integration is not
 approved yet. The README says so explicitly rather than implying an integration we do not
 have — a mockup presented as a working feature is its own rejection reason.
+
+### Two Meta apps, not one — decided 2026-08-13
+
+**Sign-in and Instagram need different app TYPES, and one app cannot be both.**
+
+| | Consumer app | Business app |
+|---|---|---|
+| Login mechanism | `scope` | `config_id` — Meta's docs state it **replaces** `scope` |
+| `scope=email,public_profile` | works | **rejected**: `Invalid Scopes: email` |
+| Instagram Graph API | not available | required |
+
+This was learned the slow way. TejDux (`1532612907951511`) was set to Business type, and the
+resulting `Invalid Scopes: email` was first misread as "a Business app needs an extra business
+permission" — so `pages_show_list` was added to the scope. It changed nothing, because the contents
+of the parameter were never the problem: a Business app does not read `scope` at all. Permissions
+there come from a Business Login Configuration built in the dashboard and referenced by `config_id`.
+
+The resolution is two apps, which also matches what they actually are — two integrations with
+different users, timelines and failure modes:
+
+| App | Type | Purpose | When |
+|---|---|---|---|
+| Sign-in | **Consumer** | Brand owners signing into the CRM with Facebook | Now |
+| Instagram | **Business** | Reading creator metrics via the Instagram Graph API | M6 |
+
+Making sign-in wait for the Instagram app would hold a working feature behind a 2–4 week review of
+something months away. `web-experience.oauth.facebook.scope` is a property precisely so the sign-in
+app's scope can be corrected with a restart rather than a rebuild.
+
+### Dashboard fixes — re-verified against the Graph API on 2026-08-16
+
+**There are two apps, and this section previously described only one.** Sign-in runs on the Consumer
+app **TejDux Sign-in** (`2214744426037953`) — that is the id in `influencrm-prod/facebook-oauth-client-id`
+— while Instagram runs on the Business app **TejDux** (`1532612907951511`). Both were queried with
+their own app access tokens; the settings below are identical on both unless noted.
+
+Most of what this section listed as blocking on 2026-08-13 has since been fixed in the dashboard:
+
+| Field | Now holds | Verdict |
+|---|---|---|
+| Terms of Service URL | `https://www.tejdux.com/terms/` | ✅ Fixed — was `https://www.facebook.com/` |
+| Privacy Policy URL | `https://www.tejdux.com/privacy/` | ✅ Set |
+| Website / App URL | `https://www.tejdux.com/` | ✅ Fixed — was the `http://` form |
+| App Domains | `tejdux.com` | ✅ Fixed — was empty |
+| Category | Utilities | 🟠 Still Utilities. Category routes the review, and a B2B marketing CRM filed under Utilities invites "what does this app do?" Change to **Business and Pages** on both apps |
+
+Two things the Graph API will not answer, which a human must read off the dashboard. Do not assume
+either is set because sign-in works — the API returns no error for a missing value here, it simply
+omits the field, so its absence above is not evidence:
+
+- **Data Deletion** → set *Instructions URL* to `https://www.tejdux.com/data-deletion/` (verified
+  live and clean 2026-08-16). Required for review; the callback alternative is deliberately not used.
+- **Valid OAuth Redirect URIs** → must include `https://api.tejdux.com/api/auth/oauth/facebook/callback`,
+  which is the exact URI the BFF sends. A localhost-only URI is itself a rejection reason.
+
+Permission statuses and business verification state are likewise dashboard-only.
 
 ### The two things that most often cause rejection
 
@@ -317,13 +380,15 @@ Phase A (the builder) runs in parallel throughout and needs none of this.
 
 | Platform | Owner | Submitted | Approved | Notes |
 |---|---|---|---|---|
-| Public URLs — privacy, terms, data deletion | peddysetty | — | n/a | Live on tejdux.com since 2026-08-07; dates and retention periods still placeholders |
+| Meta — prod Facebook Login credentials | peddysetty | 2026-08-13 | ✅ working | App **TejDux Sign-in** (`2214744426037953`) — the Consumer app, confirmed 2026-08-16 by reading `influencrm-prod/facebook-oauth-client-id`, not the Business app this row previously named. Secrets populated in `influencrm-prod/facebook-oauth-client-{id,secret}`; `/api/auth/oauth/facebook/start` now 302s to the Meta dialog. Until 2026-08-13 both secrets held the single-space placeholder, so Facebook sign-in returned `400 facebook.client-id is not configured` **in production** — the top Meta rejection cause |
+| Public URLs — privacy, terms, data deletion | peddysetty | — | ✅ ready | Live on tejdux.com since 2026-08-07. **Placeholders resolved**: all three verified 2026-08-16 returning 200 with no `[PLACEHOLDER]` and "Last updated: 11 August 2026". The earlier alias conflict that 403'd `/privacy/` and `/terms/` is also gone |
 | Review screenshots | peddysetty | — | n/a | Captured 2026-08-07 in [`snapshots/`](../snapshots/); regenerate after UI changes |
 | Meta — access requested | peddysetty | 2026-08-07 | — | Requested. Expect 2–4 weeks; **resets if a reviewer requests changes**. Confirm below which permissions were included in the submission |
 | Meta — business verification | peddysetty | 2026-08-07 | — | Slowest step; runs in parallel with permission review |
 | Meta — `instagram_basic` | peddysetty | 2026-08-07 | — | Confirm included in the request |
-| Meta — `instagram_manage_insights` | peddysetty | 2026-08-07 | — | Confirm included — this is the one M6 needs for follower counts |
+| Meta — `instagram_manage_insights` | peddysetty | ❌ withdrawn | n/a | **Not requested, by decision 2026-08-16.** The `insights` edge answers only for the connected account, so it cannot serve a creator a brand merely named; `demographics()` is null by design. Follower counts come from `instagram_basic` via `business_discovery`, not from this. If it was included in the 2026-08-07 submission, withdraw it |
 | Meta — `instagram_content_publish` | peddysetty | 2026-08-07 | — | Phase F. Confirm included — a second review round costs another 2–4 weeks |
+| Meta — Instagram token in prod | peddysetty | 2026-08-15 | ⚠️ half-deployed | Both secrets exist in `influencrm-prod` with real values (216-char token, 17-digit account id), created BY HAND on 2026-08-15 — not by Terraform, which is why the 2026-08-16 apply hit `ResourceExistsException`. **The apply landed partially**: the S3 compose file now references `INSTAGRAM_*`, but the IAM policy granting the instance permission to read those two secrets did NOT apply. Prod is serving fine because the running instance predates the change, but the next boot fetches nothing and Instagram stays simulated. Import both secrets AND their versions before re-applying — a fresh `external_placeholder` would write a single space over the live token |
 | TikTok — Display API | peddysetty | — | — | **Deferred by decision 2026-08-07.** Submission package prepared below (§2.1). 5–10 business days once submitted; sandbox same-day |
 | TikTok — Content Posting API | peddysetty | — | — | Submit with Display API in one application — see §2.1 |
 | YouTube — Data API key | peddysetty | 2026-08-07 | 2026-08-07 | **Obtained.** Public channel statistics need no OAuth and no review. Unblocks the ungated half of M6 — see §4 |

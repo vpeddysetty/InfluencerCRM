@@ -166,6 +166,22 @@ data "aws_iam_policy_document" "compose_instance" {
     ]
     resources = ["${aws_cloudwatch_log_group.platform.arn}:*"]
   }
+
+  # The certificate-expiry metric the instance publishes hourly. PutMetricData takes no resource, so it
+  # cannot be scoped by ARN; the namespace condition is the available substitute and confines this to
+  # the platform's own metrics rather than letting it write anywhere in CloudWatch.
+  statement {
+    sid       = "PublishTlsMetric"
+    effect    = "Allow"
+    actions   = ["cloudwatch:PutMetricData"]
+    resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "cloudwatch:namespace"
+      values   = ["InfluenCRM/TLS"]
+    }
+  }
 }
 
 resource "aws_iam_role_policy" "compose_instance" {
@@ -316,25 +332,28 @@ locals {
   # ONE ENTRY PER DISTINCT SECRET, not per use: WORKLOAD_SIGNING_KEY is read by the DAO, the BFF, the DPS
   # and all seven context services, and they must all see the same value.
   compose_secret_env = {
-    DB_PASSWORD                  = local.secret_arns["db-password"]
-    DAO_SERVICE_TOKEN            = local.secret_arns["dao-service-token"]
-    DAO_KEYSTORE_B64             = local.secret_arns["dao-keystore-b64"]
-    DAO_KEYSTORE_PASSWORD        = local.secret_arns["dao-keystore-password"]
-    WORKLOAD_SIGNING_KEY         = local.secret_arns["workload-signing-key"]
-    JWT_SIGNING_KEY              = local.secret_arns["jwt-signing-key"]
-    MARKETPLACE_CREDENTIAL_KEY   = local.secret_arns["marketplace-credential-key"]
-    WORKFLOW_SERVICE_TOKEN       = local.secret_arns["workflow-service-token"]
-    DPS_SERVICE_TOKEN            = local.secret_arns["dps-service-token"]
-    GOOGLE_OAUTH_CLIENT_ID       = local.secret_arns["google-oauth-client-id"]
-    GOOGLE_OAUTH_CLIENT_SECRET   = local.secret_arns["google-oauth-client-secret"]
-    FACEBOOK_OAUTH_CLIENT_ID     = local.secret_arns["facebook-oauth-client-id"]
-    FACEBOOK_OAUTH_CLIENT_SECRET = local.secret_arns["facebook-oauth-client-secret"]
-    STRIPE_SECRET_KEY            = local.secret_arns["stripe-secret-key"]
-    BILLING_WEBHOOK_SECRET       = local.secret_arns["billing-webhook-secret"]
-    YOUTUBE_API_KEY              = local.secret_arns["youtube-api-key"]
-    OPENAI_API_KEY               = local.secret_arns["openai-api-key"]
-    SES_ACCESS_KEY_ID            = local.secret_arns["ses-access-key-id"]
-    SES_SECRET_ACCESS_KEY        = local.secret_arns["ses-secret-access-key"]
+    DB_PASSWORD                   = local.secret_arns["db-password"]
+    DAO_SERVICE_TOKEN             = local.secret_arns["dao-service-token"]
+    DAO_KEYSTORE_B64              = local.secret_arns["dao-keystore-b64"]
+    DAO_KEYSTORE_PASSWORD         = local.secret_arns["dao-keystore-password"]
+    DAO_TRUSTSTORE_B64            = local.secret_arns["dao-truststore-b64"]
+    WORKLOAD_SIGNING_KEY          = local.secret_arns["workload-signing-key"]
+    JWT_SIGNING_KEY               = local.secret_arns["jwt-signing-key"]
+    MARKETPLACE_CREDENTIAL_KEY    = local.secret_arns["marketplace-credential-key"]
+    WORKFLOW_SERVICE_TOKEN        = local.secret_arns["workflow-service-token"]
+    DPS_SERVICE_TOKEN             = local.secret_arns["dps-service-token"]
+    GOOGLE_OAUTH_CLIENT_ID        = local.secret_arns["google-oauth-client-id"]
+    GOOGLE_OAUTH_CLIENT_SECRET    = local.secret_arns["google-oauth-client-secret"]
+    FACEBOOK_OAUTH_CLIENT_ID      = local.secret_arns["facebook-oauth-client-id"]
+    FACEBOOK_OAUTH_CLIENT_SECRET  = local.secret_arns["facebook-oauth-client-secret"]
+    STRIPE_SECRET_KEY             = local.secret_arns["stripe-secret-key"]
+    BILLING_WEBHOOK_SECRET        = local.secret_arns["billing-webhook-secret"]
+    YOUTUBE_API_KEY               = local.secret_arns["youtube-api-key"]
+    INSTAGRAM_ACCESS_TOKEN        = local.secret_arns["instagram-access-token"]
+    INSTAGRAM_BUSINESS_ACCOUNT_ID = local.secret_arns["instagram-business-account-id"]
+    OPENAI_API_KEY                = local.secret_arns["openai-api-key"]
+    SES_ACCESS_KEY_ID             = local.secret_arns["ses-access-key-id"]
+    SES_SECRET_ACCESS_KEY         = local.secret_arns["ses-secret-access-key"]
   }
 
   # The seven extracted services, with the memory figures measured for the ECS deployment. Unused while
@@ -387,11 +406,34 @@ locals {
     ses_from_address         = var.ses_from_address
     workflow_service_enabled = tostring(var.workflow_service_enabled)
     dao_tls_verification     = tostring(local.compose_dao_tls_verification)
+    instagram_own_username   = var.instagram_own_username
 
     # Secure cookies over HTTPS only, and SameSite=None only alongside Secure. With Caddy the
     # certificate exists as soon as api_domain does, so that is the condition rather than an ACM arn.
     cookie_secure    = var.api_domain != "" ? "true" : "false"
     cookie_same_site = var.api_domain != "" ? "None" : "Lax"
+
+    # The session cookie has to reach the UI, which is a DIFFERENT HOST from the one that sets it:
+    # the DPS answers on api.tejdux.com, the UI is served from tejdux.com. Without a Domain the
+    # cookie is host-only, so it never arrives — and a completed sign-in renders as a signed-out
+    # landing page, because the SPA's first /dps/session call carries nothing.
+    #
+    # A leading dot on the apex covers the apex and every subdomain, which is what makes one session
+    # work across both. Empty when there is no api_domain: local development is all localhost, where
+    # a Domain attribute on a bare hostname is rejected and the cookie dropped entirely.
+    cookie_domain = var.api_domain != "" ? ".${var.root_domain}" : ""
+
+    # BOTH the apex and www, because both serve the UI. CloudFront answers on www.tejdux.com as well
+    # as tejdux.com, but only the apex was allowed — so anyone who reached the site with the www
+    # prefix loaded the page, had every /dps/session call blocked by CORS, and could not sign in at
+    # all. The page rendered, which is what made it look fine.
+    #
+    # Kept as a derived list rather than a second variable: the two origins are the same site, and
+    # allowing one without the other is never the intent.
+    ui_allowed_origins = var.api_domain != "" ? join(",", [
+      var.ui_base_url,
+      replace(var.ui_base_url, "://", "://www."),
+    ]) : var.ui_base_url
 
     context_services = local.compose_context_services
   })

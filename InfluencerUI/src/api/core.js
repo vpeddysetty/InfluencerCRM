@@ -33,6 +33,20 @@ let activeBrandId = ''
 let cookieMode = false
 let dpsBaseUrl = ''
 
+/**
+ * The auth endpoints a cookie session must NOT send through the DPS proxy.
+ *
+ * <p>These four are the session's own lifecycle — they create, rotate, or destroy the very thing
+ * the proxy authenticates with. Every other /api/auth/ path is a normal signed-in call and belongs
+ * on the proxy like any other.
+ */
+const UNPROXIED_AUTH_PATHS = [
+  '/api/auth/refresh',
+  '/api/auth/login',
+  '/api/auth/signup',
+  '/api/auth/logout',
+]
+
 export function useCookieSession(baseUrl) {
   cookieMode = true
   dpsBaseUrl = baseUrl || ''
@@ -41,6 +55,25 @@ export function useCookieSession(baseUrl) {
 export function clearCookieSession() {
   cookieMode = false
   dpsBaseUrl = ''
+}
+
+/**
+ * Absolute URL for a public hosted landing page (`/s/...`).
+ *
+ * <p>These paths are served by WebExperience, NOT by the SPA's own origin, and CloudFront does not
+ * route `/s/*` on the apex — a bare relative link there resolves to the marketing shell and returns
+ * 200, so the brand copies a dead link that looks alive. Resolving against the same base the API
+ * layer uses keeps the link correct in every environment instead of hardcoding a host.
+ */
+export function publicPageUrl(path) {
+  const base =
+    dpsBaseUrl ||
+    import.meta?.env?.VITE_BFF_URL ||
+    (typeof window !== 'undefined' && window.location?.origin ? window.location.origin : '')
+  if (!base) {
+    return path
+  }
+  return new URL(path, base).toString()
 }
 
 export function isCookieSession() {
@@ -74,6 +107,22 @@ export function setActiveBrandId(brandId) {
 
 export function getActiveBrandId() {
   return activeBrandId
+}
+
+function resolveApiUrl(path) {
+  if (!path || /^https?:\/\//i.test(path)) {
+    return path
+  }
+
+  const baseUrl =
+    import.meta?.env?.VITE_BFF_URL ||
+    (typeof window !== 'undefined' && window.location?.origin ? window.location.origin : '')
+
+  if (!baseUrl) {
+    return path
+  }
+
+  return new URL(path, baseUrl).toString()
 }
 
 function buildHeaders(token, extraHeaders = {}) {
@@ -165,10 +214,15 @@ export async function request(
   const payload = body == null ? undefined : isFormData ? body : JSON.stringify(body)
 
   // Cookie mode routes through the DPS proxy, which supplies the credential this client does not
-  // have. Auth endpoints are excluded: /api/auth/refresh rotates a token the browser is not
-  // holding, and login/signup are how a session begins, so neither can be proxied through a
-  // session that does not exist yet.
-  const proxied = cookieMode && !token && !path.startsWith('/api/auth/')
+  // have. Only the endpoints that ESTABLISH or ROTATE a session are excluded: /api/auth/refresh
+  // rotates a token the browser is not holding, and login/signup/logout are how a session begins
+  // and ends, so none can be proxied through a session that does not exist yet.
+  //
+  // Named individually rather than matched on the /api/auth/ prefix. The prefix also caught
+  // /api/auth/connected-accounts, which is an ordinary signed-in read: a cookie session sent it
+  // unproxied and tokenless, the BFF refused it, and the settings page rendered its empty state —
+  // so a linked provider showed as "Not connected" while the row sat in the database.
+  const proxied = cookieMode && !token && !UNPROXIED_AUTH_PATHS.some((prefix) => path.startsWith(prefix))
 
   const send = (bearer) => {
     if (proxied) {
@@ -182,7 +236,7 @@ export async function request(
       })
     }
 
-    return fetch(path, { method, headers: buildHeaders(bearer, extraHeaders), body: payload })
+    return fetch(resolveApiUrl(path), { method, headers: buildHeaders(bearer, extraHeaders), body: payload })
   }
 
   let response = await send(token)
@@ -229,6 +283,27 @@ export async function switchBrand(token, brandId) {
 
 export async function createBrand(token, name) {
   return request('/api/brands', { method: 'POST', token, body: { name } })
+}
+
+// Names the workspace after a social sign-up, and promotes it to an agency if that is what the
+// user picked before the redirect. Like switchBrand this re-mints the token, because the old one
+// still carries the provider-derived brandName the session was created with.
+// The providers connected to the signed-in account. Always the caller's own — the server takes the
+// user from the token, so there is no id to pass.
+export async function listConnectedAccounts(token) {
+  return request('/api/auth/connected-accounts', { token })
+}
+
+export async function disconnectAccount(token, id) {
+  return request(`/api/auth/connected-accounts/${id}`, { method: 'DELETE', token })
+}
+
+export async function completeOnboarding(token, { workspaceName, accountType }) {
+  return request('/api/brands/onboarding', {
+    method: 'POST',
+    token,
+    body: { workspaceName, accountType },
+  })
 }
 
 export async function listAccountMembers(token) {

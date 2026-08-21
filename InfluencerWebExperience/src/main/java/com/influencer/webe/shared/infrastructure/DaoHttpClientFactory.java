@@ -32,6 +32,7 @@ import java.net.http.HttpClient;
 public class DaoHttpClientFactory {
     private static final Logger log = LoggerFactory.getLogger(DaoHttpClientFactory.class);
     private static final String CLASSPATH_PREFIX = "classpath:";
+    private static final String FILE_PREFIX = "file:";
 
     private final WebExperienceProperties properties;
 
@@ -89,7 +90,17 @@ public class DaoHttpClientFactory {
         }
     }
 
-    /** Accepts either a {@code classpath:} resource or a filesystem path. */
+    /**
+     * Accepts a {@code classpath:} resource, a {@code file:} URL, or a bare filesystem path.
+     *
+     * <p>The {@code file:} form is not decoration. Spring resolves that prefix itself for properties
+     * it loads as a {@code Resource} — {@code server.ssl.key-store} among them — so the container
+     * entrypoint writes the decoded truststore and sets {@code WEBE_DAO_TRUST_STORE=file:/dev/shm/...}
+     * for symmetry with the keystore. This method reads the property as a plain String, so without
+     * stripping the prefix {@code Path.of} looks for a directory literally named {@code file:} and the
+     * BFF dies at startup with "points at a file that does not exist" — naming a path that is in fact
+     * there.
+     */
     private InputStream openTrustStore(String trustStorePath) throws IOException {
         if (trustStorePath.startsWith(CLASSPATH_PREFIX)) {
             String resource = trustStorePath.substring(CLASSPATH_PREFIX.length());
@@ -99,6 +110,10 @@ public class DaoHttpClientFactory {
                         "web-experience.dao-trust-store references a classpath resource that does not exist: " + resource);
             }
             return input;
+        }
+
+        if (trustStorePath.startsWith(FILE_PREFIX)) {
+            trustStorePath = trustStorePath.substring(FILE_PREFIX.length());
         }
 
         Path path = Path.of(trustStorePath);

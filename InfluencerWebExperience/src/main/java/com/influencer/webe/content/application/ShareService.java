@@ -80,7 +80,7 @@ public class ShareService {
         if (creatorId != null) {
             out.put("creatorId", creatorId.toString());
         }
-        String link = properties.getUiBaseUrl() + "/share/" + token;
+        String link = properties.getPrimaryUiBaseUrl() + "/share/" + token;
         out.put("link", link);
         out.put("mailto", buildMailto(link, scope));
         return out;

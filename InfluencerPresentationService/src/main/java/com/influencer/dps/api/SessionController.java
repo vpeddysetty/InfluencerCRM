@@ -57,10 +57,14 @@ public class SessionController {
 
     private final UiSessionService sessionService;
     private final DpsProperties properties;
+    private final com.influencer.dps.identity.IdentityClient identityClient;
 
-    public SessionController(UiSessionService sessionService, DpsProperties properties) {
+    public SessionController(UiSessionService sessionService,
+                             DpsProperties properties,
+                             com.influencer.dps.identity.IdentityClient identityClient) {
         this.sessionService = sessionService;
         this.properties = properties;
+        this.identityClient = identityClient;
     }
 
     @PostMapping("/auth/login")
@@ -71,10 +75,73 @@ public class SessionController {
 
     @PostMapping("/auth/signup")
     @ResponseStatus(HttpStatus.CREATED)
-    public ResponseEntity<SessionView> signup(@Valid @RequestBody SignupRequest request) {
+    public ResponseEntity<SessionView> signup(@Valid @RequestBody SignupRequest request,
+                                              HttpServletRequest httpRequest) {
+        // The consent, and the client that gave it. Both travel to the BFF, which owns the rule and
+        // writes the record — see IdentityClient#signup for why the headers matter as much as the
+        // flag: without them every consent record would name this container as the consenting party.
         UiSession session = sessionService.signup(
-                request.email(), request.password(), request.brandName(), request.accountType());
+                request.email(),
+                request.password(),
+                request.brandName(),
+                request.accountType(),
+                request.acceptedTerms(),
+                clientIp(httpRequest),
+                httpRequest.getHeader("User-Agent"));
         return withSessionCookie(session, SessionView.of(session));
+    }
+
+    /**
+     * The browser's address, preferring {@code X-Forwarded-For} because the DPS sits behind Caddy.
+     *
+     * <p>Only the first entry: the rest of that header is whatever earlier hops appended, and any of
+     * it can be forged by the client. The first is the one Caddy observed.
+     */
+    private String clientIp(HttpServletRequest request) {
+        String forwarded = request.getHeader("X-Forwarded-For");
+        if (forwarded != null && !forwarded.isBlank()) {
+            String first = forwarded.split(",")[0].trim();
+            if (!first.isEmpty()) {
+                return first;
+            }
+        }
+        return request.getRemoteAddr();
+    }
+
+    /**
+     * Begins connecting a provider to the account this browser is signed in to.
+     *
+     * <p>Its own endpoint rather than the generic {@code /dps/api} proxy, because that proxy returns
+     * the upstream response as a BODY. A 302 arrives with its status intact but no forwarded
+     * {@code Location}, so the browser has nothing to follow — fine for the fetch() calls the proxy
+     * exists for, useless for a leg whose entire purpose is to navigate.
+     *
+     * <p>The session cookie is what authorises this. Its access token is handed to the BFF, which
+     * resolves the user from it: linking decides which account an external identity can open, so the
+     * user must come from a verified token and never from the request.
+     */
+    @GetMapping("/auth/connected-accounts/{provider}/start")
+    public ResponseEntity<Void> startProviderLink(@PathVariable String provider,
+                                                  HttpServletRequest request) {
+        if (!SUPPORTED_PROVIDERS.contains(provider)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported provider: " + provider);
+        }
+
+        UiSession session = resolve(request)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Sign in first"));
+
+        // The BFF is asked SERVER-TO-SERVER for the authorization URL, and only its answer is
+        // redirected to. The obvious alternative — redirect the browser at the BFF with the access
+        // token in the query string — would put a bearer token in browser history, in the Referer of
+        // whatever the provider loads next, and in every access log along the way. That is the exact
+        // exposure this service exists to prevent, and it is why the session lives in an httpOnly
+        // cookie rather than in the page.
+        //
+        // So the token stays on this side of the wire, travelling as a header on a call the browser
+        // never sees, and the browser receives only the provider URL it was always going to be sent
+        // to. bff-base-url here, not the public one: this leg is server-to-server.
+        String location = identityClient.authorizationUrlForLink(provider, session.accessToken());
+        return ResponseEntity.status(HttpStatus.FOUND).location(URI.create(location)).build();
     }
 
     /**
@@ -87,12 +154,24 @@ public class SessionController {
     @GetMapping("/auth/oauth/{provider}/start")
     public ResponseEntity<Void> startOAuth(@PathVariable String provider,
                                            @RequestParam(required = false) String brandName,
-                                           @RequestParam(required = false) String displayName) {
+                                           @RequestParam(required = false) String displayName,
+                                           @RequestParam(required = false, defaultValue = "false") boolean acceptedTerms,
+                                           @RequestParam(required = false, defaultValue = "false") boolean signInOnly) {
         if (!SUPPORTED_PROVIDERS.contains(provider)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported provider: " + provider);
         }
 
-        StringBuilder target = new StringBuilder(properties.getBffBaseUrl())
+        // THE PUBLIC BFF URL, NOT dps.bff-base-url.
+        //
+        // This is a Location header: the BROWSER resolves it. bff-base-url is the server-to-server
+        // address, which in the deployed compose stack is http://web-experience:8081 — a hostname on
+        // the container bridge network that does not resolve anywhere else. Sending it here is what
+        // broke Google sign-in: the browser was redirected to a name it could not look up, and the
+        // landing page sat on "Connecting…" forever because the redirect that was supposed to
+        // replace the page never happened.
+        //
+        // Two URLs for two audiences, so neither can be quietly used for the other.
+        StringBuilder target = new StringBuilder(properties.requirePublicBffBaseUrl())
                 .append("/api/auth/oauth/").append(provider).append("/start");
         String separator = "?";
         if (brandName != null && !brandName.isBlank()) {
@@ -101,6 +180,20 @@ public class SessionController {
         }
         if (displayName != null && !displayName.isBlank()) {
             target.append(separator).append("displayName=").append(encode(displayName));
+            separator = "&";
+        }
+        // Forwarded rather than re-asked: the checkbox is on the landing page, and this leg is a
+        // redirect with nowhere to render one. The BFF re-checks it — see OAuthFlowService.startGoogle.
+        //
+        // signInOnly rides along for the same reason. It says the person chose Log in, which is what
+        // lets the BFF skip a consent question that belongs to registration — and what makes it
+        // refuse to create an account on this path rather than register someone silently.
+        if (acceptedTerms) {
+            target.append(separator).append("acceptedTerms=true");
+            separator = "&";
+        }
+        if (signInOnly) {
+            target.append(separator).append("signInOnly=true");
         }
         return ResponseEntity.status(HttpStatus.FOUND).location(URI.create(target.toString())).build();
     }
@@ -119,10 +212,20 @@ public class SessionController {
      */
     @GetMapping("/auth/oauth/complete")
     public ResponseEntity<Void> completeOAuth(@RequestParam(required = false) String handoff,
-                                              @RequestParam(required = false) String error) {
+                                              @RequestParam(required = false) String error,
+                                              @RequestParam(required = false) String linked) {
         if (error != null && !error.isBlank()) {
             return redirectToUi("/login?error=" + encode(presentable(error)), null);
         }
+
+        // A LINK rather than a sign-in. There is no handoff to redeem and no session to create —
+        // the caller already had one, which is what authorised the link in the first place. Handled
+        // before the handoff check, which would otherwise read a successful link as a failed login
+        // and send the user to the sign-in page with an error.
+        if (linked != null && !linked.isBlank()) {
+            return redirectToUi("/settings?linked=" + encode(presentable(linked)), null);
+        }
+
         if (handoff == null || handoff.isBlank()) {
             return redirectToUi("/login?error=" + encode("OAuth sign-in did not complete"), null);
         }
@@ -306,7 +409,7 @@ public class SessionController {
     }
 
     private ResponseCookie.ResponseCookieBuilder cookieBuilder(String value, Duration maxAge) {
-        return ResponseCookie.from(properties.getCookieName(), value)
+        ResponseCookie.ResponseCookieBuilder builder = ResponseCookie.from(properties.getCookieName(), value)
                 // The property that makes this design worthwhile: JavaScript cannot read it, so an
                 // XSS payload cannot steal the session.
                 .httpOnly(true)
@@ -314,6 +417,19 @@ public class SessionController {
                 .sameSite(properties.getCookieSameSite())
                 .path("/")
                 .maxAge(maxAge);
+
+        // Only when configured. An empty Domain attribute is not the same as none: it is invalid,
+        // and a browser drops the whole cookie rather than treating it as host-only — which would
+        // turn "no domain configured" into "no session at all" for local development.
+        //
+        // Applied through the shared builder so the CLEARING cookie carries it too. A logout whose
+        // Domain does not match the one the cookie was set with does not clear anything: the browser
+        // treats them as different cookies and the session cookie survives the sign-out.
+        String domain = properties.getCookieDomain();
+        if (domain != null && !domain.isBlank()) {
+            builder.domain(domain.trim());
+        }
+        return builder;
     }
 
     // ------------------------------------------------------------------ payloads
@@ -334,7 +450,24 @@ public class SessionController {
     public record SignupRequest(@Email @NotBlank String email,
                                 @NotBlank String password,
                                 String brandName,
-                                String accountType) {
+                                String accountType,
+                                /**
+                                 * The consent checkbox from the sign-up form.
+                                 *
+                                 * <p>Absent from this record until 2026-08-14, which broke
+                                 * email-and-password signup entirely: the UI sent the field, {@link
+                                 * #rejectUnknown} threw on it as unrecognised, and a caller that
+                                 * omitted it instead reached the BFF with no consent and was refused
+                                 * with "You must accept the Terms of Service and Privacy Policy".
+                                 * The social paths were threaded through when consent capture
+                                 * landed; this one was missed, so the primary signup route did not
+                                 * work at all through the DPS.
+                                 *
+                                 * <p>Forwarded rather than checked here. The BFF is where the rule
+                                 * lives, and duplicating it would give the platform two places to
+                                 * disagree about what consent means.
+                                 */
+                                Boolean acceptedTerms) {
 
         @JsonAnySetter
         void rejectUnknown(String name, Object value) {

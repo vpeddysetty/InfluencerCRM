@@ -8,9 +8,16 @@ function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit, onSocialLogin, authE
   const navigate = useNavigate()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [socialProvider, setSocialProvider] = useState('')
-  // 'brand' | 'agency'. Creators are CRM records owned by a brand, not accounts that sign in,
-  // so they are deliberately not an option here — see docs/identity-signup-alignment.md.
+  // 'brand' | 'agency'. Creators are not an option HERE because this form creates a workspace and
+  // a creator does not own one — they sign in at the creator portal instead, which has its own
+  // signup. (This comment used to say creators "are CRM records, not accounts that sign in"; that
+  // stopped being true when the portal shipped in Stage 4.)
   const [accountType, setAccountType] = useState('brand')
+
+  // Unticked by default and never pre-ticked: a pre-ticked box is not the clear affirmative act
+  // GDPR Article 4(11) requires, so it would not be consent at all. The server rejects a signup
+  // without it regardless — this only keeps the user from a pointless round trip.
+  const [acceptedTerms, setAcceptedTerms] = useState(false)
 
   // Build-time, not state: the landing page is signed out and cannot ask the BFF which billing
   // provider is configured. Free-only until VITE_BILLING_LIVE=true.
@@ -25,7 +32,12 @@ function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit, onSocialLogin, authE
 
     setIsSubmitting(true)
     try {
-      await onAuthSubmit(event)
+      // Passed explicitly rather than left to FormData. The consent checkbox lives BELOW the form,
+      // next to the social buttons it also governs, so it is outside <form> and a FormData built
+      // from the submit event cannot see it — which silently sent every signup with no consent and
+      // had the server refuse it. React state is where this value actually lives; read it from
+      // there rather than from the DOM position it happens to occupy.
+      await onAuthSubmit(event, { acceptedTerms })
       // Navigate as soon as the session is real. The CTA animation used to hold this back by
       // 340ms, which charged every signup for a decoration; the animation is free to finish
       // while the next route mounts.
@@ -51,7 +63,14 @@ function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit, onSocialLogin, authE
     // There is no result to await and no route to push: the redirect replaces this page. The
     // spinner stays on deliberately — it is the last thing rendered before the browser leaves.
     setSocialProvider(provider)
-    onSocialLogin(provider, { brandName, accountType: isSignUp ? accountType : '' })
+    onSocialLogin(provider, {
+      brandName,
+      accountType: isSignUp ? accountType : '',
+      // Consent has to leave WITH the redirect. After this the browser is at Google or Facebook and
+      // the callback returns straight into a signed-in session — there is no later moment at which
+      // a checkbox could be shown. Sign-in reuses this handler and has no checkbox, hence the guard.
+      acceptedTerms: isSignUp ? acceptedTerms : false,
+    })
   }
 
   return (
@@ -286,7 +305,9 @@ function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit, onSocialLogin, authE
             <button
               type="submit"
               className={`primary-btn landing-cta-btn${isSubmitting ? ' submitting' : ''}`}
-              disabled={isSubmitting}
+              /* Disabled until ticked, so the requirement is visible before the click rather than
+                 as an error after it. The server enforces this too — the button is a courtesy. */
+              disabled={isSubmitting || (isSignUp && !acceptedTerms)}
               aria-busy={isSubmitting}
             >
               <span className="cta-label">
@@ -297,7 +318,37 @@ function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit, onSocialLogin, authE
             </button>
           </form>
 
-          {authError ? <MdsNote className="auth-error-note">{authError}</MdsNote> : null}
+          {authError ? (
+            <MdsNote className="auth-error-note">
+              {authError}
+              {/* The refusal names its own remedy — "sign in with your password, then link facebook
+                  from account settings" — but account settings is a page behind a session the user
+                  does not yet have, so the instruction is only actionable in that order. Rather than
+                  offer a link that would bounce them straight back here, switch them to the form
+                  that gets them signed in, which is the step they actually have to do first.
+
+                  Matched on the stable half of the message rather than the whole string, so
+                  rewording the prose does not silently drop the affordance. */}
+              {/^An account already exists for this email/.test(authError) ? (
+                <>
+                  {' '}
+                  <button
+                    type="button"
+                    className="auth-link-btn"
+                    onClick={() => {
+                      setIsSignUp(false)
+                      // The password field is the next thing they need; putting the cursor there
+                      // saves a click and makes the switch visibly do something.
+                      document.querySelector('input[name="email"]')?.focus()
+                    }}
+                  >
+                    Sign in with your password
+                  </button>
+                  {' — then connect it from Settings once you are in.'}
+                </>
+              ) : null}
+            </MdsNote>
+          ) : null}
 
           <div className="auth-divider" aria-hidden="true">
             <span>or continue with</span>
@@ -308,7 +359,11 @@ function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit, onSocialLogin, authE
               type="button"
               className="ghost-btn auth-alt-btn"
               onClick={() => handleSocialLogin('google')}
-              disabled={Boolean(socialProvider)}
+              /* Sign-up gates on the same checkbox as the form below. Without this the social
+                 path would be a way around a consent the email path insists on, and the BFF
+                 would reject the redirect anyway — as an error after the click rather than a
+                 disabled button before it. */
+              disabled={Boolean(socialProvider) || (isSignUp && !acceptedTerms)}
               aria-busy={socialProvider === 'google'}
             >
               {socialProvider === 'google' ? 'Connecting…' : 'Google'}
@@ -317,28 +372,86 @@ function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit, onSocialLogin, authE
               type="button"
               className="ghost-btn auth-alt-btn"
               onClick={() => handleSocialLogin('facebook')}
-              disabled={Boolean(socialProvider)}
+              disabled={Boolean(socialProvider) || (isSignUp && !acceptedTerms)}
               aria-busy={socialProvider === 'facebook'}
             >
               {socialProvider === 'facebook' ? 'Connecting…' : 'Facebook'}
             </button>
           </div>
+
+          {/* One consent, below BOTH sign-up paths, because it governs both.
+
+              It used to sit inside the form, above the social buttons — which read as though it
+              applied only to email sign-up, while the social buttons underneath silently required
+              the same agreement. Placing it here makes the scope match the wording: whichever way
+              you create the account, this is what you agreed to.
+
+              Sign-up only. Someone signing in agreed when they registered, and re-asking on every
+              login would train people to tick without reading — which is how consent becomes a
+              formality rather than a decision. */}
+          {isSignUp ? (
+            <label className="auth-consent auth-consent-shared">
+              <input
+                type="checkbox"
+                name="acceptedTerms"
+                checked={acceptedTerms}
+                onChange={(event) => setAcceptedTerms(event.target.checked)}
+                required
+              />
+              <span>
+                I agree to the{' '}
+                <a href="https://www.tejdux.com/terms/" target="_blank" rel="noreferrer noopener">
+                  Terms of Service
+                </a>{' '}
+                and{' '}
+                <a href="https://www.tejdux.com/privacy/" target="_blank" rel="noreferrer noopener">
+                  Privacy Policy
+                </a>
+                , and I understand how to{' '}
+                {/* Meta requires this page to exist and expects it to be reachable from the
+                    product, not only from the App Dashboard field. It was previously linked
+                    nowhere in the UI — see docs/platform-app-registration.md. */}
+                <a
+                  href="https://www.tejdux.com/data-deletion/"
+                  target="_blank"
+                  rel="noreferrer noopener"
+                >
+                  request deletion of my data
+                </a>
+                .
+              </span>
+            </label>
+          ) : null}
         </div>
 
-        {/* These were plain text: the page asked people to agree to terms it gave them no way
-            to read, which is a compliance problem as much as a UX one. The targets are the same
-            live pages registered with Meta and TikTok — see docs/platform-app-registration.md. */}
-        <p className="landing-footnote">
-          By continuing you agree to our{' '}
-          <a href="https://www.tejdux.com/terms/" target="_blank" rel="noreferrer noopener">
-            Terms of Service
-          </a>{' '}
-          and{' '}
-          <a href="https://www.tejdux.com/privacy/" target="_blank" rel="noreferrer noopener">
-            Privacy Policy
-          </a>
-          .
-        </p>
+        {/* Sign-in only, now that sign-up has an explicit checkbox above — repeating the links here
+            during sign-up would give the same page two different consent affordances.
+
+            These were once plain text: the page asked people to agree to terms it gave them no way
+            to read. The targets are the same live pages registered with Meta and TikTok — see
+            docs/platform-app-registration.md. Both 403'd from 2026-08-05 until the shell
+            distribution was given a route to them; see static-site-cdn.tf. */}
+        {!isSignUp ? (
+          <p className="landing-footnote">
+            Your use of Tejdux is governed by our{' '}
+            <a href="https://www.tejdux.com/terms/" target="_blank" rel="noreferrer noopener">
+              Terms of Service
+            </a>{' '}
+            and{' '}
+            <a href="https://www.tejdux.com/privacy/" target="_blank" rel="noreferrer noopener">
+              Privacy Policy
+            </a>
+            . You can{' '}
+            <a
+              href="https://www.tejdux.com/data-deletion/"
+              target="_blank"
+              rel="noreferrer noopener"
+            >
+              request deletion of your data
+            </a>{' '}
+            at any time.
+          </p>
+        ) : null}
       </section>
     </main>
   )

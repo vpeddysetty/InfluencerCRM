@@ -5,7 +5,7 @@
 #   ./infrastructure/scripts/build-and-push.sh v1.0.0 dao web-experience   # a subset
 #
 # Then deploy that exact tag:
-#   cd infrastructure/terraform && terraform apply -var image_tag=v1.0.0
+#   cd infrastructure/test/terraform && terraform apply -var image_tag=v1.0.0
 #
 # WHY THE TAG IS AN ARGUMENT AND NOT `latest`. ECR repositories here are IMMUTABLE, so pushing the
 # same tag twice is rejected by the registry. That is deliberate: if a tag could be overwritten,
@@ -37,7 +37,7 @@ ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
 REGISTRY="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com"
 
 # service:module — an empty module means it builds from Dockerfile.agent instead. Must match
-# local.services in infrastructure/terraform/ecr.tf; a service here with no repository there fails at
+# local.services in infrastructure/test/terraform/ecr.tf; a service here with no repository there fails at
 # push with "repository does not exist", which is a clearer error than a missing container at runtime.
 SERVICES=(
     "dao:InfluencerDAO"
@@ -142,4 +142,4 @@ fi
 echo "All images pushed at tag ${TAG}."
 echo
 echo "Deploy:"
-echo "  cd infrastructure/terraform && terraform apply -var image_tag=${TAG}"
+echo "  cd infrastructure/test/terraform && terraform apply -var image_tag=${TAG}"

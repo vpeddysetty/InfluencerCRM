@@ -153,13 +153,38 @@ services:
       # compose-migration.md. Verification stays TRUE and the SAN is the thing that changes.
       WEBE_DAO_BASE_URL: https://dao:8443
       WEBE_DAO_TLS_VERIFICATION: "${dao_tls_verification}"
+      # The DAO's public certificate, from Secrets Manager rather than the image. The entrypoint decodes
+      # it to /dev/shm and points WEBE_DAO_TRUST_STORE at the result; when the secret is empty the
+      # entrypoint does nothing and Spring falls back to classpath:dao-truststore.p12.
+      #
+      # This is what keeps the two halves of the keypair rotating together. Previously the keystore was
+      # a secret and the truststore was baked into the image, so regenerating the pair updated one and
+      # silently left the other pointing at a certificate that no longer existed.
+      WEBE_DAO_TRUST_STORE_B64: $${DAO_TRUSTSTORE_B64}
       WEBE_AGENT_BASE_URL: http://agent:8000
-      WEBE_DPS_BASE_URL: http://dps:8090
       WORKFLOW_SERVICE_URL: http://workflow:8444
       # Externally reachable origins. These end up in redirects and CORS headers, so they must be what a
       # BROWSER can reach — not a service name.
+      #
+      # WEBE_DPS_BASE_URL BELONGS IN THIS GROUP, not with the service-name URLs above, where it sat
+      # until 2026-08-13. Its ONLY consumer is OAuthFlowService.redirectToDps, which builds a 302
+      # Location header — an instruction to the BROWSER. Set to http://dps:8090 it told the browser to
+      # navigate to a Docker-internal hostname, so every social sign-in died at the end of the flow:
+      # the provider authenticated the user, the callback exchanged the code and created the session,
+      # and then the browser was sent somewhere it could not resolve. Facebook surfaced this as a
+      # /dialog/close/ URL, which reads like a Meta-side rejection and is not one.
+      #
+      # The public origin serves the same DPS: /dps/* is routed to it by Caddy, so this is the same
+      # service by a name a browser can actually reach.
+      WEBE_DPS_BASE_URL: ${public_base_url}
       WEBE_PUBLIC_BASE_URL: ${public_base_url}
-      WEBE_UI_BASE_URL: ${ui_base_url}
+      # BOTH hostnames, comma-separated: this feeds the BFF's CORS allow-list, and the site is served
+      # from the apex and www alike. Allowing only the apex meant a visitor on www had signup blocked
+      # before the request left the browser, reported as "Failed to fetch".
+      #
+      # The FIRST entry is also the primary origin — what getPrimaryUiBaseUrl returns for share
+      # links, which need one URL rather than a list.
+      WEBE_UI_BASE_URL: ${ui_allowed_origins}
       # Uploaded assets live on the EFS mount: a container's own filesystem does not survive a deploy.
       WEBE_ASSET_ROOT: /mnt/assets
       WEBE_EMAIL_FROM: ${ses_from_address}
@@ -179,9 +204,34 @@ services:
       GOOGLE_OAUTH_CLIENT_SECRET: $${GOOGLE_OAUTH_CLIENT_SECRET}
       FACEBOOK_OAUTH_CLIENT_ID: $${FACEBOOK_OAUTH_CLIENT_ID}
       FACEBOOK_OAUTH_CLIENT_SECRET: $${FACEBOOK_OAUTH_CLIENT_SECRET}
+      # Sign-in runs on a CONSUMER-type Meta app, where scope is the mechanism. A Business-type app
+      # uses Facebook Login for Business, in which config_id REPLACES scope and any scope parameter
+      # is refused with "Invalid Scopes: email" regardless of its contents — so this value cannot be
+      # made to work there by adding permissions to it. Instagram needs a Business app; that is a
+      # separate integration on a separate app (M6), not a reason to hold up signing in.
+      # Here rather than only in application.properties so a scope change is a restart, not a rebuild.
+      FACEBOOK_OAUTH_SCOPE: email,public_profile
       STRIPE_SECRET_KEY: $${STRIPE_SECRET_KEY}
       WEBE_BILLING_WEBHOOK_SECRET: $${BILLING_WEBHOOK_SECRET}
       YOUTUBE_API_KEY: $${YOUTUBE_API_KEY}
+      # Instagram reads through business_discovery on the BUSINESS app referenced above — our own
+      # connected account asking about a public Business account by username, which is the only Graph
+      # endpoint that answers about an account that has not authorised us. Both values or neither:
+      # InstagramProfileAdapter.isConfigured() requires the pair, and a half-configured deployment
+      # falls back to the simulation rather than reporting nulls as "no audience".
+      INSTAGRAM_ACCESS_TOKEN: $${INSTAGRAM_ACCESS_TOKEN}
+      INSTAGRAM_BUSINESS_ACCOUNT_ID: $${INSTAGRAM_BUSINESS_ACCOUNT_ID}
+      # The connected account's own handle. Not a secret — it is a public username — so it is a
+      # literal here rather than another Secrets Manager entry.
+      #
+      # WHY IT MATTERS RIGHT NOW. business_discovery is gated on Advanced Access for
+      # instagram_basic and answers "(#10) Application does not have permission" for EVERY target
+      # while the app is in review — including our own account (verified against the live Graph API
+      # on 2026-08-16). Unset, isOwnAccount() is false for everything, every lookup takes the gated
+      # path, and the product can demonstrate nothing. Set, a lookup of this handle routes to
+      # /{ig-user-id}, which is not gated and answers today with the same fields and the same
+      # platform_api provenance.
+      INSTAGRAM_OWN_USERNAME: ${instagram_own_username}
       # STILL KEY-BASED. The instance role already holds ses:SendEmail, but SesEmailSender reads explicit
       # access keys from configuration, so the role alone would not be used.
       AWS_SES_ACCESS_KEY_ID: $${SES_ACCESS_KEY_ID}
@@ -223,6 +273,10 @@ services:
     environment:
       <<: *common-env
       DPS_BFF_URL: http://web-experience:8081
+      # The same BFF, as the BROWSER must address it. DPS_BFF_URL above is the compose-network name
+      # and is unreachable from outside the task, so it cannot be used in a redirect — doing exactly
+      # that is what broke Google sign-in, which redirected the browser to http://web-experience:8081.
+      DPS_PUBLIC_BFF_URL: ${public_base_url}
       DPS_UI_BASE_URL: ${ui_base_url}
       # Secure cookies over HTTPS only. With a certificate this must be true, or the session cookie
       # travels in clear text; without one it must be false, or the browser silently never sends the
@@ -230,7 +284,12 @@ services:
       DPS_COOKIE_SECURE: "${cookie_secure}"
       # Cross-origin micro-frontends need SameSite=None, which the spec only permits alongside Secure.
       DPS_COOKIE_SAME_SITE: "${cookie_same_site}"
-      DPS_ALLOWED_ORIGINS: ${ui_base_url}
+      # Scopes the session cookie to the apex so it reaches the UI host as well as this one. Without
+      # it the cookie is host-only to api.tejdux.com and the SPA on tejdux.com never sees the session.
+      DPS_COOKIE_DOMAIN: "${cookie_domain}"
+      # Apex AND www: both hostnames serve the UI, and an origin missing from this list has every
+      # session call blocked by CORS — the page renders, and nothing on it can authenticate.
+      DPS_ALLOWED_ORIGINS: ${ui_allowed_origins}
       # DPS_SESSION_STORE deliberately unset: in-memory Caffeine. Correct for one instance, wrong for
       # more than one — which is why this deployment is pinned to a single instance.
       DPS_SERVICE_TOKEN: $${DPS_SERVICE_TOKEN}

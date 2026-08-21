@@ -374,3 +374,40 @@ export const PUBLIC_TIERS = Object.freeze([
     note: 'Pricing is not published yet.',
   }),
 ])
+
+/**
+ * The screen-reader description of one usage row.
+ *
+ * <p>The row renders as a label plus a Badge reading "3 of 25". Sighted users get the ratio and
+ * the tone colour together; a screen reader got the bare text and no indication that it was a
+ * meter at all. `role="progressbar"` with explicit bounds is what turns it back into one.
+ *
+ * <p>Returns `null` for an unlimited resource on purpose. A meter needs a maximum, and there is
+ * no honest value for one here — `aria-valuemax` on an unbounded plan would invent a ceiling the
+ * account does not have. Unlimited rows stay plain text, which is already accurate.
+ *
+ * <p>`aria-valuenow` is clamped to the maximum. An account CAN sit above its limit (the free
+ * member cap dropped from 3 to 1 beneath accounts that already had more), and a valuenow past
+ * valuemax is invalid ARIA that assistive tech reports unpredictably. The visible "3 of 1" still
+ * tells the true story; `aria-valuetext` carries it into the accessible name.
+ */
+export function usageMeterAria(usage) {
+  if (!usage || usage.unlimited) {
+    return null
+  }
+
+  const limit = Number(usage.limit)
+  if (!Number.isFinite(limit) || limit <= 0) {
+    return null
+  }
+
+  const used = Number(usage.used) || 0
+
+  return {
+    role: 'progressbar',
+    'aria-valuemin': 0,
+    'aria-valuemax': limit,
+    'aria-valuenow': Math.max(0, Math.min(used, limit)),
+    'aria-valuetext': `${used} of ${limit} ${usage.label} used`,
+  }
+}

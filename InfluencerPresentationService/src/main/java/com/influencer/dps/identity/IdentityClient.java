@@ -56,6 +56,29 @@ public class IdentityClient {
     }
 
     public JsonNode signup(String email, String password, String brandName, String accountType) {
+        return signup(email, password, brandName, accountType, null, null, null);
+    }
+
+    /**
+     * Signs a new account up, carrying the consent given on the form.
+     *
+     * <p>{@code acceptedTerms} was not forwarded until 2026-08-14, which broke email-and-password
+     * signup through the DPS: the BFF requires consent and never received any, so every attempt was
+     * refused with "You must accept the Terms of Service and Privacy Policy to continue".
+     *
+     * <p>The IP and user agent are forwarded too, and matter more than they look. The BFF reads the
+     * client address from {@code X-Forwarded-For} and records it against the consent; without these
+     * headers this call is just another server-to-server request, so every consent record would
+     * attest that the DPS container agreed to the terms. A consent record naming the wrong client is
+     * worse than an absent one — it is evidence that says something untrue.
+     */
+    public JsonNode signup(String email,
+                           String password,
+                           String brandName,
+                           String accountType,
+                           Boolean acceptedTerms,
+                           String clientIp,
+                           String userAgent) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("email", email);
         body.put("password", password);
@@ -65,7 +88,18 @@ public class IdentityClient {
         if (accountType != null && !accountType.isBlank()) {
             body.put("accountType", accountType);
         }
-        return post("/api/auth/signup", body, null);
+        if (acceptedTerms != null) {
+            body.put("acceptedTerms", acceptedTerms);
+        }
+
+        Map<String, String> headers = new LinkedHashMap<>();
+        if (clientIp != null && !clientIp.isBlank()) {
+            headers.put("X-Forwarded-For", clientIp);
+        }
+        if (userAgent != null && !userAgent.isBlank()) {
+            headers.put("User-Agent", userAgent);
+        }
+        return post("/api/auth/signup", body, null, headers);
     }
 
     public JsonNode refresh(String refreshToken) {
@@ -99,6 +133,23 @@ public class IdentityClient {
 
     public JsonNode switchBrand(String accessToken, String brandId) {
         return post("/api/brands/switch", Map.of("brandId", brandId), accessToken);
+    }
+
+    /**
+     * Asks the BFF where to send a browser to connect a provider to this session's account.
+     *
+     * <p>The URL comes back as data and the DPS issues the redirect itself, so the access token
+     * travels on this call — server to server — rather than in a browser-visible query string. A
+     * bearer token in a URL ends up in history, in the Referer sent to the provider, and in every
+     * access log between here and there.
+     */
+    public String authorizationUrlForLink(String provider, String accessToken) {
+        JsonNode response = get("/api/auth/connected-accounts/" + provider + "/start", accessToken, null);
+        JsonNode url = response == null ? null : response.get("authorizationUrl");
+        if (url == null || url.isNull() || url.asText().isBlank()) {
+            throw new IllegalStateException("BFF returned no authorization URL for " + provider);
+        }
+        return url.asText();
     }
 
     /**
@@ -157,19 +208,39 @@ public class IdentityClient {
     }
 
     private JsonNode post(String path, Map<String, Object> body, String accessToken) {
-        return send("POST", path, body, accessToken);
+        return send("POST", path, body, accessToken, Map.of());
+    }
+
+    /** As above, forwarding headers that describe the ORIGINAL caller rather than this service. */
+    private JsonNode post(String path, Map<String, Object> body, String accessToken, Map<String, String> headers) {
+        return send("POST", path, body, accessToken, headers);
     }
 
     private JsonNode get(String path, String accessToken, Map<String, Object> ignored) {
-        return send("GET", path, null, accessToken);
+        return send("GET", path, null, accessToken, Map.of());
     }
 
-    private JsonNode send(String method, String path, Map<String, Object> body, String accessToken) {
+    private JsonNode send(String method,
+                          String path,
+                          Map<String, Object> body,
+                          String accessToken,
+                          Map<String, String> extraHeaders) {
         try {
             HttpRequest.Builder builder = HttpRequest.newBuilder()
                     .uri(URI.create(properties.getBffBaseUrl() + path))
                     .timeout(Duration.ofSeconds(20))
                     .header("Content-Type", "application/json");
+
+            // Allow-listed, not passed through. HttpRequest.Builder#header APPENDS rather than
+            // replaces, so forwarding arbitrary names would let a caller add a second Authorization
+            // or service-token header alongside the real one — and which of the two an upstream
+            // honours is not a question worth leaving open. These two describe the original client
+            // and are the only ones this needs to carry.
+            extraHeaders.forEach((name, value) -> {
+                if ("X-Forwarded-For".equalsIgnoreCase(name) || "User-Agent".equalsIgnoreCase(name)) {
+                    builder.header(name, value);
+                }
+            });
 
             if (accessToken != null && !accessToken.isBlank()) {
                 builder.header("Authorization", "Bearer " + accessToken);

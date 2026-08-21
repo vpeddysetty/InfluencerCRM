@@ -15,6 +15,7 @@
 export { default as Drawer } from './Drawer'
 export { default as ConfirmDialog } from './ConfirmDialog'
 export { default as SessionExpiredDialog } from './SessionExpiredDialog'
+export { default as WorkspaceOnboardingDialog } from './WorkspaceOnboardingDialog'
 export { default as DataTable } from './DataTable'
 export { default as PageHeader } from './PageHeader'
 export { default as ThemeToggle } from './ThemeToggle'
@@ -27,3 +28,4 @@ export {
   isPlatformVerified,
 } from './MetricsProvenance'
 export { default as PlanUsage } from './PlanUsage'
+export { Skeleton, SkeletonText, SkeletonTable } from './Skeleton'

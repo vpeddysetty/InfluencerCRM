@@ -31,6 +31,7 @@ function WorkspaceLayout({
   permissions = [],
   progress = null,
   onCreateBrand,
+  brandCapacity = null,
 }) {
   const { pathname } = useLocation()
 
@@ -42,7 +43,20 @@ function WorkspaceLayout({
   // Gated on the same permission the BFF enforces (`brand:create` — OWNER and ADMIN only). The
   // server check is the one that matters; hiding the control keeps a MARKETER from being offered
   // an action that would 403, rather than pretending it is a security boundary.
-  const canCreateBrand = Boolean(onCreateBrand) && permissions.includes('brand:create')
+  //
+  // The PLAN is the second half of that. An OWNER holds brand:create on every tier, but FREE and
+  // PRO cap brands at one, so permission alone rendered "+ Add brand" on exactly the accounts it
+  // could never work for — an upgrade-only capability offered as though it were available, failing
+  // with a bare 403. Multi-brand is what the agency tier is for; saying so is better than a button
+  // that lies. Null capacity means the plan has not loaded yet, which is treated as allowed: the
+  // control briefly appearing is a smaller fault than an agency being told it cannot add brands.
+  const brandLimitReached =
+    brandCapacity != null &&
+    brandCapacity.limit >= 0 &&
+    brandCapacity.used >= brandCapacity.limit
+
+  const canCreateBrand =
+    Boolean(onCreateBrand) && permissions.includes('brand:create') && !brandLimitReached
 
   const submitNewBrand = async (event) => {
     event.preventDefault()

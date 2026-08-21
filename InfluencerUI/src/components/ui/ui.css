@@ -432,6 +432,33 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* What the preview will do, under the numbers it describes. Subtle: it answers a question
+   someone is about to ask rather than asking for anything. */
+.audience-panel-note {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--fg-subtle-on-sunken);
+}
+
+/* Handle field plus its lookup button. The input keeps all the slack so the button stays the
+   width of its label — a lookup control that grows with the drawer reads as the primary action,
+   which it is not; adding the creator is. */
+.handle-lookup {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.handle-lookup input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.handle-lookup .ghost-btn {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
 /* ── Theme toggle ─────────────────────────────────────────────────────────
    A three-way segmented control in the rail footer. Sized to --control-h-sm so
    it sits beside the log-out button without out-weighting it. */
@@ -1164,6 +1191,69 @@
 }
 
 /* ── Tablet: the board and dense tables ───────────────────────────────── */
+/* ── Workspace rename (settings) ──────────────────────────────────────── */
+.settings-rename-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.settings-rename-form input {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+/* ── Sign-in methods (settings) ───────────────────────────────────────── */
+/* The markup shipped without any of these rules, so the list rendered as raw
+   <li> bullets and the two spans in each row ran together: "GoogleConnected as
+   …". Only ever visible once a provider was actually linked, which is why it
+   went unnoticed until the connected state could be reached at all. */
+.settings-provider-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.settings-provider-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-provider-row:last-child {
+  border-bottom: none;
+}
+
+/* The gap is what separates the provider name from its status. They are
+   adjacent elements with no whitespace between them in the JSX, so spacing has
+   to come from the layout rather than from the markup. */
+.settings-provider-detail {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.settings-provider-name {
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.settings-provider-meta {
+  font-size: var(--text-sm);
+  color: var(--fg-muted);
+  word-break: break-word;
+}
+
 @media (max-width: 1024px) {
   .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .columns { grid-auto-columns: minmax(240px, 80vw); }
@@ -1175,4 +1265,71 @@
   .page-header-action > * { width: 100%; }
   .kpi-grid { grid-template-columns: 1fr; }
   .drawer-panel { width: 100%; }
+  .settings-provider-row { flex-direction: column; align-items: stretch; gap: var(--space-2); }
+}
+
+/* Delete, pushed to the opposite end of the drawer footer from Save changes.
+   The footer is flex/flex-end, so `margin-right:auto` on the first child takes all the slack
+   and separates the destructive action from the one people click by habit. Adjacency is the
+   whole risk here: the two buttons differ by one mis-click and only one is reversible. */
+.drawer-actions-danger {
+  margin-right: auto;
+}
+
+/* ── Skeletons ────────────────────────────────────────────────────────────
+   Placeholders that reserve the height real content will occupy, so the page
+   does not reflow when a fetch lands.
+
+   Built from --border rather than a fixed grey, so the shimmer inverts with the
+   theme instead of glowing white on a dark page.
+
+   Deliberately NOT --surface-sunken for the base. A skeleton usually sits on
+   --bg, and sunken (#f1f5f9) against bg (#f6f7fb) is a 2% difference — the
+   placeholder was there in the DOM and invisible on screen. --border is the
+   token that is *defined* to be perceptible against the page, in both themes. */
+.skeleton {
+  display: block;
+  background-color: var(--border);
+  background-image: linear-gradient(
+    90deg,
+    transparent 25%,
+    var(--border-strong) 37%,
+    transparent 63%
+  );
+  background-size: 400% 100%;
+  animation: skeleton-sweep 1.4s ease-in-out infinite;
+}
+
+@keyframes skeleton-sweep {
+  0% { background-position: 100% 50%; }
+  100% { background-position: 0 50%; }
+}
+
+.skeleton-text {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.skeleton-table {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.skeleton-table-row {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: var(--space-4);
+  align-items: center;
+  /* Matches the real row's vertical rhythm. A shorter placeholder would still shift the page
+     on arrival, which is the whole failure this component exists to prevent. */
+  min-height: var(--space-6);
+}
+
+/* The sweep is decorative. Holding it still for a user who asked for less motion loses nothing —
+   the reserved space, which is the actual purpose, is unaffected. */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
 }

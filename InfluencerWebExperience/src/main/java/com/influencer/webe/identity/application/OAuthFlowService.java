@@ -19,26 +19,111 @@ public class OAuthFlowService {
     private final OAuthProfileService oauthProfileService;
     private final AuthService authService;
     private final OAuthHandoffService handoffService;
+    private final ConsentService consentService;
 
     public OAuthFlowService(
             WebExperienceProperties properties,
             OAuthStateService oauthStateService,
             OAuthProfileService oauthProfileService,
             AuthService authService,
-            OAuthHandoffService handoffService) {
+            OAuthHandoffService handoffService,
+            ConsentService consentService) {
         this.properties = properties;
         this.oauthStateService = oauthStateService;
         this.oauthProfileService = oauthProfileService;
         this.authService = authService;
         this.handoffService = handoffService;
+        this.consentService = consentService;
     }
 
     public ResponseEntity<Void> startGoogle(String brandName, String displayName) {
-        return ResponseEntity.status(HttpStatus.FOUND).location(URI.create(buildAuthorizationUrl("google", brandName, displayName))).build();
+        return startGoogle(brandName, displayName, false, null, null);
+    }
+
+    /**
+     * Begins a Google sign-in, having first checked that the person consented.
+     *
+     * <p>The check is here rather than in the callback because this is the last point at which a
+     * refusal costs nothing: after the redirect the browser is at Google, and rejecting on the way
+     * back would mean explaining a failure to someone who has already authenticated.
+     */
+    public ResponseEntity<Void> startGoogle(String brandName,
+                                            String displayName,
+                                            boolean acceptedTerms,
+                                            String ipAddress,
+                                            String userAgent) {
+        return startGoogle(brandName, displayName, acceptedTerms, ipAddress, userAgent, false);
+    }
+
+    /**
+     * Begins a Google flow, demanding consent only when this is a SIGN-UP.
+     *
+     * <p>Consent belongs to creating an account, not to using one. Requiring it on every social
+     * sign-in would re-ask a question already answered at registration, which is how a consent
+     * checkbox becomes a reflex rather than a decision — and it broke sign-in outright, because the
+     * Log in tab has no checkbox to tick and the server refused the flow before it began.
+     *
+     * <p>The check stays here for sign-up, though: this is the last point at which a refusal costs
+     * nothing. After the redirect the browser is at the provider, and rejecting on the way back would
+     * mean explaining a failure to someone who has already authenticated.
+     *
+     * <p>{@code signInOnly} is not a licence to skip consent — it is a promise that no account will
+     * be created. {@link #completeSocial} enforces that promise, refusing rather than signing up
+     * anyone whose account turns out not to exist.
+     */
+    public ResponseEntity<Void> startGoogle(String brandName,
+                                            String displayName,
+                                            boolean acceptedTerms,
+                                            String ipAddress,
+                                            String userAgent,
+                                            boolean signInOnly) {
+        if (!signInOnly) {
+            consentService.requireAccepted(acceptedTerms);
+        }
+        return ResponseEntity.status(HttpStatus.FOUND)
+                .location(URI.create(buildAuthorizationUrl(
+                        "google", brandName, displayName, acceptedTerms, ipAddress, userAgent, signInOnly)))
+                .build();
     }
 
     public ResponseEntity<Void> startFacebook(String brandName, String displayName) {
-        return ResponseEntity.status(HttpStatus.FOUND).location(URI.create(buildAuthorizationUrl("facebook", brandName, displayName))).build();
+        return startFacebook(brandName, displayName, false, null, null);
+    }
+
+    /** As {@link #startGoogle(String, String, boolean, String, String)}, for Facebook. */
+    public ResponseEntity<Void> startFacebook(String brandName,
+                                              String displayName,
+                                              boolean acceptedTerms,
+                                              String ipAddress,
+                                              String userAgent) {
+        return startFacebook(brandName, displayName, acceptedTerms, ipAddress, userAgent, false);
+    }
+
+    /** As {@link #startGoogle(String, String, boolean, String, String, boolean)}, for Facebook. */
+    public ResponseEntity<Void> startFacebook(String brandName,
+                                              String displayName,
+                                              boolean acceptedTerms,
+                                              String ipAddress,
+                                              String userAgent,
+                                              boolean signInOnly) {
+        if (!signInOnly) {
+            consentService.requireAccepted(acceptedTerms);
+        }
+        return ResponseEntity.status(HttpStatus.FOUND)
+                .location(URI.create(buildAuthorizationUrl(
+                        "facebook", brandName, displayName, acceptedTerms, ipAddress, userAgent, signInOnly)))
+                .build();
+    }
+
+    /**
+     * Begins a provider link for a caller who is already signed in.
+     *
+     * <p>No consent check, unlike the signup paths: the terms were accepted when the account was
+     * created, and adding a second way to sign in to it is not a new agreement.
+     */
+    public String authorizationUrlForLink(String provider, java.util.UUID userId) {
+        OAuthStateService.PendingOAuthRequest request = oauthStateService.createForLink(provider, userId);
+        return authorizationUrlFor(provider, request);
     }
 
     public ResponseEntity<Void> completeGoogle(String code, String state) {
@@ -74,9 +159,68 @@ public class OAuthFlowService {
                     ? properties.getOauth().getGoogle().getRedirectUri()
                     : properties.getOauth().getFacebook().getRedirectUri();
             String accessToken = oauthProfileService.exchangeAuthorizationCode(provider, code, redirectUri);
+
+            // A LINK, not a sign-in: the account already exists and the caller was signed in to it
+            // when the flow started. Attach the identity and send them back to settings; minting a
+            // fresh session here would be pointless, since they already hold one.
+            if (request.linkUserId() != null) {
+                authService.linkProvider(provider, request.linkUserId(), accessToken);
+                return redirectToDps("/dps/auth/oauth/complete?linked=" + encode(provider));
+            }
+
+            // A SIGN-IN was allowed to start without consent, on the promise that it would only ever
+            // sign in. This is where that promise is kept: if no account exists for this identity,
+            // refuse rather than quietly creating one nobody agreed to terms for.
+            //
+            // Checked BEFORE the exchange result is used to create anything, so the refusal happens
+            // instead of the signup rather than after it.
+            if (request.signInOnly() && !authService.hasAccountFor(provider, accessToken)) {
+                throw new IllegalArgumentException(
+                        "No account found for that " + provider + " account. Choose Sign up to create one.");
+            }
+
             AuthService.AuthResponse auth = "google".equals(provider)
                     ? authService.signupWithGoogle(accessToken, null, request.displayName(), request.brandName())
                     : authService.signupWithFacebook(accessToken, null, request.displayName(), request.brandName());
+
+            // Now that the account exists there is a user id to attach the consent to. The consent
+            // itself was given before the redirect and has been carried in the pending request since
+            // — see OAuthStateService.create for why it travels server-side rather than in `state`.
+            //
+            // This also fires for a RETURNING user, because signupWithSocial doubles as sign-in and
+            // does not distinguish the two. That is the safe direction: the unique index collapses a
+            // repeat acceptance of the same document version to the existing row, so a returning
+            // user re-consenting is a no-op, while missing a first-time signup would lose the record.
+            if (request.acceptedTerms()) {
+                consentService.recordSignupConsent(
+                        ConsentService.SUBJECT_USER,
+                        auth.userId(),
+                        auth.email(),
+                        provider + "_oauth_signup",
+                        // No metadata beyond the source.
+                        null,
+                        // The IP and user agent were captured at /start; the current request is the
+                        // provider's redirect, so reading them from it now would record the wrong
+                        // client. These stored values are the authoritative ones.
+                        request.ipAddress(),
+                        request.userAgent());
+            } else if (request.signInOnly()) {
+                // A sign-in to an account with NO consent on record — one predating consent capture,
+                // or created by a path that never wrote it. The sign-in is the only moment the person
+                // is present and identified, so it is the only moment that gap can be closed.
+                //
+                // Recorded, not demanded: the account already exists and is in use, and refusing
+                // entry over a record we failed to write would punish the user for our omission.
+                // A no-op when consent already exists, so returning users are not re-recorded.
+                consentService.recordIfMissing(
+                        ConsentService.SUBJECT_USER,
+                        auth.userId(),
+                        auth.email(),
+                        provider + "_oauth_signin_backfill",
+                        request.ipAddress(),
+                        request.userAgent());
+            }
+
             return redirectToDps("/dps/auth/oauth/complete?handoff=" + encode(handoffService.store(auth)));
         } catch (ResponseStatusException exception) {
             String reason = exception.getReason() == null ? "OAuth sign-in failed" : exception.getReason();
@@ -102,8 +246,26 @@ public class OAuthFlowService {
                 .build();
     }
 
-    private String buildAuthorizationUrl(String provider, String brandName, String displayName) {
-        OAuthStateService.PendingOAuthRequest request = oauthStateService.create(provider, brandName, displayName);
+    private String buildAuthorizationUrl(String provider,
+                                         String brandName,
+                                         String displayName,
+                                         boolean acceptedTerms,
+                                         String ipAddress,
+                                         String userAgent,
+                                         boolean signInOnly) {
+        OAuthStateService.PendingOAuthRequest request = oauthStateService.create(
+                provider, brandName, displayName, acceptedTerms, ipAddress, userAgent, signInOnly);
+        return authorizationUrlFor(provider, request);
+    }
+
+    /**
+     * Builds the provider's authorization URL for an already-opened pending request.
+     *
+     * <p>Split out so the signup and link paths cannot drift: both must send the same client id,
+     * redirect URI and scopes, and the only difference between them belongs in the pending request
+     * rather than in the URL.
+     */
+    private String authorizationUrlFor(String provider, OAuthStateService.PendingOAuthRequest request) {
         WebExperienceProperties.Google google = properties.getOauth().getGoogle();
         WebExperienceProperties.Facebook facebook = properties.getOauth().getFacebook();
 
@@ -121,7 +283,14 @@ public class OAuthFlowService {
             authorizationUri = requireConfigured(facebook.getAuthorizationUri(), "facebook.authorization-uri");
             clientId = requireConfigured(facebook.getClientId(), "facebook.client-id");
             redirectUri = requireConfigured(facebook.getRedirectUri(), "facebook.redirect-uri");
-            scope = "email public_profile";
+            // Configured rather than literal: which scopes are valid depends on the app's type in
+            // the Meta dashboard, not on this code. See WebExperienceProperties.Facebook#scope —
+            // a Business-type app refuses "email public_profile" on its own.
+            //
+            // Comma-separated on the wire. Meta accepts either separator, but its own documentation
+            // and error messages use commas, and a space-separated list is what the previous literal
+            // sent — so commas keep what we send and what Meta reports back directly comparable.
+            scope = normalizeScopes(facebook.getScope());
         } else {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported provider: " + provider);
         }
@@ -132,6 +301,38 @@ public class OAuthFlowService {
                 + "&redirect_uri=" + encode(redirectUri)
                 + "&scope=" + encode(scope)
                 + "&state=" + encode(request.state());
+    }
+
+    /**
+     * Accepts a scope list written with commas, spaces, or both, and emits a comma-separated one.
+     *
+     * <p>The property is edited by hand in a compose file and in the Meta dashboard's own notation,
+     * so tolerating whichever separator someone reaches for is worth more than insisting on one.
+     * Blank entries are dropped: a trailing comma is a typo, not a request for an empty permission,
+     * and Meta rejects the whole authorization with {@code Invalid Scopes} if one arrives.
+     */
+    private String normalizeScopes(String configured) {
+        if (configured == null || configured.isBlank()) {
+            // Deliberately not silently substituting a default. An empty scope is a configuration
+            // mistake, and Meta's error for it names the app rather than the setting — so failing
+            // here, with the property name, is the faster diagnosis.
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "facebook.scope is not configured");
+        }
+        String[] parts = configured.trim().split("[,\\s]+");
+        StringBuilder joined = new StringBuilder();
+        for (String part : parts) {
+            if (part.isBlank()) {
+                continue;
+            }
+            if (joined.length() > 0) {
+                joined.append(',');
+            }
+            joined.append(part);
+        }
+        if (joined.length() == 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "facebook.scope is not configured");
+        }
+        return joined.toString();
     }
 
     private String requireConfigured(String value, String propertyName) {

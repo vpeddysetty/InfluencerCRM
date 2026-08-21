@@ -53,6 +53,7 @@ const PayoutsPage = contextPage('mf_finance/PayoutsPage', () => import('../pages
 // A plain lazy import rather than contextPage(): there is no identity remote to fall back to.
 const MembersPage = lazy(() => import('../pages/MembersPage'))
 const BillingPage = lazy(() => import('../pages/BillingPage'))
+const SettingsPage = lazy(() => import('../pages/SettingsPage'))
 
 /**
  * Nav groups, in display order.
@@ -172,6 +173,17 @@ export const ROUTE_MANIFEST = [
     component: BillingPage,
     apiSlice: 'core',
   },
+  {
+    // No permission: this is the caller's OWN account, not the workspace's. Everyone who can sign
+    // in can manage how they sign in, and the server scopes every operation here to the user id in
+    // the token — so there is nothing a gate would protect.
+    context: 'identity',
+    path: '/settings',
+    label: 'Settings',
+    group: 'Setup',
+    component: SettingsPage,
+    apiSlice: 'core',
+  },
 ]
 
 /** Where a signed-in user lands: the board they work out of, not a dashboard of zeros. */
@@ -184,7 +196,11 @@ export function visibleRoutes(permissions) {
   if (!permissions || permissions.length === 0) {
     return ROUTE_MANIFEST
   }
-  return ROUTE_MANIFEST.filter((route) => permissions.includes(route.permission))
+  // A route with no permission is visible to everyone who can sign in. That is not an oversight to
+  // be defaulted away: /settings manages the caller's OWN account, and every operation behind it is
+  // scoped server-side to the user id in the token, so there is nothing for a workspace permission
+  // to protect. Filtering on `includes(undefined)` would silently hide such a route from everyone.
+  return ROUTE_MANIFEST.filter((route) => !route.permission || permissions.includes(route.permission))
 }
 
 /**

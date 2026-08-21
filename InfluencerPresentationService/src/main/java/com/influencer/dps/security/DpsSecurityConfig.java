@@ -43,6 +43,62 @@ public class DpsSecurityConfig {
         this.properties = properties;
     }
 
+    /**
+     * The CSRF cookie, carrying the SAME Domain as the session cookie.
+     *
+     * <p><b>Why this is not the default.</b> Spring writes the token host-only, so on the deployed
+     * stack it landed on {@code api.tejdux.com} while the SPA runs on {@code www.tejdux.com}. The
+     * session cookie is shared across both because {@code dps.cookie-domain} puts it on
+     * {@code .tejdux.com}; the token was not, so {@code document.cookie} was empty where the app
+     * actually reads it. The header could never be sent, and every state-changing call through
+     * {@code /dps/api/**} came back 403 with no body — a handle lookup, adding a brand and renaming
+     * a workspace all failed identically, and none of them for the reason they appeared to.
+     *
+     * <p>Only a cookie-session user hit this. A bearer session sends no CSRF header at all and is
+     * not asked to, so the failure was invisible to password sign-in and to every same-origin test.
+     *
+     * <p>The domain is applied only when configured, for the reason spelled out on the session
+     * cookie: an empty Domain attribute is invalid and makes a browser drop the cookie outright,
+     * which would break local development instead of merely leaving it host-only.
+     */
+    // Package-private, not private, so CsrfCookieDomainTest can exercise the real thing. The
+    // sibling session-cookie test mirrors its builder inline instead, and that is precisely why it
+    // could not catch a domain the production path accepted and Tomcat did not.
+    CookieCsrfTokenRepository csrfTokenRepository() {
+        CookieCsrfTokenRepository repository = CookieCsrfTokenRepository.withHttpOnlyFalse();
+        String domain = normalizedCookieDomain();
+        if (domain != null) {
+            repository.setCookieCustomizer(cookie -> cookie.domain(domain));
+        }
+        return repository;
+    }
+
+    /**
+     * The configured cookie domain WITHOUT a leading dot, or null when none is configured.
+     *
+     * <p>The dot has to go. {@code dps.cookie-domain} is {@code .tejdux.com} in production, which
+     * the session cookie accepts because it is written through Spring's {@code ResponseCookie}.
+     * This one is written by Tomcat, whose RFC 6265 processor rejects it outright —
+     * {@code IllegalArgumentException: An invalid domain [.tejdux.com] was specified for this
+     * cookie} — and that throws inside the CSRF filter, so every request through the DPS 500s and
+     * the whole API is down. Verified the hard way: the first deploy of this fix did exactly that.
+     *
+     * <p>Dropping the dot does not narrow the scope. RFC 6265 made the leading dot redundant:
+     * {@code Domain=tejdux.com} already matches the host and every subdomain, which is precisely
+     * the sharing between {@code www} and {@code api} this fix exists to restore.
+     */
+    private String normalizedCookieDomain() {
+        String domain = properties.getCookieDomain();
+        if (domain == null || domain.isBlank()) {
+            return null;
+        }
+        String trimmed = domain.trim();
+        while (trimmed.startsWith(".")) {
+            trimmed = trimmed.substring(1);
+        }
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         CsrfTokenRequestAttributeHandler csrfHandler = new CsrfTokenRequestAttributeHandler();
@@ -56,7 +112,7 @@ public class DpsSecurityConfig {
                         // Readable by JavaScript on purpose: the SPA has to echo it back. This is
                         // the double-submit pattern — knowing the value proves same-origin script
                         // execution, which a cross-site attacker cannot achieve.
-                        .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
+                        .csrfTokenRepository(csrfTokenRepository())
                         .csrfTokenRequestHandler(csrfHandler)
                         // Login and signup have no session to protect yet, and requiring a token
                         // before one exists would make first sign-in impossible. The OAuth legs are

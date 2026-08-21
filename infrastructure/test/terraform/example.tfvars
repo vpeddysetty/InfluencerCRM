@@ -18,12 +18,66 @@ environment = "prod"
 # provider, and neither Google nor Meta will accept an ALB's default hostname. So expect to do phase 2
 # before anyone can log in.
 
-api_domain          = ""
-acm_certificate_arn = ""
-public_base_url     = ""
-ui_base_url         = ""
+# ---------------------------------------------------------------------------
+# HTTPS and OAuth — enabled 2026-08-10
+# ---------------------------------------------------------------------------
+# api_domain is what unlocks all three of: TLS, OAuth sign-in, and /api routing through CloudFront.
+# Everything below follows from it.
+api_domain = "api.tejdux.com"
 
+# NO ACM CERTIFICATE, and that is not an omission. Caddy runs on the instance and obtains its own
+# certificate from Let's Encrypt via the HTTP-01 challenge — which is why there is no ALB here to
+# terminate TLS and no certificate to buy or renew. acm_certificate_arn stays empty; it exists for the
+# ALB path, which this deployment does not use.
+#
+# The existing certificate d38a2767 covers tejdux.com and www.tejdux.com ONLY (verified, not assumed —
+# it is not a wildcard), so it could not cover api.tejdux.com even if an ALB were wanted.
+acm_certificate_arn = ""
+
+# Where the BROWSER reaches the API. This is what ends up in OAuth redirect URIs and CORS headers, so it
+# must be the public https:// name, not a service name and not the Elastic IP.
+public_base_url = "https://api.tejdux.com"
+
+# Where the SHELL is served. The apex, because shell_serves_apex is on by default and tejdux.com already
+# aliases the shell distribution under certificate d38a2767.
+#
+# ONE origin, not seven, and this is worth being precise about: the six remotes are Module Federation
+# modules that the shell FETCHES and executes in its own page. They run on the shell's origin, and none
+# of them contains a reference to VITE_BFF_URL or VITE_DPS_URL (verified). So the DPS only ever sees
+# requests from this one origin, and DPS_ALLOWED_ORIGINS is correct as a single value.
+ui_base_url = "https://tejdux.com"
+
+# Still empty: this would give app./workflow./campaigns./… their own hostnames, and needs a WILDCARD
+# certificate. d38a2767 is not one. The micro-frontends keep serving on their *.cloudfront.net names,
+# which works because the shell is told each remote's origin at build time.
 static_site_certificate_arn = ""
+
+# ---------------------------------------------------------------------------
+# BFF -> DAO certificate verification — enabled 2026-08-11
+# ---------------------------------------------------------------------------
+# TRUE, so the BFF verifies the DAO's certificate instead of accepting any certificate presented on
+# port 8443. The variable is badly named in hindsight: the DAO cert has carried DNS:dao since it was
+# regenerated, and the SAN was never what blocked this.
+#
+# What blocked it was a STALE TRUSTSTORE. The keystore and truststore were regenerated together at
+# 14:12 on 2026-08-10, but only the keystore reached Secrets Manager — the truststore stayed
+# uncommitted, so images kept being built from the committed copy, which anchors a DIFFERENT
+# self-signed cert issued at 00:49 that day. Same subject, same SANs, different key. The BFF therefore
+# held an anchor for a certificate the DAO had stopped serving.
+#
+# Fixed in image v1.0.4, which is the first build to contain the 14:12 truststore (verified by
+# extracting BOOT-INF/classes/dao-truststore.p12 from the built jar). Setting this true against any
+# EARLIER image reinstates the failure.
+dao_certificate_has_service_san = true
+
+# ---------------------------------------------------------------------------
+# Alerting — added 2026-08-11
+# ---------------------------------------------------------------------------
+# Where the DAO certificate-expiry alarm sends its notification. AWS emails a confirmation link the
+# first time this is applied, and NOTHING IS DELIVERED until that link is clicked — an SNS email
+# subscription sits in PendingConfirmation indefinitely otherwise, looking wired up and delivering
+# nothing.
+alert_email = "vijay.peddysetty@kmpsglobal.com"
 
 # The apex. ON by default in variables.tf, so it applies without being set here: tejdux.com and
 # www.tejdux.com are aliases of the SHELL distribution, A and AAAA, under the certificate below.

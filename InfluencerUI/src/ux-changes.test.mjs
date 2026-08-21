@@ -216,8 +216,14 @@ test('groups render in declared order with no empty sections', () => {
 test('a permission set that excludes a whole group drops that group', () => {
   // A marketer with no money permissions should see no Money heading at all.
   const grouped = groupedVisibleRoutes(['workflow:read', 'campaign:read'])
-  assert.deepEqual(grouped.map((g) => g.group), ['Work'])
+
+  // Setup survives on /settings alone, which carries NO permission: it manages the caller's own
+  // sign-in methods, not the workspace, and every operation behind it is scoped server-side to the
+  // user in the token. Money is still absent, which is what this test is actually about — a group
+  // whose every route is gated disappears for someone holding none of those gates.
+  assert.deepEqual(grouped.map((g) => g.group), ['Work', 'Setup'])
   assert.deepEqual(grouped[0].routes.map((r) => r.path), ['/workflow', '/campaigns'])
+  assert.deepEqual(grouped[1].routes.map((r) => r.path), ['/settings'])
 })
 
 test('empty permissions still show everything', () => {
@@ -279,6 +285,33 @@ import { dirname, join } from 'node:path'
 
 const SRC = dirname(fileURLToPath(import.meta.url))
 const read = (relative) => readFileSync(join(SRC, relative), 'utf8')
+
+/**
+ * Removes every `@<name>` block and its full body, brace-matched so nested rules go with it.
+ *
+ * <p>Used to ask "is this selector reachable without the OS being in a particular mode?" — a plain
+ * regex cannot answer that, because it cannot tell a rule inside a media query from one outside.
+ */
+function stripAtBlocks(css, atName) {
+  let out = ''
+  for (let i = 0; i < css.length; ) {
+    if (!css.startsWith(atName, i)) {
+      out += css[i]
+      i += 1
+      continue
+    }
+    const open = css.indexOf('{', i)
+    if (open === -1) break
+    let depth = 0
+    let j = open
+    for (; j < css.length; j += 1) {
+      if (css[j] === '{') depth += 1
+      else if (css[j] === '}' && (depth -= 1) === 0) break
+    }
+    i = j + 1
+  }
+  return out
+}
 
 test('the kanban grid sizes itself to however many stages exist', () => {
   const css = read('App.css')
@@ -886,6 +919,52 @@ test('choosing "system" removes the attribute rather than setting a value', () =
   assert.match(toggle, /root\.removeAttribute\('data-theme'\)/)
   // localStorage throws — not returns null — in Safari private browsing and under policy blocks.
   assert.match(toggle, /catch \{/)
+})
+
+test('picking Dark works on a light-mode machine', () => {
+  // The whole dark palette used to live inside @media (prefers-color-scheme: dark), so
+  // :root:not([data-theme='light']) could only match while the OS was ALREADY dark. Pressing
+  // Dark on a light-mode machine set the attribute and changed nothing — the reported bug.
+  // The explicit selector must therefore exist OUTSIDE any media query.
+  const index = read('index.css')
+
+  // Remove every @media block (brace-matched, so nested rules go with it) and assert on what is
+  // left. That is exactly "reachable regardless of the OS setting".
+  const outside = stripAtBlocks(index, '@media')
+
+  assert.match(outside, /:root\[data-theme='dark'\]\s*\{/)
+  // and it must actually carry the palette, not merely exist
+  assert.match(outside, /:root\[data-theme='dark'\]\s*\{[^}]*--bg: #0b1017/s)
+})
+
+test('the dark background rules are reachable without the OS too', () => {
+  // body/.workspace-rail/.card paint literal backgrounds rather than reading a token, so they
+  // need the same dual-path treatment as the palette. Missing these left a dark-token page
+  // sitting on a light body.
+  const index = read('index.css')
+
+  assert.match(index, /:root\[data-theme='dark'\] body/)
+  assert.match(index, /:root\[data-theme='dark'\] \.workspace-rail/)
+})
+
+test('.mds-theme carries no light-mode colour literals', () => {
+  // .mds-theme wraps <Outlet />, so every routed page inherits these rules. Hardcoded inks here
+  // outrank the tokenised components/ui styles and go unreadable the moment the theme flips.
+  const app = read('App.css')
+  const block = app.slice(app.indexOf('.mds-theme'), app.lastIndexOf('.mds-theme'))
+
+  // A <pre> is deliberately dark in both themes, so exclude it before asserting. Comments are
+  // stripped too — they legitimately name the old literals to explain what was replaced.
+  const withoutCodeBlock = block
+    .replace(/\/\*.*?\*\//gs, '')
+    .replace(/\.mds-theme pre[^}]*\}/gs, '')
+
+  for (const literal of ['#1e3a8a', '#1e40af', '#1d4ed8', '#2563eb', '#0f172a']) {
+    assert.ok(
+      !withoutCodeBlock.includes(literal),
+      `.mds-theme still hardcodes ${literal}; use a token so it flips with the theme`,
+    )
+  }
 })
 
 test('fonts are self-hosted, not fetched from Google at runtime', () => {
@@ -1563,6 +1642,210 @@ test('the landing legal footnote links somewhere', () => {
   assert.match(page, /rel="noreferrer noopener"/)
 })
 
+test('the data deletion page is reachable from the product', () => {
+  // Meta requires this page to exist AND expects a reviewer to be able to find it from the app,
+  // not only from the App Dashboard field. It was linked nowhere in the UI until this was added.
+  const page = read('pages/LandingPage.jsx')
+
+  assert.match(page, /https:\/\/www\.tejdux\.com\/data-deletion\//)
+})
+
+test('no dialog moves focus from an effect that re-runs on re-render', () => {
+  // The bug this guards: an effect that focuses something AND lists a changing dependency runs
+  // again every time the parent re-renders. Parents pass inline arrows, so every keystroke in a
+  // drawer form produced a new onClose identity, React tore the effect down and set it up again,
+  // and focus went from the input to the dialog panel. Typing was impossible -- one character per
+  // click. The forms were fine; the dialogs wrapping them were not.
+  //
+  // The fix is structural: callbacks live in refs, and anything that touches focus runs mount-only.
+  // So the rule checked here is that a focus-moving effect has an EMPTY dependency array.
+  const dialogs = [
+    'components/ui/Drawer.jsx',
+    'components/ui/ConfirmDialog.jsx',
+    'components/ui/WorkspaceOnboardingDialog.jsx',
+    'components/ui/SessionExpiredDialog.jsx',
+  ]
+
+  for (const file of dialogs) {
+    const source = read(file)
+
+    // Split into effect bodies with their dependency arrays.
+    const effects = source.split('useEffect(() => {').slice(1)
+    for (const effect of effects) {
+      const end = effect.search(/\n  \}, \[[^\]]*\]\)/)
+      if (end === -1) continue
+      const body = effect.slice(0, end)
+      const deps = effect.slice(end).match(/\}, \[([^\]]*)\]\)/)?.[1].trim() ?? ''
+
+      // A ref-sync effect assigns and focuses nothing; it may depend on whatever it likes.
+      const movesFocus = /\.focus\(\)|\.select\(\)/.test(body)
+      if (movesFocus && deps !== '') {
+        assert.fail(
+          `${file}: an effect that moves focus depends on [${deps}]. It will re-run whenever the ` +
+          'parent re-renders and pull focus out of whatever the user is typing into. Hold the ' +
+          'callback in a ref and give the effect an empty dependency array.',
+        )
+      }
+    }
+  }
+})
+
+test('the consent value does not depend on the checkbox being inside the form', () => {
+  // The checkbox sits BELOW <form>, next to the social buttons it also governs. FormData built from
+  // a submit event only sees fields inside that form, so reading acceptedTerms from it sent every
+  // signup with false and the server refused it -- the box was ticked on screen and the value never
+  // left the browser. The page renders it from React state, so the submit path must read it there.
+  const page = read('pages/LandingPage.jsx')
+  const app = read('App.jsx')
+
+  const formEnds = page.indexOf('</form>')
+  const checkboxAt = page.indexOf('name="acceptedTerms"')
+  assert.ok(formEnds > -1 && checkboxAt > formEnds,
+    'this test only matters while the checkbox is outside the form; if it moved back inside, ' +
+    'revisit whether the FormData read is safe again')
+
+  assert.match(page, /onAuthSubmit\(event, \{ acceptedTerms \}\)/,
+    'LandingPage must pass its own state, not rely on the form containing the field')
+  assert.match(app, /options\.acceptedTerms \?\?/,
+    'the handler must prefer the passed value over FormData')
+})
+
+test('one consent governs both sign-up paths', () => {
+  // The checkbox used to sit INSIDE the form, above the social buttons, which read as though it
+  // applied only to email sign-up while the buttons underneath silently required the same
+  // agreement. It now sits below both, and both are gated on it.
+  const page = read('pages/LandingPage.jsx')
+
+  const consentAt = page.indexOf('auth-consent-shared')
+  const socialAt = page.indexOf('auth-alt-actions')
+  assert.ok(consentAt > -1, 'the shared consent block must exist')
+  assert.ok(socialAt > -1 && consentAt > socialAt, 'consent must render below the social buttons')
+
+  // Both providers refuse to start a sign-up until the box is ticked, matching the email path's
+  // disabled CTA and the BFF, which rejects the redirect outright.
+  const gated = page.match(/disabled=\{Boolean\(socialProvider\) \|\| \(isSignUp && !acceptedTerms\)\}/g)
+  assert.equal(gated?.length, 2, 'both social buttons must be gated on consent')
+})
+
+test('social sign-up no longer refuses agencies', () => {
+  // Federated signup always provisions a `brand` account, so an agency selection used to be
+  // rejected with "use email and password instead". The post-OAuth onboarding step promotes it
+  // instead, so the refusal is gone and the selection survives the redirect.
+  const app = read('App.jsx')
+
+  assert.doesNotMatch(app, /Agency workspaces are created with email and password/)
+  assert.match(app, /PENDING_ACCOUNT_TYPE_KEY/, 'the choice must survive the provider redirect')
+  assert.match(app, /PENDING_SOCIAL_SIGNUP_KEY/, 'the return must be recognisable as a sign-up')
+})
+
+test('the onboarding marker is consumed so a reload cannot re-ask', () => {
+  // Left in place, the step would reappear on every reload of a workspace the user already named.
+  const app = read('App.jsx')
+  const at = app.indexOf('PENDING_SOCIAL_SIGNUP_KEY)')
+  const block = app.slice(at, at + 600)
+
+  assert.match(block, /removeItem\(PENDING_SOCIAL_SIGNUP_KEY\)/)
+  assert.match(block, /removeItem\(PENDING_ACCOUNT_TYPE_KEY\)/)
+})
+
+test('onboarding re-mints the token so the header stops showing the provider name', () => {
+  // The session carries brandName. Renaming the workspace without swapping the token leaves the
+  // old provider-derived name on screen until the next sign-in.
+  const core = read('api/core.js')
+  const app = read('App.jsx')
+
+  assert.match(core, /\/api\/brands\/onboarding/)
+  const handler = app.slice(app.indexOf('const handleCompleteOnboarding'), app.indexOf('const handleCompleteOnboarding') + 700)
+  assert.match(handler, /setAuthToken\(updated\.accessToken\)/)
+  assert.match(handler, /applyBrandFromAuth\(updated\)/)
+})
+
+test('no hook reads a const declared later in the component', () => {
+  // A `const` is not hoisted, so an effect referencing one declared below it throws ReferenceError
+  // on the FIRST render — and React unmounts the whole tree, so the entire app renders blank. This
+  // shipped: linkedProviderNotice was used on line 422 and declared on line 440, and every check
+  // that could have caught it passed. Node's test runner never mounts the component, the Vite build
+  // does not evaluate it, and every curl returned 200 because the HTML and assets were all fine.
+  //
+  // Checks declaration order for the state this component reads inside effects. Deliberately narrow:
+  // a general "no TDZ anywhere" rule needs a parser, and the failure mode worth guarding is the one
+  // that already happened.
+  const app = read('App.jsx')
+  const componentAt = app.indexOf('function App(')
+  const body = app.slice(componentAt)
+
+  for (const name of ['oauthErrorFromUrl', 'linkedProviderNotice', 'onboarding']) {
+    const declaredAt = body.search(new RegExp(`const \\[${name}[,\\]]`))
+    assert.ok(declaredAt > -1, `${name} must be declared`)
+
+    // First use inside a useEffect body, which is what runs during render.
+    const effectUse = body.indexOf(`!${name}`)
+    if (effectUse > -1) {
+      assert.ok(
+        declaredAt < effectUse,
+        `${name} is used at ${effectUse} but declared at ${declaredAt}: a const read before its ` +
+          'declaration throws ReferenceError on first render and blanks the entire page',
+      )
+    }
+  }
+})
+
+test('the account-exists refusal offers the step it tells the user to take', () => {
+  // The message names its own remedy -- "sign in with your password, then link facebook from
+  // account settings" -- but settings sits behind a session the user does not have yet, so the
+  // instruction only works in that order. The affordance therefore switches them to the sign-in
+  // form rather than linking to a page that would bounce them straight back.
+  const page = read('pages/LandingPage.jsx')
+
+  assert.match(page, /\^An account already exists for this email/, 'matched on the stable prefix')
+  assert.match(page, /setIsSignUp\(false\)/, 'the control must switch to the sign-in form')
+
+  // Deliberately NOT a link to /settings: signed out, that route does not render.
+  const block = page.slice(page.indexOf('An account already exists'), page.indexOf('An account already exists') + 900)
+  assert.doesNotMatch(block, /href="\/settings"/, 'settings is unreachable signed out')
+})
+
+test('a failed social sign-in has somewhere to land and says what happened', () => {
+  // The DPS redirects failures to /login?error=<reason>. With no such route the redirect hit the
+  // catch-all, rendered the signed-out landing page, and dropped the message — so "an account
+  // already exists for this email, sign in with your password then link facebook" was
+  // indistinguishable from being randomly logged out.
+  const app = read('App.jsx')
+
+  assert.match(app, /path="\/login"/, 'the DPS error redirect needs a route to land on')
+  assert.match(app, /searchParams.*\.get\('error'\)|get\('error'\)/, 'the reason must be read from the URL')
+  assert.match(app, /authError=\{oauthErrorFromUrl \|\| authError\}/, 'and passed to the page that renders it')
+})
+
+test('the OAuth error is cleared from the URL once read', () => {
+  // Left in the query string it survives a reload and a bookmark, so a user who later returns to
+  // the URL is told again that a sign-in they have since completed had failed.
+  const app = read('App.jsx')
+  const at = app.indexOf("url.searchParams.delete('error')")
+  assert.ok(at > -1, 'the error parameter must be stripped after being read')
+  assert.match(app.slice(at, at + 400), /replaceState/, 'stripped via history, not a navigation')
+})
+
+test('connecting a provider goes through the DPS, never with a token in the URL', () => {
+  // The BFF endpoint needs a verified caller, and being signed in is the whole proof that the
+  // account belongs to whoever is attaching a provider to it. Sending the browser straight at the
+  // BFF would mean putting the access token in a query string — history, Referer, access logs.
+  const app = read('App.jsx')
+
+  assert.match(app, /\/dps\/auth\/connected-accounts\/\$\{provider\}\/start/)
+  assert.doesNotMatch(app, /connected-accounts.*access_token=/, 'no bearer token may travel in the URL')
+})
+
+test('settings is reachable without a workspace permission', () => {
+  // visibleRoutes filters on permissions.includes(route.permission). A route with no permission
+  // would match `includes(undefined)` and be hidden from everyone — including the page that manages
+  // the caller's own sign-in methods, which no workspace permission should gate.
+  const manifest = read('shell/routeManifest.js')
+
+  assert.match(manifest, /path: '\/settings'/)
+  assert.match(manifest, /!route\.permission \|\| permissions\.includes\(route\.permission\)/)
+})
+
 test('landing controls clear the 44px touch target floor', () => {
   const css = read('App.css')
 
@@ -1727,13 +2010,29 @@ test('the app asks the DPS for an existing session at boot', () => {
   assert.match(app, /useCookieSession\(DPS_BASE_URL\)/, 'a restored session must switch transport')
 })
 
+test('the app falls back to the browser origin when no DPS URL is provided', () => {
+  const app = read('App.jsx')
+
+  assert.match(app, /window\.location\.origin/, 'the shell should use the current browser origin by default')
+})
+
+test('the API transport uses the configured BFF base URL in production', () => {
+  const core = read('api/core.js')
+
+  assert.match(core, /VITE_BFF_URL/, 'the transport should read the build-time BFF URL')
+  assert.match(core, /resolveApiUrl|BFF_BASE_URL/, 'the transport should resolve API URLs against the BFF origin')
+})
+
 test('the restore runs once and cannot re-enter', () => {
   // A dependency on anything the restore itself sets would re-restore over a live session.
   const app = read('App.jsx')
   const at = app.indexOf('const restore = async () =>')
   assert.ok(at > -1, 'the restore effect must exist')
 
-  const effectTail = app.slice(at, at + 1400)
+  // 2400, not 1400: the effect grew when the post-social-signup onboarding check was added to it,
+  // which pushed the dependency array past the old window and failed this test while the invariant
+  // it guards was still perfectly intact. The window only has to reach the end of the effect.
+  const effectTail = app.slice(at, at + 2400)
   assert.match(effectTail, /\}, \[\]\)/, 'the restore effect must have an empty dependency array')
 })
 
@@ -1758,12 +2057,25 @@ test('cookie mode proxies through the DPS and sends the CSRF header', () => {
   assert.match(core, /X-XSRF-TOKEN/, 'double-submit CSRF token must be attached')
 })
 
-test('auth endpoints are never proxied', () => {
-  // /api/auth/refresh rotates a token the browser is not holding, and login/signup are how a
-  // session begins — none can travel through a session that does not exist yet.
+test('session-lifecycle endpoints are never proxied', () => {
+  // /api/auth/refresh rotates a token the browser is not holding, and login/signup/logout are how
+  // a session begins and ends — none can travel through a session that does not exist yet.
+  //
+  // Named individually rather than matched on the /api/auth/ prefix, which this test used to
+  // assert. That prefix also caught /api/auth/connected-accounts — an ordinary signed-in read —
+  // so a cookie session sent it unproxied and tokenless and a linked provider showed as
+  // "Not connected". See api/cookieProxyRouting.test.mjs for the routing behaviour itself.
   const core = read('api/core.js')
 
-  assert.match(core, /!path\.startsWith\('\/api\/auth\/'\)/)
+  assert.match(core, /const UNPROXIED_AUTH_PATHS = \[/)
+  for (const path of ['refresh', 'login', 'signup', 'logout']) {
+    assert.match(core, new RegExp(`'/api/auth/${path}'`), `${path} must stay off the proxy`)
+  }
+  assert.doesNotMatch(
+    core,
+    /!path\.startsWith\('\/api\/auth\/'\)/,
+    'the blanket prefix also excluded connected-accounts, which must be proxied',
+  )
 })
 
 test('a bearer session is unaffected by cookie mode existing', () => {

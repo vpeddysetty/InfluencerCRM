@@ -28,9 +28,16 @@ export function Field({ label, hint, error, htmlFor, children, required }) {
   )
 }
 
-/** Status pill. Encodes state in colour *and* text, so it survives greyscale and colour-blindness. */
-export function Badge({ tone = 'neutral', children }) {
-  return <span className={`badge badge-${tone}`}>{children}</span>
+/**
+ * Status pill. Encodes state in colour *and* text, so it survives greyscale and colour-blindness.
+ *
+ * <p>Extra props are forwarded to the span. A badge is sometimes more than decoration — the plan
+ * panel renders one as a usage meter and needs `role`/`aria-value*` to land on the element that
+ * carries the text. Without the passthrough those attributes were silently dropped, which looks
+ * identical on screen and is why it went unnoticed.
+ */
+export function Badge({ tone = 'neutral', children, ...rest }) {
+  return <span className={`badge badge-${tone}`} {...rest}>{children}</span>
 }
 
 /**
@@ -53,6 +60,33 @@ export function EmptyState({ title, description, action, icon }) {
 /** Row of filter controls above a table. */
 export function FilterBar({ children }) {
   return <div className="filter-bar">{children}</div>
+}
+
+/**
+ * The toolbar that appears once rows are selected.
+ *
+ * <p>Renders nothing at zero selection, so it costs no vertical space until it has something to
+ * say. `role="status"` announces the count as it changes — a keyboard user ticking rows otherwise
+ * gets no feedback that the selection grew, which is the moment they most need it.
+ */
+export function BulkActionBar({ count, onClear, children }) {
+  if (!count) {
+    return null
+  }
+
+  return (
+    <div className="bulk-action-bar" role="status" aria-live="polite">
+      <span className="bulk-action-count">
+        {count} selected
+      </span>
+      <div className="bulk-action-buttons">
+        {children}
+        <button type="button" className="ghost-btn" onClick={onClear}>
+          Clear
+        </button>
+      </div>
+    </div>
+  )
 }
 
 export { joinClassNames }

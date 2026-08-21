@@ -1,7 +1,20 @@
 #!/usr/bin/env bash
 # Populate the secrets Terraform creates EMPTY, because it cannot generate them.
 #
-#   ./infrastructure/scripts/bootstrap-secrets.sh prod us-east-1
+#   ./infrastructure/scripts/bootstrap-secrets.sh                    # everything (first run)
+#   ./infrastructure/scripts/bootstrap-secrets.sh prod us-east-1     # explicit env and region
+#   ./infrastructure/scripts/bootstrap-secrets.sh prod us-east-1 tls # ONLY the TLS keypair
+#   ./infrastructure/scripts/bootstrap-secrets.sh prod us-east-1 jwt # ONLY the signing key
+#
+# THE THIRD ARGUMENT MATTERS FOR ROTATION, and it is not a convenience. Running this script whole to
+# rotate a certificate also regenerates jwt-signing-key, and THAT INVALIDATES EVERY LIVE SESSION:
+# access tokens signed by the old key stop verifying, so every signed-in user is logged out. The two
+# have completely different blast radii and should not be forced to rotate together:
+#
+#   tls  — regenerates the DAO keypair and both stores. Needs a platform restart; no user impact.
+#   jwt  — regenerates the access-token signing key. Logs everyone out. Do it deliberately.
+#   all  — both, plus the instructions for the credentials only you can supply. The default, and
+#          right for a first run into an empty environment.
 #
 # WHAT MUST BE SET OR NOTHING RUNS:
 #   jwt-signing-key         the BFF refuses to start without it (an ephemeral key cannot be verified
@@ -20,7 +33,23 @@ set -euo pipefail
 
 ENVIRONMENT="${1:-prod}"
 REGION="${2:-${AWS_REGION:-us-east-1}}"
+SECTION="${3:-all}"
 PREFIX="influencrm-${ENVIRONMENT}"
+
+case "$SECTION" in
+    all|tls|jwt) ;;
+    *)
+        echo "ERROR: unknown section '${SECTION}'. Use one of: all (default), tls, jwt." >&2
+        exit 1
+        ;;
+esac
+
+# Rotating the signing key is the destructive one, so say so before doing it rather than after.
+if [ "$SECTION" = "jwt" ] || [ "$SECTION" = "all" ]; then
+    echo "NOTE: this run regenerates jwt-signing-key, which LOGS OUT every signed-in user."
+    echo "      Use '${0##*/} ${ENVIRONMENT} ${REGION} tls' to rotate only the DAO certificate."
+    echo
+fi
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 WORK="$(mktemp -d)"
@@ -44,44 +73,101 @@ echo
 # ---------------------------------------------------------------------------
 # 1. The DAO's TLS keystore, and the BFF truststore that must match it
 # ---------------------------------------------------------------------------
-# SANs: `localhost` is the one that matters in a single task definition — every container shares one
-# network namespace, so the BFF dials https://localhost:8443 and the certificate must be valid for
-# that name. The others cover a future split into separate tasks.
+# SANs: `dao` is the one that matters now. Under Compose each service is its own container on a bridge
+# network, so the BFF dials https://dao:8443 and the certificate must be valid for THAT name.
+# `localhost` remains for local runs and for the single-namespace deployment this replaced;
+# `influencer-dao` covers addressing by container name.
+if [ "$SECTION" = "all" ] || [ "$SECTION" = "tls" ]; then
 echo "==> generating the DAO keystore"
 KEYSTORE_PASSWORD="$(openssl rand -base64 24 | tr -d '\n/+=' | head -c 24)"
 
-docker run --rm -v "${WORK}:/certs" eclipse-temurin:17-jdk sh -c "
-    set -e
-    keytool -genkeypair -alias influencerdao \
-        -keyalg RSA -keysize 2048 -validity 825 \
-        -storetype PKCS12 -keystore /certs/keystore.p12 -storepass '${KEYSTORE_PASSWORD}' \
-        -dname 'CN=influencer-dao,OU=platform,O=influencrm,C=US' \
-        -ext 'SAN=dns:localhost,dns:dao,dns:influencer-dao'
-    keytool -exportcert -alias influencerdao -keystore /certs/keystore.p12 \
-        -storetype PKCS12 -storepass '${KEYSTORE_PASSWORD}' -file /certs/dao-cert.crt
-    keytool -importcert -noprompt -alias influencerdao -file /certs/dao-cert.crt \
-        -keystore /certs/dao-truststore.p12 -storetype PKCS12 -storepass changeit
-" >/dev/null
+mkdir -p "${WORK}/certs"
+KEYSTORE_FILE="${WORK}/certs/keystore.p12"
+CERT_FILE="${WORK}/certs/dao-cert.crt"
+TRUSTSTORE_FILE="${WORK}/certs/dao-truststore.p12"
+
+# keytool comes from a local JDK if one is on PATH (or KEYTOOL_BIN points at it), and from a container
+# otherwise. Neither is hardcoded: an absolute path like C:/Program Files/Java/jdk-26/bin/keytool.exe
+# works on exactly one machine, and a Docker-only path fails on any host without a daemon.
+if [ -n "${KEYTOOL_BIN:-}" ]; then
+    keytool_run() { "${KEYTOOL_BIN}" "$@"; }
+elif command -v keytool >/dev/null 2>&1; then
+    keytool_run() { keytool "$@"; }
+elif command -v docker >/dev/null 2>&1; then
+    # The bind mount needs a path the DOCKER DAEMON can resolve, which under Git Bash is not what
+    # mktemp -d returns: /tmp/tmp.XXXX is an MSYS path with no meaning to a Windows daemon, so the
+    # mount silently produces an empty directory and the keystore appears never to be written.
+    # `cygpath -w` converts it; elsewhere the path is already absolute and usable as-is.
+    if command -v cygpath >/dev/null 2>&1; then
+        MOUNT_SRC="$(cygpath -w "${WORK}/certs")"
+    else
+        MOUNT_SRC="${WORK}/certs"
+    fi
+    # MSYS_NO_PATHCONV: Git Bash also rewrites the CONTAINER side (/certs) into a Windows path.
+    keytool_run() {
+        MSYS_NO_PATHCONV=1 docker run --rm -v "${MOUNT_SRC}:/certs" \
+            --entrypoint keytool eclipse-temurin:21-jdk "$@"
+    }
+    # Container-side paths while keytool runs; switched back to host paths immediately after.
+    KEYSTORE_FILE=/certs/keystore.p12
+    CERT_FILE=/certs/dao-cert.crt
+    TRUSTSTORE_FILE=/certs/dao-truststore.p12
+else
+    echo "ERROR: need a JDK (keytool on PATH or KEYTOOL_BIN set) or docker to generate the keystore." >&2
+    exit 1
+fi
+
+keytool_run -genkeypair -alias influencerdao \
+    -keyalg RSA -keysize 2048 -validity 825 \
+    -storetype PKCS12 -keystore "${KEYSTORE_FILE}" -storepass "${KEYSTORE_PASSWORD}" \
+    -dname 'CN=influencer-dao,OU=platform,O=influencrm,C=US' \
+    -ext 'SAN=dns:localhost,dns:dao,dns:influencer-dao' >/dev/null
+keytool_run -exportcert -alias influencerdao -keystore "${KEYSTORE_FILE}" \
+    -storetype PKCS12 -storepass "${KEYSTORE_PASSWORD}" -file "${CERT_FILE}" >/dev/null
+keytool_run -importcert -noprompt -alias influencerdao -file "${CERT_FILE}" \
+    -keystore "${TRUSTSTORE_FILE}" -storetype PKCS12 -storepass changeit >/dev/null
+
+# Back to host paths for everything after this point.
+KEYSTORE_FILE="${WORK}/certs/keystore.p12"
+TRUSTSTORE_FILE="${WORK}/certs/dao-truststore.p12"
+
+if [[ ! -f "${KEYSTORE_FILE}" ]]; then
+    echo "keystore file was not created: ${KEYSTORE_FILE}" >&2
+    exit 1
+fi
 
 # -w0: base64 must be one line. A wrapped value survives the round-trip through Secrets Manager but
 # the entrypoint's `base64 -d` is fine with newlines while some shells are not — one line removes the
 # question entirely.
-put "dao-keystore-b64" "$(base64 -w0 "${WORK}/keystore.p12")"
+put "dao-keystore-b64" "$(base64 -w0 "${KEYSTORE_FILE}")"
 put "dao-keystore-password" "$KEYSTORE_PASSWORD"
 
-# THE TRUSTSTORE IS PART OF THE IMAGE, NOT A SECRET. The BFF loads it from
-# classpath:dao-truststore.p12, so a new keystore means rebuilding and redeploying the BFF image —
-# otherwise it still trusts the OLD certificate and every DAO call fails verification, fail-closed.
-cp "${WORK}/dao-truststore.p12" \
+# THE TRUSTSTORE IS A SECRET TOO, and that is the point: it is the other half of the keypair above, so
+# it must rotate by the SAME mechanism. It used to ship only on the BFF's classpath, which meant a
+# regeneration updated the keystore secret and left the truststore to a rebuild that might never happen.
+# That is exactly what occurred on 2026-08-10 — the pair was regenerated, only the keystore reached
+# Secrets Manager, and the BFF spent a day anchoring a certificate the DAO had stopped serving.
+put "dao-truststore-b64" "$(base64 -w0 "${TRUSTSTORE_FILE}")"
+
+# Still copied into the source tree, but now as the FALLBACK rather than the delivery mechanism: it is
+# what a local `docker run` with no secrets uses, and what the BFF loads if dao-truststore-b64 is empty.
+# Committing it is good hygiene; forgetting to no longer breaks the deployment.
+cp "${TRUSTSTORE_FILE}" \
    "${REPO_ROOT}/InfluencerWebExperience/src/main/resources/dao-truststore.p12"
-echo "    installed dao-truststore.p12 into the BFF resources"
-echo "    >>> COMMIT IT AND REBUILD THE BFF IMAGE, or BFF -> DAO calls will fail verification."
+echo "    stored dao-truststore-b64 and refreshed the committed fallback copy"
+echo "    >>> restart the platform to pick up both halves; no image rebuild needed."
+fi
 
 # ---------------------------------------------------------------------------
 # 2. The BFF's access-token signing key
 # ---------------------------------------------------------------------------
 # An RSA JWK including the private key — SigningKeySet parses it with nimbus and rejects a key with
 # no private half, because it signs.
+#
+# ROTATING THIS LOGS EVERYONE OUT. Tokens signed by the previous key no longer verify, so every active
+# session ends the moment the BFF restarts. That is why it is skippable — a certificate rotation has no
+# business ending user sessions.
+if [ "$SECTION" = "all" ] || [ "$SECTION" = "jwt" ]; then
 echo
 echo "==> generating the JWT signing key"
 openssl genrsa 2048 2>/dev/null > "${WORK}/jwt.pem"
@@ -108,10 +194,21 @@ print(json.dumps({
 PY
 )"
 put "jwt-signing-key" "$JWK"
+fi
 
 # ---------------------------------------------------------------------------
 # 3. What only you can supply
 # ---------------------------------------------------------------------------
+# Only on a full run: a targeted rotation does not need the list of credentials to paste in, and
+# printing it every time trains people to skip the output.
+if [ "$SECTION" != "all" ]; then
+    echo
+    echo "==> ${SECTION} secrets rotated. Restart the platform to pick them up:"
+    echo "      aws ssm start-session --target <instance-id> --region ${REGION}"
+    echo "      sudo systemctl restart influencrm-secrets influencrm"
+    exit 0
+fi
+
 cat <<EOF
 
 ==============================================================

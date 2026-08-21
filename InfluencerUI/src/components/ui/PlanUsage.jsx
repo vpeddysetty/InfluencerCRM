@@ -4,6 +4,7 @@ import {
   describeUsage,
   formatUsage,
   usageMessage,
+  usageMeterAria,
   usageTone,
 } from '../../shell/plan'
 
@@ -52,10 +53,15 @@ export function PlanUsage({ plan, usage = [], loading = false, error = '' }) {
       <ul className="plan-usage-list">
         {rows.map((row) => {
           const message = usageMessage(row, plan)
+          // Null for unlimited rows — see usageMeterAria. Spreading null would throw, so the
+          // fallback is an empty object and those rows stay plain text.
+          const meter = usageMeterAria(row)
           return (
             <li key={row.resource} className="plan-usage-row">
               <span className="plan-usage-label">{row.label}</span>
-              <Badge tone={usageTone(row)}>{formatUsage(row)}</Badge>
+              <Badge tone={usageTone(row)} {...(meter || {})}>
+                {formatUsage(row)}
+              </Badge>
               {/* Only rows worth commenting on carry a line. A note on every row is noise, and
                   noise is what makes the row that matters invisible. */}
               {message ? <span className="plan-usage-message helper">{message}</span> : null}

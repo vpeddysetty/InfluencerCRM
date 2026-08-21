@@ -182,6 +182,19 @@ locals {
     jwt-signing-key              = "RSA JWK (private) signing access tokens. Unset: the BFF REFUSES TO START. Generate with infrastructure/scripts/generate-jwt-key.sh."
     dao-keystore-b64             = "base64 of the DAO's PKCS12 keystore. Unset: the DAO refuses to start, because server.ssl.key-store points at a file that is not there."
     dao-keystore-password        = "Password for the keystore above."
+    # THE OTHER HALF OF THE SAME CERTIFICATE, and it lives here for a reason learned the hard way.
+    #
+    # The truststore holds only the DAO's PUBLIC certificate, so it was previously shipped on the BFF's
+    # classpath rather than as a secret. That made the two halves of one keypair rotate by different
+    # mechanisms: the keystore by updating a secret, the truststore by rebuilding an image. On
+    # 2026-08-10 they were regenerated together, only the keystore reached Secrets Manager, and every
+    # BFF image kept anchoring a superseded certificate -- so TLS verification could not be turned on
+    # at all, and the recorded cause ("the cert lacks a dao SAN") was wrong for a day.
+    #
+    # Symmetric now: regenerating the pair updates two secrets and needs no rebuild. Unset, the BFF
+    # falls back to classpath:dao-truststore.p12, which is the committed copy -- so this is additive
+    # and an empty secret changes nothing.
+    dao-truststore-b64           = "base64 of the PKCS12 truststore holding the DAO's public certificate. Unset: the BFF falls back to the copy committed on its classpath, which only matches if the image was rebuilt after the last certificate rotation."
     google-oauth-client-id       = "Unset: Google sign-in is unavailable; the rest of the platform works."
     google-oauth-client-secret   = "Unset: as above."
     facebook-oauth-client-id     = "Unset: Facebook sign-in is unavailable."
@@ -191,6 +204,23 @@ locals {
     ses-access-key-id            = "Unset: email provider stays `log`, which writes messages to the log and SENDS NOTHING."
     ses-secret-access-key        = "Unset: as above."
     youtube-api-key              = "Unset: YouTube subscriber counts stay simulated, recorded as source=mock."
+    # The Instagram pair. BOTH must hold real values or neither is used: InstagramProfileAdapter's
+    # isConfigured() requires the two together, because a token without the account id has nothing to
+    # ask through, and an account id without a token cannot ask. Half-configured falls back to the
+    # simulation rather than returning nulls — a null follower count reads as "no audience" and would
+    # silently pass every vetting rule written as `followers < 5000`.
+    #
+    # Written by infrastructure/scripts/instagram-token.py, which only calls put-secret-value and so
+    # needs the secret to exist first. That is what these two entries are for; the placeholder version
+    # below carries ignore_changes, so a later apply will not revert a real token to a space.
+    #
+    # BOTH ALREADY EXIST IN influencrm-prod, created by hand on 2026-08-15 and holding real values.
+    # They must be `terraform import`ed — secret AND version — before the next apply. Letting the
+    # apply create them fails with ResourceExistsException (which it did on 2026-08-16), and worse,
+    # a freshly created external_placeholder version would put a single space OVER the live token:
+    # ignore_changes suppresses drift on an existing state entry, not the first write of a new one.
+    instagram-access-token          = "Long-lived Page access token for business_discovery. Unset: Instagram lookups stay simulated, recorded as source=mock. EXPIRES AFTER 60 DAYS and nothing refreshes it — re-run infrastructure/scripts/instagram-token.py before then or lookups silently revert to simulated numbers."
+    instagram-business-account-id   = "The Instagram Business account id that business_discovery calls travel through. Unset: as above."
   }
 }
 

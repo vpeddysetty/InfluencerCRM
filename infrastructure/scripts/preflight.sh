@@ -283,7 +283,7 @@ fi
 
 echo "${GREEN}Clear to apply.${OFF}"
 echo
-echo "  cd infrastructure/terraform"
+echo "  cd infrastructure/test/terraform"
 echo "  terraform init"
 echo "  terraform apply -var image_tag=v1.1.0"
 exit 0

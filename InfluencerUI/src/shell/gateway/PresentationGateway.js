@@ -20,7 +20,9 @@
  * </ul>
  */
 
-const DPS_BASE_URL = import.meta.env?.VITE_DPS_URL || 'http://localhost:8090'
+const DPS_BASE_URL =
+  import.meta.env?.VITE_DPS_URL ||
+  (typeof window !== 'undefined' && window.location?.origin ? window.location.origin : 'http://localhost:8090')
 
 /** Shape the DPS returns for an anonymous caller. Mirrors SessionView.anonymous(). */
 const ANONYMOUS = {

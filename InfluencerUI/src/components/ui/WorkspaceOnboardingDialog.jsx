@@ -1,0 +1,208 @@
+import { useEffect, useRef, useState } from 'react'
+
+/**
+ * Asks a social sign-up what their workspace is called, and whether it is an agency.
+ *
+ * <p><b>Why this exists at all.</b> The email form collects a workspace name and type before the
+ * account is created. The social path cannot: the user clicks "Continue with Facebook" and the very
+ * next thing that happens is a redirect to Meta, so there is no moment in between at which to ask.
+ * The account is therefore provisioned named after the provider's display name — signing up as
+ * "Ari Rivera" produced a workspace called <em>Ari Rivera</em> — and always as a solo brand, which
+ * is why the landing page used to refuse an agency selection outright and tell the user to go back
+ * and use a password instead. This dialog is where both are put right.
+ *
+ * <p><b>Not dismissible.</b> It used to be: Escape and a "Skip for now" button both closed it, on
+ * the reasoning that the name could be changed later in settings. That reasoning was wrong on the
+ * facts — there is no rename in settings, and the marker that opens this dialog is consumed on
+ * read, so nothing ever asks again. Skipping therefore did not defer the question, it answered it
+ * permanently with the provider's display name, and a personal name went on to stand in for a
+ * company across the sidebar, the header and every workspace screen. Asking once and accepting no
+ * answer is worse than not asking.
+ *
+ * <p>The name field is pre-filled with the current workspace name rather than left blank: for a
+ * solo brand whose provider name IS their business name, the whole step becomes one Enter press.
+ * That default is the reason this dialog must be answered rather than merely shown — the value it
+ * pre-fills is exactly the one that was wrong.
+ */
+function WorkspaceOnboardingDialog({
+  initialName = '',
+  initialAccountType = 'brand',
+  onSubmit,
+}) {
+  const [workspaceName, setWorkspaceName] = useState(initialName)
+  const [accountType, setAccountType] = useState(
+    initialAccountType === 'agency' ? 'agency' : 'brand',
+  )
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const panelRef = useRef(null)
+  const nameRef = useRef(null)
+
+
+  // MOUNT ONLY: entering and leaving the dialog, and the one-time focus of the name field.
+  useEffect(() => {
+    const originalOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+
+    nameRef.current?.focus()
+    // Pre-filled with the provider-derived name, so selecting it means typing replaces rather than
+    // appends. Correct exactly once, on open.
+    nameRef.current?.select()
+
+    return () => {
+      document.body.style.overflow = originalOverflow
+    }
+  }, [])
+
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      // Escape no longer dismisses. It was the same exit as "Skip for now" and left the same
+      // provider-named workspace behind; a modal that must be answered cannot keep a silent way
+      // out. Swallowed rather than ignored, so the key does not reach anything underneath.
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        return
+      }
+
+      if (event.key !== 'Tab') {
+        return
+      }
+
+      const focusable = Array.from(
+        panelRef.current?.querySelectorAll(
+          'button:not([disabled]), input:not([disabled])',
+        ) || [],
+      )
+      if (focusable.length < 2) {
+        return
+      }
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [])
+
+  const handleSubmit = async (event) => {
+    event.preventDefault()
+    const trimmed = workspaceName.trim()
+    if (!trimmed) {
+      setError('Enter a name for your workspace.')
+      return
+    }
+
+    setBusy(true)
+    setError('')
+    try {
+      await onSubmit({ workspaceName: trimmed, accountType })
+    } catch (submitError) {
+      setBusy(false)
+      setError(
+        submitError instanceof Error
+          ? submitError.message
+          : 'Could not save your workspace details.',
+      )
+    }
+  }
+
+  return (
+    <div className="confirm-overlay" role="presentation">
+      <div
+        className="confirm-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="onboarding-title"
+        aria-describedby="onboarding-body"
+        ref={panelRef}
+      >
+        <h2 className="confirm-title" id="onboarding-title">
+          Tell us about your workspace
+        </h2>
+        <p className="confirm-consequence" id="onboarding-body">
+          You are signed in. Name the workspace after your brand or agency so your team recognises
+          it — we started it off with your account name.
+        </p>
+
+        <form className="auth-form" onSubmit={handleSubmit}>
+          <fieldset className="auth-accounttype">
+            <legend className="auth-label">Workspace type</legend>
+            <div className="auth-accounttype-options">
+              <label
+                className={`auth-accounttype-option${accountType === 'brand' ? ' selected' : ''}`}
+              >
+                <input
+                  type="radio"
+                  name="onboardingAccountType"
+                  value="brand"
+                  checked={accountType === 'brand'}
+                  onChange={() => setAccountType('brand')}
+                  disabled={busy}
+                />
+                <span className="auth-accounttype-title">Brand</span>
+                <span className="auth-accounttype-hint">One brand you run yourself.</span>
+              </label>
+              <label
+                className={`auth-accounttype-option${accountType === 'agency' ? ' selected' : ''}`}
+              >
+                <input
+                  type="radio"
+                  name="onboardingAccountType"
+                  value="agency"
+                  checked={accountType === 'agency'}
+                  onChange={() => setAccountType('agency')}
+                  disabled={busy}
+                />
+                <span className="auth-accounttype-title">Agency</span>
+                <span className="auth-accounttype-hint">
+                  Several client brands, switched between in one login.
+                </span>
+              </label>
+            </div>
+          </fieldset>
+
+          <label>
+            <span className="auth-label">
+              {accountType === 'agency' ? 'Agency name' : 'Brand or startup'}
+            </span>
+            <div className="auth-input-wrap">
+              <span className="auth-input-icon" aria-hidden="true">#</span>
+              <input
+                ref={nameRef}
+                name="workspaceName"
+                type="text"
+                value={workspaceName}
+                onChange={(event) => setWorkspaceName(event.target.value)}
+                placeholder={accountType === 'agency' ? 'Northstar Agency' : 'Your brand name'}
+                disabled={busy}
+                required
+              />
+            </div>
+          </label>
+
+          {error ? <p className="field-error" role="alert">{error}</p> : null}
+
+          {/* No "Skip for now". A federated signup has no field to name the workspace in, so this
+              dialog is the ONLY place it is ever asked — skipping left the account named after the
+              provider's display name, and a personal name then stood in for a company across the
+              whole product. Nothing later prompted again, because the marker that opens this is
+              consumed on read. Asking once and accepting no answer is worse than not asking. */}
+          <div className="confirm-actions">
+            <button type="submit" className="primary-btn" disabled={busy}>
+              {busy ? 'Saving…' : 'Continue'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+export default WorkspaceOnboardingDialog

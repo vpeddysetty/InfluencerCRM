@@ -8,7 +8,61 @@
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#0f766e" />
-    <title>tejdux</title>
+    <title>Tejdux — Influencer marketing CRM for brands and agencies</title>
+    <!--
+      DESCRIPTIVE METADATA IS A SAFETY SIGNAL, NOT DECORATION.
+
+      On 2026-08-14 Google Safe Browsing flagged tejdux.com as "harmful content... tries to trick
+      visitors into sharing personal info". It is a false positive, but not a random one: a crawler
+      fetching this page saw a title of "tejdux", NO description, and an entirely empty body, because
+      everything rendered client-side. A blank page that turns into an email-and-password form with
+      Facebook and Google buttons the moment JavaScript runs is the textbook shape of a cloaked
+      phishing page, and on a domain registered days earlier there was nothing to weigh against it.
+
+      So this block exists to say plainly, to something that cannot run JavaScript, what the site is
+      and who operates it.
+    -->
+    <meta
+      name="description"
+      content="Tejdux is a B2B influencer marketing CRM. Brands and agencies use it to manage creator partnerships, run campaigns, attribute sales to individual creators, and pay them — on one board."
+    />
+    <meta name="author" content="KMPS Global Corporation" />
+    <link rel="canonical" href="https://www.tejdux.com/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Tejdux" />
+    <meta property="og:title" content="Tejdux — Influencer marketing CRM for brands and agencies" />
+    <meta
+      property="og:description"
+      content="Manage creator partnerships from first outreach to final payout. Import your creator list, run campaigns, attribute sales, and pay creators without a spreadsheet."
+    />
+    <meta property="og:url" content="https://www.tejdux.com/" />
+    <!--
+      Names the operating company in machine-readable form. A legitimate business identifying itself
+      is precisely what the classifier found nothing of; the entity here matches the one published on
+      /privacy/ and /terms/, so the two corroborate rather than merely coexist.
+    -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "Tejdux",
+        "applicationCategory": "BusinessApplication",
+        "description": "B2B influencer marketing CRM for brands and agencies. Manage creator partnerships, campaigns, sales attribution and creator payouts.",
+        "url": "https://www.tejdux.com/",
+        "publisher": {
+          "@type": "Organization",
+          "name": "KMPS Global Corporation",
+          "alternateName": "Tejdux",
+          "url": "https://www.tejdux.com/"
+        },
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD",
+          "description": "Free for one person and 25 creators."
+        }
+      }
+    </script>
     <!--
       Applies the saved theme before first paint.
 
@@ -34,7 +88,47 @@
     </script>
   </head>
   <body>
-    <div id="root"></div>
+    <!--
+      Content for anything that cannot run JavaScript — crawlers, Safe Browsing classifiers, link
+      previews, and a reader whose bundle has not arrived yet.
+
+      INSIDE #root deliberately: React replaces the container's children on mount, so this vanishes
+      the instant the app renders and there are never two versions of the page on screen. Nothing
+      here is duplicated in the app; it says what the product is and who runs it, which is what a
+      crawler needs and what an authenticated user does not.
+
+      It also degrades honestly. If the bundle fails, a visitor gets a description of the product
+      and a route to the legal pages rather than a white rectangle.
+    -->
+    <div id="root">
+      <main style="max-width: 46rem; margin: 0 auto; padding: 3rem 1.5rem; font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; line-height: 1.6;">
+        <h1>Tejdux — influencer marketing CRM</h1>
+        <p>
+          Tejdux is a business tool for brands and marketing agencies managing paid partnerships with
+          social media creators. Import your creator list, run campaigns, attribute sales to
+          individual creators, and pay them — from first outreach to final payout, on one board.
+        </p>
+        <p>
+          It is operated by <strong>KMPS Global Corporation</strong> (d/b/a Tejdux), an Ohio
+          corporation. Signing in with Google or Facebook is offered so customers can access
+          <em>their own Tejdux account</em> without a separate password; Tejdux is not affiliated
+          with, endorsed by, or acting on behalf of either company.
+        </p>
+        <h2>What it does</h2>
+        <ul>
+          <li>Import a creator roster from CSV, with a mapping preview before anything saves</li>
+          <li>Track every creator relationship across a drag-and-drop workflow board</li>
+          <li>Attribute sales to individual creators through coupon codes</li>
+          <li>Calculate and record what each creator earned</li>
+        </ul>
+        <p>
+          <a href="https://www.tejdux.com/privacy/">Privacy Policy</a> ·
+          <a href="https://www.tejdux.com/terms/">Terms of Service</a> ·
+          <a href="https://www.tejdux.com/data-deletion/">Data deletion</a>
+        </p>
+        <p><small>Loading the application…</small></p>
+      </main>
+    </div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

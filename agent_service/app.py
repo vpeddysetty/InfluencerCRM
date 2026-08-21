@@ -91,6 +91,110 @@ class ContentDraftRequest(BaseModel):
     creator_name: str = ""       # for landing / per-creator variants
 
 
+class BriefDraft(BaseModel):
+    """
+    What a 'brief' draft must contain before it may reach the browser.
+
+    <p>The UI writes these five strings straight into form fields and joins `hashtags` with a
+    space. Nothing downstream re-checks them, so this model is the only thing standing between a
+    malformed model response and a brand editing `42` in the summary box.
+    """
+
+    summary: str = ""
+    goals: str = ""
+    dos: str = ""
+    donts: str = ""
+    talkingPoints: str = ""
+    hashtags: List[str] = []
+
+
+class LandingDraft(BaseModel):
+    """
+    What a 'landing' draft must contain.
+
+    <p>Copy here may carry {{creator.name}} / {{coupon.code}} / {{discount}} tokens, which the
+    renderer substitutes later. They are ordinary text at this stage.
+    """
+
+    hero: str = ""
+    body: str = ""
+    cta: str = ""
+
+
+# Each kind's validator, and the fields the UI actually reads for it.
+_DRAFT_MODELS = {"brief": BriefDraft, "landing": LandingDraft}
+
+
+def _coerce_draft(kind: str, raw: Any) -> Optional[Dict[str, Any]]:
+    """
+    Coerce a raw model response into the shape for `kind`, or None if it cannot be salvaged.
+
+    <p><b>Coerce before validating, not instead of it.</b> A model that returns a number where a
+    string belongs, or one hashtag as a bare string rather than a list, is *nearly* right — and
+    rejecting the whole draft over it throws away a usable response and sends the user to the
+    heuristic fallback for no reason. Anything that survives coercion is then validated, and
+    anything that does not is rejected rather than guessed at.
+
+    <p>Returns None rather than raising. The caller's contract is already "None means fall back
+    to the heuristic draft", and a bad LLM response is an expected event here, not an error.
+    """
+    if not isinstance(raw, dict):
+        return None
+
+    model = _DRAFT_MODELS.get(kind)
+    if model is None:
+        return None
+
+    fields = model.model_fields
+    coerced: Dict[str, Any] = {}
+    for name, field in fields.items():
+        value = raw.get(name)
+        if value is None:
+            continue
+        if name == "hashtags":
+            # A single tag may arrive as a bare string. Splitting it is what the UI would have
+            # done anyway; the alternative is rendering the characters of the word as tags.
+            if isinstance(value, str):
+                value = [part for part in value.replace(",", " ").split() if part]
+            elif isinstance(value, list):
+                # `is not None` before str(): str(None) is "None", a truthy string that would
+                # sail through the strip() check and render as a literal #None tag.
+                value = [str(part) for part in value if part is not None and str(part).strip()]
+            else:
+                continue
+        elif not isinstance(value, str):
+            # Numbers and booleans stringify cleanly and are almost always a formatting slip.
+            # Lists and dicts are a structural misunderstanding — dropping the field lets the
+            # model's default fill in rather than writing "['a', 'b']" into a form field.
+            if isinstance(value, (int, float, bool)):
+                value = str(value)
+            else:
+                continue
+        coerced[name] = value
+
+    try:
+        validated = model(**coerced)
+    except Exception:
+        return None
+
+    # A draft where every field coerced away is not a draft. Returning it would replace the
+    # heuristic fallback with a form full of empty strings, which reads as a broken feature
+    # rather than a degraded one.
+    data = validated.model_dump()
+    if not any(_is_present(value) for value in data.values()):
+        return None
+
+    return data
+
+
+def _is_present(value: Any) -> bool:
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, list):
+        return bool(value)
+    return value is not None
+
+
 def _heuristic_draft(req: "ContentDraftRequest") -> Dict[str, Any]:
     """Deterministic fallback used when the LLM is unavailable (no/invalid key)."""
     product = req.product or "our product"
@@ -145,11 +249,16 @@ def _llm_draft(req: "ContentDraftRequest") -> Optional[Dict[str, Any]]:
         if not content:
             return None
         parsed = json.loads(content)
-        if not isinstance(parsed, dict):
+        # Was `isinstance(parsed, dict)` and nothing more, so any dict reached the browser --
+        # including one with a number in `summary` or no `dos` key at all. The UI writes these
+        # straight into form fields, so a malformed response became something a brand had to
+        # notice and delete by hand.
+        drafted = _coerce_draft(req.kind, parsed)
+        if drafted is None:
             return None
-        parsed["kind"] = req.kind
-        parsed["source"] = "llm"
-        return parsed
+        drafted["kind"] = req.kind
+        drafted["source"] = "llm"
+        return drafted
     except Exception:
         return None
 

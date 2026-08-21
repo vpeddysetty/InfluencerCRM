@@ -174,23 +174,29 @@
    Only tokens are redefined — no component rule is repeated here. That is the payoff for
    routing every colour through a variable: a second theme is one block, not a second stylesheet.
    Follows the OS preference, and `data-theme` on <html> overrides it in both directions so an
-   explicit choice always wins. */
+   explicit choice always wins.
+
+   The selector list is deliberately doubled. `:root:not([data-theme='light'])` inside the media
+   query covers "follow the OS", but it can only ever match while the OS is already dark — so on
+   a light-mode machine picking Dark set the attribute and changed nothing. `:root[data-theme='dark']`
+   is therefore repeated OUTSIDE the query, where no OS condition gates it. Keep both in sync:
+   dropping either one silently breaks one direction of the toggle. */
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) {
+  :root:not([data-theme='light']) {  
     --fg: #e8ecf3;
     --fg-muted: #a3aec1;
     --fg-subtle: #7d8798;
     --fg-inverse: #0b1017;
     --fg-accent: #93b4fc;
-
+  
     --bg: #0b1017;
     --surface: #151b24;
     --surface-raised: #1b222d;
     --surface-sunken: #10161e;
-
+  
     --border: rgba(148, 163, 184, 0.22);
     --border-strong: rgba(148, 163, 184, 0.38);
-
+  
     /* Lightened so each stays legible on a dark ground rather than reading as a muddy stain. */
     --success: #5eead4;
     --success-bg: rgba(20, 83, 74, 0.28);
@@ -204,16 +210,16 @@
     --info: #93b4fc;
     --info-bg: rgba(30, 58, 138, 0.28);
     --info-border: rgba(96, 165, 250, 0.3);
-
+  
     --accent: #2dd4bf;
     --accent-2: #38bdf8;
     --accent-gradient: linear-gradient(135deg, #0d9488 0%, #2563eb 100%);
-
+  
     --focus: #38bdf8;
     --focus-ring: 0 0 0 3px rgba(56, 189, 248, 0.32);
-
+  
     --fg-subtle-on-sunken: #8d97a8;
-
+  
     /* In dark mode the tints are dark, so text on them must stay light — the
        light-mode inks above would be near-black on near-black. These are the
        same lightened hues as --success/--danger and measure ~10:1 and ~9.9:1. */
@@ -221,7 +227,7 @@
     --danger-on-tint: #fca5a5;
     --warning-on-tint: #fcd34d;
     --info-on-tint: #93b4fc;
-
+  
     /* fg-inverse (#0b1017) on the blue end of the dark accent gradient
        (#2563eb) is 3.69:1 — fine for large text, FAIL for the 13-14px label a
        button actually uses. Lightening the blue end to #3b82f6 gives 5.43:1
@@ -229,28 +235,120 @@
     --btn-primary-bg: linear-gradient(135deg, #0d9488 0%, #3b82f6 100%);
     --btn-primary-bg-hover: linear-gradient(135deg, #0f766e 0%, #2563eb 100%);
     --btn-primary-fg: #05090f;
-
+  
     --viz-bar: var(--accent);
     --viz-track: rgba(148, 163, 184, 0.16);
-
+  
     --surface-shadow: 0 16px 30px rgba(0, 0, 0, 0.42);
     --shadow-drawer: -20px 0 36px rgba(0, 0, 0, 0.5);
     --shadow-popover: 0 12px 28px rgba(0, 0, 0, 0.5);
-  }
 
+  /* Consumed by the body / rail / card rules below. Held as tokens so the two dark blocks
+     stay literal-free and the values appear once per block. */
+  --body-bg-dark:
+    radial-gradient(circle at 15% 15%, rgba(13, 148, 136, 0.16) 0%, rgba(13, 148, 136, 0) 34%),
+    radial-gradient(circle at 88% 86%, rgba(180, 83, 9, 0.14) 0%, rgba(180, 83, 9, 0) 39%),
+    linear-gradient(180deg, #0b1017 0%, #0e141d 100%);
+  --surface-translucent-dark: rgba(21, 27, 36, 0.82);
+}
+}
+
+/* The same palette, reachable without the OS. */
+:root[data-theme='dark'] {
+  --fg: #e8ecf3;
+  --fg-muted: #a3aec1;
+  --fg-subtle: #7d8798;
+  --fg-inverse: #0b1017;
+  --fg-accent: #93b4fc;
+
+  --bg: #0b1017;
+  --surface: #151b24;
+  --surface-raised: #1b222d;
+  --surface-sunken: #10161e;
+
+  --border: rgba(148, 163, 184, 0.22);
+  --border-strong: rgba(148, 163, 184, 0.38);
+
+  /* Lightened so each stays legible on a dark ground rather than reading as a muddy stain. */
+  --success: #5eead4;
+  --success-bg: rgba(20, 83, 74, 0.28);
+  --success-border: rgba(45, 212, 191, 0.32);
+  --warning: #fcd34d;
+  --warning-bg: rgba(120, 73, 12, 0.28);
+  --warning-border: rgba(251, 191, 36, 0.32);
+  --danger: #fca5a5;
+  --danger-bg: rgba(127, 29, 29, 0.28);
+  --danger-border: rgba(248, 113, 113, 0.34);
+  --info: #93b4fc;
+  --info-bg: rgba(30, 58, 138, 0.28);
+  --info-border: rgba(96, 165, 250, 0.3);
+
+  --accent: #2dd4bf;
+  --accent-2: #38bdf8;
+  --accent-gradient: linear-gradient(135deg, #0d9488 0%, #2563eb 100%);
+
+  --focus: #38bdf8;
+  --focus-ring: 0 0 0 3px rgba(56, 189, 248, 0.32);
+
+  --fg-subtle-on-sunken: #8d97a8;
+
+  /* In dark mode the tints are dark, so text on them must stay light — the
+     light-mode inks above would be near-black on near-black. These are the
+     same lightened hues as --success/--danger and measure ~10:1 and ~9.9:1. */
+  --success-on-tint: #5eead4;
+  --danger-on-tint: #fca5a5;
+  --warning-on-tint: #fcd34d;
+  --info-on-tint: #93b4fc;
+
+  /* fg-inverse (#0b1017) on the blue end of the dark accent gradient
+     (#2563eb) is 3.69:1 — fine for large text, FAIL for the 13-14px label a
+     button actually uses. Lightening the blue end to #3b82f6 gives 5.43:1
+     while keeping the teal→blue sweep. */
+  --btn-primary-bg: linear-gradient(135deg, #0d9488 0%, #3b82f6 100%);
+  --btn-primary-bg-hover: linear-gradient(135deg, #0f766e 0%, #2563eb 100%);
+  --btn-primary-fg: #05090f;
+
+  --viz-bar: var(--accent);
+  --viz-track: rgba(148, 163, 184, 0.16);
+
+  --surface-shadow: 0 16px 30px rgba(0, 0, 0, 0.42);
+  --shadow-drawer: -20px 0 36px rgba(0, 0, 0, 0.5);
+  --shadow-popover: 0 12px 28px rgba(0, 0, 0, 0.5);
+
+  /* Consumed by the body / rail / card rules below. Held as tokens so the two dark blocks
+     stay literal-free and the values appear once per block. */
+  --body-bg-dark:
+    radial-gradient(circle at 15% 15%, rgba(13, 148, 136, 0.16) 0%, rgba(13, 148, 136, 0) 34%),
+    radial-gradient(circle at 88% 86%, rgba(180, 83, 9, 0.14) 0%, rgba(180, 83, 9, 0) 39%),
+    linear-gradient(180deg, #0b1017 0%, #0e141d 100%);
+  --surface-translucent-dark: rgba(21, 27, 36, 0.82);
+}
+
+
+/* The non-token dark rules. `body` and these two surfaces paint a literal background rather than
+   reading a token, so they need the same dual-path treatment as the palette above: the OS path
+   stays gated behind the media query, the explicit path must not be. */
+@media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) body {
-    background:
-      radial-gradient(circle at 15% 15%, rgba(13, 148, 136, 0.16) 0%, rgba(13, 148, 136, 0) 34%),
-      radial-gradient(circle at 88% 86%, rgba(180, 83, 9, 0.14) 0%, rgba(180, 83, 9, 0) 39%),
-      linear-gradient(180deg, #0b1017 0%, #0e141d 100%);
+    background: var(--body-bg-dark);
   }
 
   /* The rail and cards are translucent white by default, which turns milky over a dark ground. */
   :root:not([data-theme='light']) .workspace-rail,
   :root:not([data-theme='light']) .card {
-    background: rgba(21, 27, 36, 0.82);
+    background: var(--surface-translucent-dark);
   }
 }
+
+:root[data-theme='dark'] body {
+  background: var(--body-bg-dark);
+}
+
+:root[data-theme='dark'] .workspace-rail,
+:root[data-theme='dark'] .card {
+  background: var(--surface-translucent-dark);
+}
+
 
 * {
   box-sizing: border-box;

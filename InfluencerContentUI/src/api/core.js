@@ -18,6 +18,25 @@ export function unwrapList(payload) {
 // payload so that one place decides it and no individual call site can pick another.
 let activeBrandId = ''
 
+/**
+ * Absolute URL for a public hosted landing page (`/s/...`).
+ *
+ * <p>These paths are served by WebExperience, NOT by this app's own origin, and CloudFront does not
+ * route `/s/*` on the apex — a bare relative link there resolves to the marketing shell and returns
+ * 200, so the brand copies a dead link that looks alive.
+ *
+ * <p>Kept in step with the same helper in `InfluencerUI/src/api/core.js`.
+ */
+export function publicPageUrl(path) {
+  const base =
+    import.meta?.env?.VITE_BFF_URL ||
+    (typeof window !== 'undefined' && window.location?.origin ? window.location.origin : '')
+  if (!base) {
+    return path
+  }
+  return new URL(path, base).toString()
+}
+
 export function setActiveBrandId(brandId) {
   activeBrandId = brandId || ''
 }
