@@ -1275,3 +1275,61 @@
 .drawer-actions-danger {
   margin-right: auto;
 }
+
+/* ── Skeletons ────────────────────────────────────────────────────────────
+   Placeholders that reserve the height real content will occupy, so the page
+   does not reflow when a fetch lands.
+
+   Built from --border rather than a fixed grey, so the shimmer inverts with the
+   theme instead of glowing white on a dark page.
+
+   Deliberately NOT --surface-sunken for the base. A skeleton usually sits on
+   --bg, and sunken (#f1f5f9) against bg (#f6f7fb) is a 2% difference — the
+   placeholder was there in the DOM and invisible on screen. --border is the
+   token that is *defined* to be perceptible against the page, in both themes. */
+.skeleton {
+  display: block;
+  background-color: var(--border);
+  background-image: linear-gradient(
+    90deg,
+    transparent 25%,
+    var(--border-strong) 37%,
+    transparent 63%
+  );
+  background-size: 400% 100%;
+  animation: skeleton-sweep 1.4s ease-in-out infinite;
+}
+
+@keyframes skeleton-sweep {
+  0% { background-position: 100% 50%; }
+  100% { background-position: 0 50%; }
+}
+
+.skeleton-text {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.skeleton-table {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.skeleton-table-row {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: var(--space-4);
+  align-items: center;
+  /* Matches the real row's vertical rhythm. A shorter placeholder would still shift the page
+     on arrival, which is the whole failure this component exists to prevent. */
+  min-height: var(--space-6);
+}
+
+/* The sweep is decorative. Holding it still for a user who asked for less motion loses nothing —
+   the reserved space, which is the actual purpose, is unaffected. */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
+}

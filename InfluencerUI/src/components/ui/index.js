@@ -28,3 +28,4 @@ export {
   isPlatformVerified,
 } from './MetricsProvenance'
 export { default as PlanUsage } from './PlanUsage'
+export { Skeleton, SkeletonText, SkeletonTable } from './Skeleton'
