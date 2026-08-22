@@ -55,7 +55,13 @@ public class SubscriptionService {
         this.dao = dao;
         this.shape = shape;
         this.providers = providers;
-        this.uiBaseUrl = uiBaseUrl == null ? "" : uiBaseUrl.replaceAll("/+$", "");
+        // FIRST value only. ui-base-url may be a comma-separated list because the same site
+        // is served from several hostnames and CORS must allow them all; this builds
+        // a checkout return URL the provider redirects to, which needs exactly one.
+        // Verified live 2026-08-22: the whole string produced
+        // "https://tejdux.com,https://www.tejdux.com/verify-email?token=..." - not a link.
+        this.uiBaseUrl = uiBaseUrl == null ? ""
+                : uiBaseUrl.split(",")[0].trim().replaceAll("/+$", "");
     }
 
     // ---- reading ---------------------------------------------------------

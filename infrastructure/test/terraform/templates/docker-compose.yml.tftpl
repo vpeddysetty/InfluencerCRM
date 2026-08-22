@@ -188,6 +188,14 @@ services:
       # Uploaded assets live on the EFS mount: a container's own filesystem does not survive a deploy.
       WEBE_ASSET_ROOT: /mnt/assets
       WEBE_EMAIL_FROM: ${ses_from_address}
+      # Without this the sender defaults to `log`, which composes the message, writes it to the
+      # container log and sends nothing - discovered on 2026-08-22 when a signup produced a
+      # verification email that never left the box. SES itself was fine; nothing pointed at it.
+      #
+      # No access key is set: SesEmailSender falls back to the EC2 instance role, which already
+      # grants ses:SendEmail. That is a better credential than a long-lived IAM user secret in
+      # configuration - it rotates itself, expires, and cannot be used off this instance.
+      WEBE_EMAIL_PROVIDER: ses
       AWS_SES_REGION: ${region}
       # The workflow service exists and is healthy, but the cutover flag stays OFF: flipping it is a
       # deliberate act after a dual-run soak, and it is the rollback too.

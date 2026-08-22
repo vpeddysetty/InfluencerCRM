@@ -68,6 +68,7 @@ public class SesEmailSender implements EmailPort {
     private final String configurationSet;
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
+    private final InstanceRoleCredentials instanceRole;
 
     public SesEmailSender(
             @Value("${web-experience.email.ses.access-key-id:}") String accessKeyId,
@@ -88,14 +89,16 @@ public class SesEmailSender implements EmailPort {
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(5))
                 .build();
+        this.instanceRole = new InstanceRoleCredentials(this.httpClient, objectMapper);
 
         if (!isConfigured()) {
             // Loud at startup rather than at the first send: the first send is usually an
             // invitation someone is waiting for, and discovering the misconfiguration then means
             // the person who triggered it is the one who finds out.
             log.error("Email provider is 'ses' but it is not fully configured. Needs "
-                    + "web-experience.email.ses.access-key-id, .secret-access-key and "
-                    + "web-experience.email.from. NO MAIL WILL BE SENT.");
+                    + "web-experience.email.from, plus EITHER "
+                    + "web-experience.email.ses.access-key-id and .secret-access-key, OR an EC2 "
+                    + "instance role granting ses:SendEmail. NO MAIL WILL BE SENT.");
         } else {
             log.info("Email provider: SES in {} sending as {}", this.region, this.fromAddress);
         }
@@ -110,7 +113,26 @@ public class SesEmailSender implements EmailPort {
      * secret key and a price id.
      */
     private boolean isConfigured() {
-        return notBlank(accessKeyId) && notBlank(secretAccessKey) && notBlank(fromAddress);
+        // Either explicit keys or an instance role will do; the sender address is required either
+        // way, because SES rejects an unverified FromEmailAddress outright.
+        return notBlank(fromAddress)
+                && ((notBlank(accessKeyId) && notBlank(secretAccessKey)) || instanceRole.current() != null);
+    }
+
+    /**
+     * The credentials to sign with.
+     *
+     * <p>Static keys win when configured, so an operator who sets them explicitly gets what they
+     * asked for. Otherwise the EC2 instance role is used — it already grants {@code ses:SendEmail},
+     * and it is a strictly better credential than a long-lived IAM user secret sitting in
+     * configuration: it rotates itself, expires, and cannot be used off the instance.
+     */
+    private InstanceRoleCredentials.Credentials resolveCredentials() {
+        if (notBlank(accessKeyId) && notBlank(secretAccessKey)) {
+            return new InstanceRoleCredentials.Credentials(
+                    accessKeyId, secretAccessKey, sessionToken, java.time.Instant.MAX);
+        }
+        return instanceRole.current();
     }
 
     private static boolean notBlank(String value) {
@@ -131,8 +153,14 @@ public class SesEmailSender implements EmailPort {
             String body = buildRequest(message);
             String host = "email." + region + ".amazonaws.com";
 
+            InstanceRoleCredentials.Credentials credentials = resolveCredentials();
+            if (credentials == null) {
+                return Result.failed(PROVIDER, "no AWS credentials available");
+            }
+
             Map<String, String> headers = AwsSigV4.signJsonPost(
-                    accessKeyId, secretAccessKey, sessionToken,
+                    credentials.accessKeyId(), credentials.secretAccessKey(),
+                    credentials.sessionToken(),
                     region, SERVICE, host, PATH, body, Instant.now());
 
             HttpRequest.Builder request = HttpRequest.newBuilder()
