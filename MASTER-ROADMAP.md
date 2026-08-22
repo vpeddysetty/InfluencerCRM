@@ -190,7 +190,7 @@ Sequenced by *what blocks taking money, safely* — not by size, not by document
 
 | ID | Item | Size | Note |
 |---|---|---|---|
-| `PR-01` | Public pricing page — $49 / $149 monthly, $470 / $1,430 yearly, free = 1 seat | 1 | Every competitor is demo-gated; publishing a price is free differentiation |
+| ~~`PR-01`~~ | Public pricing page — **written 2026-08-21**, `docs/legal/pricing.html`. Prices and limits cross-checked against the live Stripe catalogue and `PlanPolicy`. **Not deployed**: needs an S3 upload to the legal bucket and a `/pricing/` route, same as `/terms/` | 0.5 | Every competitor is demo-gated; publishing a price is free differentiation |
 | `PR-04` | Stripe cutover — products, keys, webhook secret, `provider=stripe` | 1 | Config, not code |
 | ~~`OP-11`~~ | Stripe Tax — **done 2026-08-21 (test mode)**. Head office set, `txcd_10103001` on both products, `automatic_tax` + `tax_id_collection` on checkout. **Zero registrations by choice**: no nexus at zero revenue, so it computes $0 and collects nothing until one is added. UK/EU deferred — see Decision 8 | 0 | Was: VAT is owed from the first EU/UK sale; retrofitting onto issued invoices is painful |
 | `PR-02` | **Activation** — guided first run, empty states, welcome email, demo seed | 7 | The highest-value product work remaining. Against a free incumbent, activation *is* the product |
