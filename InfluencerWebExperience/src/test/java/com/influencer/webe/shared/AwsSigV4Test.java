@@ -10,6 +10,8 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -138,5 +140,36 @@ class AwsSigV4Test {
         int at = authorization.indexOf(field) + field.length();
         int end = authorization.indexOf(',', at);
         return (end < 0 ? authorization.substring(at) : authorization.substring(at, end)).trim();
+    }
+
+    @Test
+    @DisplayName("host is signed but must never be set on a java.net.http request")
+    void hostIsSignedYetUnsettable() {
+        Map<String, String> headers = AwsSigV4.signJsonPost(
+                KEY_ID, SECRET, null, "us-east-1", "ses", HOST,
+                "/v2/email/outbound-emails", "{}", WHEN);
+
+        // Signed: SES rejects the request if host is absent from SignedHeaders.
+        assertTrue(headers.get("Authorization").contains("host"),
+                "host must appear in SignedHeaders or SES rejects the signature");
+
+        // Yet a caller must skip it when building the request. java.net.http.HttpClient reserves
+        // the name and throws IllegalArgumentException("restricted header name: host"), setting it
+        // itself from the URI. Every real SES send failed on this until SesEmailSender filtered it
+        // out - the exception reads like a signing fault and is not one.
+        java.net.http.HttpRequest.Builder builder = java.net.http.HttpRequest.newBuilder()
+                .uri(java.net.URI.create("https://" + HOST + "/v2/email/outbound-emails"))
+                .POST(java.net.http.HttpRequest.BodyPublishers.ofString("{}"));
+        assertThrows(IllegalArgumentException.class,
+                () -> builder.header("host", HOST),
+                "if this ever stops throwing, the filter in SesEmailSender is no longer needed");
+
+        // The filter every caller has to apply.
+        headers.forEach((name, value) -> {
+            if (!"host".equalsIgnoreCase(name)) {
+                builder.header(name, value);
+            }
+        });
+        assertNotNull(builder.build(), "the request must build once host is filtered out");
     }
 }

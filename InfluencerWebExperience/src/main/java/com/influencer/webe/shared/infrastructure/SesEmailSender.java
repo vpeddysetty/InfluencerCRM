@@ -167,7 +167,17 @@ public class SesEmailSender implements EmailPort {
                     .uri(URI.create("https://" + host + PATH))
                     .timeout(Duration.ofSeconds(15))
                     .POST(HttpRequest.BodyPublishers.ofString(body));
-            headers.forEach(request::header);
+            // "host" is signed but must NOT be set on the request: java.net.http.HttpClient
+            // reserves it and throws IllegalArgumentException("restricted header name: host"),
+            // setting it itself from the URI. Dropping it here does not invalidate the signature -
+            // SignedHeaders still names it, and the value the JDK sends is the same host that was
+            // signed. Found on the first real SES send, 2026-08-22: every attempt failed with that
+            // exception, which looked like a signing bug and was not.
+            headers.forEach((name, value) -> {
+                if (!"host".equalsIgnoreCase(name)) {
+                    request.header(name, value);
+                }
+            });
 
             HttpResponse<String> response =
                     httpClient.send(request.build(), HttpResponse.BodyHandlers.ofString());
