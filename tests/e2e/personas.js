@@ -77,6 +77,13 @@ export async function signUp(page, persona, email) {
   await page.fill('input[name="email"]', email)
   await page.fill('input[name="password"]', PASSWORD)
 
+  // Consent gates submission: the button stays `disabled` until this is ticked, so without it every
+  // signup-based test fails on a click that can never land — with a timeout that says nothing about
+  // consent. `check()` rather than `click()` because it asserts the resulting state, and smoke-landing
+  // records the failure that motivates that: a box ticked on screen while the request still carried
+  // acceptedTerms=false.
+  await page.locator('input[name="acceptedTerms"]').check()
+
   await page.getByRole('button', { name: /Create workspace/i }).click()
 
   // The rail only renders inside the authenticated shell, so its presence IS "signed in".
