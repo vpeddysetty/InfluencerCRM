@@ -87,7 +87,11 @@ test.describe('A published landing page is reachable at the link the brand is sh
     await signUp(page, PERSONAS.soloBrandOwner, email)
     await beat(page)
 
-    await navigate(page, 'Content')
+    // Not navigate(), which matches on a substring: "Content" also matches the "Skip to content"
+    // link, and that one is parked outside the viewport on purpose, so the click retries until it
+    // times out. An exact match is what distinguishes the rail link from the skip link.
+    await page.getByRole('link', { name: 'Content', exact: true }).first().click()
+    await page.waitForLoadState('networkidle')
     await beat(page)
 
     // The builder shows the hosted link once a page exists. If this workspace has none yet there
