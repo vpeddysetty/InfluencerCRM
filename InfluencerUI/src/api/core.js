@@ -392,6 +392,24 @@ export async function acceptInvitation(token, invitationToken) {
   })
 }
 
+// Redeems an email-verification link. No auth token: the holder cannot sign in yet, which is the
+// whole reason they are here — the 256-bit single-use token in the URL IS the credential.
+export async function verifyEmail(verificationToken) {
+  return request('/api/auth/verify-email', {
+    method: 'POST',
+    body: { token: verificationToken },
+  })
+}
+
+// Asks for a fresh link. Answers identically whether or not the address has an account, so it
+// cannot be used to discover which addresses are registered — do not "improve" the message.
+export async function resendVerificationEmail(email) {
+  return request('/api/auth/verify-email/resend', {
+    method: 'POST',
+    body: { email },
+  })
+}
+
 export async function updateMemberRole(token, userId, role) {
   return request(`/api/brands/members/${userId}`, { method: 'PUT', token, body: { role } })
 }

@@ -7,6 +7,7 @@ import { DEFAULT_ROUTE } from './shell/routeManifest'
 import { msUntilRefresh } from './shell/sessionExpiry'
 import LandingPage from './pages/LandingPage'
 import AcceptInvitationPage from './pages/AcceptInvitationPage'
+import VerifyEmailPage from './pages/VerifyEmailPage'
 import ImportPage from './pages/ImportPage'
 import CampaignsPage from './pages/CampaignsPage'
 import CreatorsPage from './pages/CreatorsPage'
@@ -81,7 +82,9 @@ import {
   inviteMember,
   bulkInviteMembers,
   resendInvitation,
+  resendVerificationEmail,
   revokeInvitation,
+  verifyEmail,
   updateMemberRole,
   removeMember,
   listCampaignBriefs,
@@ -1667,6 +1670,11 @@ function App() {
     }
     return result
   }
+  // No auth token on either: the holder may not be able to sign in at all, which is the entire
+  // premise of email verification. The token in the URL is the credential.
+  const verifyEmailAddress = async (verificationToken) => verifyEmail(verificationToken)
+  const resendEmailVerification = async (email) => resendVerificationEmail(email)
+
   const revokeInvitationRecord = async (id) => revokeInvitation(authToken, id)
   const updateMemberRoleRecord = async (memberUserId, role) =>
     updateMemberRole(authToken, memberUserId, role)
@@ -2209,6 +2217,19 @@ function App() {
               />
             }
           />
+          {/* Also before the catch-all, and for the same reason: the catch-all would render the
+              landing page and drop the token. The link in the verification email points here, so
+              this route is the difference between that email working and doing nothing at all. */}
+          <Route
+            path="/verify-email"
+            element={
+              <VerifyEmailPage
+                onVerify={verifyEmailAddress}
+                onResend={resendEmailVerification}
+                onGoToSignIn={() => setIsSignUp(false)}
+              />
+            }
+          />
           <Route
             path="*"
             element={
@@ -2491,6 +2512,19 @@ function App() {
                 <AcceptInvitationPage
                   isLoggedIn
                   onAccept={acceptInvitationRecord}
+                  onGoToSignIn={() => {}}
+                />
+              }
+            />
+            {/* The signed-in twin. Enforcement is currently OFF, so a new signup IS signed in when
+                the email arrives — this is the branch that actually runs today, and without it the
+                catch-all sends them to the dashboard and the token is lost. */}
+            <Route
+              path="/verify-email"
+              element={
+                <VerifyEmailPage
+                  onVerify={verifyEmailAddress}
+                  onResend={resendEmailVerification}
                   onGoToSignIn={() => {}}
                 />
               }
