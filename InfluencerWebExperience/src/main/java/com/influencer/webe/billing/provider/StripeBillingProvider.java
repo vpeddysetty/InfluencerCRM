@@ -190,6 +190,29 @@ public class StripeBillingProvider implements BillingProvider {
         form.put("metadata[accountId]", accountId);
         form.put("metadata[subscriptionId]", idempotencyKey);
         form.put("metadata[plan]", plan);
+
+        // Stripe Tax computes and records the tax owed on every invoice, including renewals.
+        // WITHOUT this the account-level tax settings are inert: checkout charges the bare price,
+        // and the tax that was owed on that sale is not recoverable afterwards - it cannot be
+        // added to an invoice already issued and paid. That is the whole reason this is switched
+        // on before the first charge rather than after the first customer.
+        //
+        // What it collects depends on registrations, not on this flag: with none it computes zero
+        // everywhere, which is the correct answer for a seller with no obligation. Registering a
+        // jurisdiction later starts collection with no further code change.
+        form.put("automatic_tax[enabled]", "true");
+        // Automatic tax needs an address to determine the customer's jurisdiction. Checkout
+        // creates the customer here and saves the collected address to it, so renewals - which
+        // happen long after this session - still have a jurisdiction to compute against.
+        //
+        // NOTE customer_update is deliberately absent: Stripe rejects it unless an EXISTING
+        // customer id is passed, which this flow does not have. Verified against the live test API
+        // rather than assumed - it returns "`customer_update` can only be used with `customer`".
+        form.put("billing_address_collection", "required");
+        // B2B: a buyer entering a valid VAT/GST id gets a reverse-charge invoice rather than being
+        // charged tax they would only reclaim. Harmless with no registrations, and it means the
+        // first EU sale does not need a code change to be invoiced correctly.
+        form.put("tax_id_collection[enabled]", "true");
         int trialDays = trialDays(plan);
         if (trialDays > 0) {
             // The whole reason a trial is safe here: Stripe owns the clock. It ends the trial on

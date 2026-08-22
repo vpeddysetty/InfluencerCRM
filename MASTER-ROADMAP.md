@@ -95,12 +95,13 @@ signup.
 | `PR-31` | Legal pages, consent capture, deletion requests | `docs/legal/`, `V36`, `V37` | — |
 | `PR-32` | Zero-trust chain: workload tokens, `X-App-Id`, tenant scoping | `shared/workload/`, `dao/security/TenantScopeFilter.java` | — |
 | `OP-01` | Email `from` duplicate-declaration fix | `shared/EmailFromPropertyTest.java` | **found 2026-08-19** |
+| `PR-33` | Provider-enforced trials + annual billing | `billing/BillingProvider.java` (`BillingInterval`, `expiresTrials`), `SubscriptionService.subscribe`, `BillingWebhookService` `trial_will_end` | **added 2026-08-21.** `trial_ends_at` existed since `V32` and nothing read it, so a trial granted paid limits forever |
 
 ### 2.3 Blocked on procurement only — start the clocks
 
 | ID | Item | Owner | Note |
 |---|---|---|---|
-| `PR-04` | Stripe live keys | you | Code is done. Application has a lead time |
+| `PR-04` | Stripe live keys | you | Code is done. Test-mode catalogue built 2026-08-21 (`TejDux Pro`/`TejDux Agency`, 4 price ids); **live** keys still need applying for, and have a lead time |
 | `OP-06` | SES domain verification + sandbox exit | you | **Blocks every email feature and both agents.** See `docs/ses-setup.md` |
 | `PR-27b` | Meta app review (Instagram) | Meta | ~2 days. Deliberately **not** on the critical path |
 | `PR-10b` | Shopify Partner app | you | Only needed when `PR-10` starts |
@@ -118,7 +119,7 @@ The eight predecessors contained 27 documented conflicts. These are the ones tha
 | "accounts.plan is set, stored, echoed, never read" | `EXECUTION-ROADMAP.md:196` | `PlanPolicy` + `EntitlementService` enforce it |
 | Expiry scheduler placed in Phase 0 / M5.6 / Tier 4 | STRAT / EXEC / GAPS | Shipped; the placement argument is moot |
 | Free tier = 3 seats | `PENDING:207,290` | **1 seat** — 3 gave away the thing worth charging for |
-| "do not invent a price" vs a published $79/$199 table | EXEC/STRAT vs `PENDING:287` | Resolved in §6 Decision 1 |
+| "do not invent a price" vs a published price table | EXEC/STRAT vs `PENDING:287` | Resolved in §6 Decision 1 |
 | Fargate/ECS/ALB deployment topology | `infrastructure/README.md` | **Stale history.** Live is Docker Compose on one EC2 Spot instance behind Caddy |
 
 ---
@@ -189,9 +190,9 @@ Sequenced by *what blocks taking money, safely* — not by size, not by document
 
 | ID | Item | Size | Note |
 |---|---|---|---|
-| `PR-01` | Public pricing page — $79 / $199, free = 1 seat | 1 | Every competitor is demo-gated; publishing a price is free differentiation |
+| `PR-01` | Public pricing page — $49 / $149 monthly, $470 / $1,430 yearly, free = 1 seat | 1 | Every competitor is demo-gated; publishing a price is free differentiation |
 | `PR-04` | Stripe cutover — products, keys, webhook secret, `provider=stripe` | 1 | Config, not code |
-| `OP-11` | Stripe Tax, **before the first charge** | 0.5 | VAT is owed from the first EU/UK sale; retrofitting onto issued invoices is painful |
+| ~~`OP-11`~~ | Stripe Tax — **done 2026-08-21 (test mode)**. Head office set, `txcd_10103001` on both products, `automatic_tax` + `tax_id_collection` on checkout. **Zero registrations by choice**: no nexus at zero revenue, so it computes $0 and collects nothing until one is added. UK/EU deferred — see Decision 8 | 0 | Was: VAT is owed from the first EU/UK sale; retrofitting onto issued invoices is painful |
 | `PR-02` | **Activation** — guided first run, empty states, welcome email, demo seed | 7 | The highest-value product work remaining. Against a free incumbent, activation *is* the product |
 
 ### Stage 2 — Production environment (~9d)
@@ -231,11 +232,32 @@ for zero users. Nobody has enough rows to page.
 
 ## 6. Decisions log
 
-1. **Price: $79 Pro / $199 Agency. Free = 1 brand / 25 creators / 1 seat.** Grounded in
-   MARKET-ANALYSIS (contested SMB band $49–798; Grin gates its actual CRM behind $500/mo capped at
-   100 creators, so $79 for 250 is a wedge, not a race to the bottom). This does **not** conflict
-   with EXEC/STRAT's "do not invent a price" — that rule was about not *hardcoding*. Prices live in
-   Stripe and the pricing-page copy only; the test keeping prices out of the codebase stays.
+1. **Price: $49 Pro / $149 Agency monthly; $470 / $1,430 yearly (20% off). Free = 1 brand /
+   25 creators / 1 seat. 30-day trial on Agency only.** Revised 2026-08-21 from $79/$199.
+
+   Grounded in MARKET-ANALYSIS: the contested SMB band is $49–798, and Grin gates its actual CRM
+   behind $500/mo capped at 100 creators. The revision moves to the **floor** of that band because
+   §6 of that document names the real competitor — *"80%+ of influencer marketers report using
+   spreadsheets… the competition to beat is Excel, not Grin. Any pricing must clear a 'why not
+   free' bar."* $49 is a tool a team buys without budget approval; $79 is one that needs a
+   conversation.
+
+   Agency at $149 flat is set against Truleado's published $99 + $29/client — flat wins from two
+   clients up, and metered pricing would undercut the no-lock-in positioning that is our cheapest
+   differentiation against Grin's most-cited complaint.
+
+   The 30-day trial is Agency-only because the free tier allows **one brand**, so a multi-client
+   agency cannot evaluate the tier that matters to them; a single-brand Pro buyer can.
+
+   **Confidence: low.** MARKET-ANALYSIS §6 records no data on agency software budgets and
+   recommends surveying 30–50 agencies before underwriting GTM. These are anchored on the one solid
+   published comparable (Truleado) and should be treated as a starting position to test, not a
+   settled figure.
+
+   This does **not** conflict with EXEC/STRAT's "do not invent a price" — that rule was about not
+   *hardcoding*. Prices live in Stripe and the pricing-page copy only; the test keeping prices out
+   of the codebase stays. Live test-mode catalogue: `TejDux Pro` / `TejDux Agency`, four price ids,
+   verified 2026-08-21.
 2. **Lean production, single instance, deliberately.** See §7.
 3. **Separate AWS account** for production, under Organizations.
 4. **Do NOT rename the existing environment.** See §7.1 — this one will look wrong without its
@@ -245,6 +267,13 @@ for zero users. Nobody has enough rows to page.
    deferred (`instagram-token.py` already holds the exchange logic).
 7. **Automate the build; gate the apply.** No pipeline may run `terraform apply` or
    `start-instance-refresh` unattended.
+8. **US-only at launch; no UK/EU sales until VAT is registered.** Decided 2026-08-21. Stripe Tax is
+   active with **zero registrations**, which is the correct state for a seller with no nexus: it
+   computes $0 and collects nothing. The roadmap's original `OP-11` note — *"VAT is owed from the
+   first EU/UK sale"* — is right, and the answer is not to collect it speculatively but to not sell
+   there yet. Registering a jurisdiction in Stripe starts collection with **no code change**, so
+   this is reversible the day the obligation is real. The trigger to revisit is the first EU/UK
+   inbound lead, not a date.
 
 ---
 
