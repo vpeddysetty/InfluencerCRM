@@ -94,6 +94,10 @@ public class BillingWebhookService {
             // becomes active — not when they clicked subscribe.
             case "checkout.session.completed" -> activate(provider, payload);
             case "customer.subscription.updated" -> updateStatus(provider, payload);
+            // Stripe sends this a few days out, BEFORE the trial converts. It changes no status —
+            // the conversion itself arrives as customer.subscription.updated — and exists so the
+            // trial's end is recorded and visible rather than arriving as a surprise charge.
+            case "customer.subscription.trial_will_end" -> noteTrialEnding(provider, payload);
             case "customer.subscription.deleted" -> cancel(provider, payload);
             case "invoice.paid", "invoice.payment_failed" -> recordInvoice(provider, type, payload);
             default -> new Outcome(false, "Unhandled event type: " + type);
@@ -201,6 +205,33 @@ public class BillingWebhookService {
             update.put("cancelAtPeriodEnd", payload.get("cancelAtPeriodEnd").asBoolean());
         }
         return save(subscription, update, "Status updated to " + to + ".");
+    }
+
+    /**
+     * Records when a trial is about to end.
+     *
+     * <p>Deliberately does not touch {@code status}. The trial has not converted yet, and writing
+     * a status here would race the {@code customer.subscription.updated} that actually carries the
+     * conversion — with at-least-once delivery the two can arrive in either order, and the
+     * transition guard would then refuse the real one.
+     */
+    private Outcome noteTrialEnding(String provider, JsonNode payload) {
+        JsonNode subscription = findByRef(provider, providerRef(payload));
+        if (subscription == null) {
+            return new Outcome(false, "No subscription matches that reference.");
+        }
+        String endsAt = text(payload, "trialEndsAt", null);
+        if (endsAt == null) {
+            endsAt = text(payload, "trial_end", null);
+        }
+        if (endsAt == null) {
+            return new Outcome(false, "Event carried no trial end date.");
+        }
+        ObjectNode update = subscription.deepCopy();
+        update.put("trialEndsAt", endsAt);
+        log.info("[billing:{}] trial for subscription {} ends at {}",
+                provider, subscription.path("id").asText(""), endsAt);
+        return save(subscription, update, "Trial end recorded.");
     }
 
     private Outcome cancel(String provider, JsonNode payload) {

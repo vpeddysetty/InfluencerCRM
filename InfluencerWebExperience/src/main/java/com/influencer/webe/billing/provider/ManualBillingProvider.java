@@ -45,17 +45,24 @@ public class ManualBillingProvider implements BillingProvider {
     public Capabilities capabilities() {
         // chargesMoney=false is the important one. Nothing downstream may present a subscription
         // created here as evidence of payment.
-        return new Capabilities(false, false, false);
+        //
+        // expiresTrials=false because there is no provider here to end anything: no webhook ever
+        // arrives, so a trial recorded under this adapter would grant paid limits indefinitely.
+        // SubscriptionService refuses to start one rather than opening it and never closing it.
+        return new Capabilities(false, false, false, false);
     }
 
     @Override
     public CheckoutSession startCheckout(String idempotencyKey, String accountId, String plan,
-                                         String successUrl, String cancelUrl) {
+                                         BillingInterval interval, String successUrl,
+                                         String cancelUrl) {
         // WARN, not INFO: in a deployed environment this means someone is on a paid plan that no
         // payment provider is billing, which is a thing an operator should have to notice.
-        log.warn("[billing:{}] Subscription to plan '{}' recorded for account {} WITHOUT any charge. "
-                        + "No payment provider is configured — set web-experience.billing.provider.",
-                PROVIDER, plan, accountId);
+        log.warn("[billing:{}] Subscription to plan '{}' ({}) recorded for account {} WITHOUT any "
+                        + "charge. No payment provider is configured — set "
+                        + "web-experience.billing.provider.",
+                PROVIDER, plan,
+                (interval == null ? BillingInterval.MONTHLY : interval).key(), accountId);
 
         return new CheckoutSession(
                 // No URL: there is nowhere to send the user, because nothing is being collected.

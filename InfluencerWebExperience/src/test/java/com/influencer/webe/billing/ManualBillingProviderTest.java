@@ -40,7 +40,8 @@ class ManualBillingProviderTest {
         // Returning a plausible-looking URL would be the exact failure this class exists to avoid:
         // sending someone to a page that collects nothing while implying it does.
         BillingProvider.CheckoutSession session = provider.startCheckout(
-                UUID.randomUUID().toString(), UUID.randomUUID().toString(), "pro", null, null);
+                UUID.randomUUID().toString(), UUID.randomUUID().toString(), "pro",
+                BillingProvider.BillingInterval.MONTHLY, null, null);
 
         assertNull(session.checkoutUrl());
         assertFalse(provider.capabilities().hostedCheckout());
@@ -53,7 +54,7 @@ class ManualBillingProviderTest {
     void activatesImmediately() {
         // The one behaviour a real hosted-checkout provider genuinely differs on: it returns
         // activated=false and waits for its webhook, because the user has not paid yet.
-        assertTrue(provider.startCheckout(UUID.randomUUID().toString(), "acct", "pro", null, null)
+        assertTrue(provider.startCheckout(UUID.randomUUID().toString(), "acct", "pro", BillingProvider.BillingInterval.MONTHLY, null, null)
                 .activated());
     }
 
@@ -65,8 +66,8 @@ class ManualBillingProviderTest {
         // subscription that looks unrelated to the first.
         String subscriptionId = UUID.randomUUID().toString();
 
-        String first = provider.startCheckout(subscriptionId, "acct", "pro", null, null).providerRef();
-        String second = provider.startCheckout(subscriptionId, "acct", "pro", null, null).providerRef();
+        String first = provider.startCheckout(subscriptionId, "acct", "pro", BillingProvider.BillingInterval.MONTHLY, null, null).providerRef();
+        String second = provider.startCheckout(subscriptionId, "acct", "pro", BillingProvider.BillingInterval.MONTHLY, null, null).providerRef();
 
         assertEquals(first, second);
         assertTrue(first.contains(subscriptionId), "the reference must be traceable to its subscription");
@@ -75,8 +76,8 @@ class ManualBillingProviderTest {
     @Test
     @DisplayName("two different subscriptions get different references")
     void referencesAreUnique() {
-        String a = provider.startCheckout(UUID.randomUUID().toString(), "acct", "pro", null, null).providerRef();
-        String b = provider.startCheckout(UUID.randomUUID().toString(), "acct", "pro", null, null).providerRef();
+        String a = provider.startCheckout(UUID.randomUUID().toString(), "acct", "pro", BillingProvider.BillingInterval.MONTHLY, null, null).providerRef();
+        String b = provider.startCheckout(UUID.randomUUID().toString(), "acct", "pro", BillingProvider.BillingInterval.MONTHLY, null, null).providerRef();
 
         assertFalse(a.equals(b));
     }
@@ -108,7 +109,7 @@ class ManualBillingProviderTest {
     @DisplayName("a blank idempotency key produces no reference at all")
     void blankKeyProducesNoReference() {
         // Better to record nothing than to invent a reference that cannot be traced back.
-        assertNull(provider.startCheckout(null, "acct", "pro", null, null).providerRef());
-        assertNull(provider.startCheckout("  ", "acct", "pro", null, null).providerRef());
+        assertNull(provider.startCheckout(null, "acct", "pro", BillingProvider.BillingInterval.MONTHLY, null, null).providerRef());
+        assertNull(provider.startCheckout("  ", "acct", "pro", BillingProvider.BillingInterval.MONTHLY, null, null).providerRef());
     }
 }

@@ -40,6 +40,9 @@ public class SubscriptionService {
     /** A month, for the manual provider's period. A real provider tells us its own dates. */
     private static final Duration MANUAL_PERIOD = Duration.ofDays(30);
 
+    /** The yearly equivalent, for the same reason. */
+    private static final Duration MANUAL_YEAR = Duration.ofDays(365);
+
     private final DaoGatewayClient dao;
     private final ResponseShapeService shape;
     private final BillingProviderRegistry providers;
@@ -86,7 +89,8 @@ public class SubscriptionService {
      * raising the plan there would grant paid limits to anyone who clicked subscribe and then
      * closed the tab.
      */
-    public JsonNode subscribe(UUID accountId, String plan, String successUrl, String cancelUrl) {
+    public JsonNode subscribe(UUID accountId, String plan, String billingInterval,
+                              String successUrl, String cancelUrl) {
         PlanPolicy target = PlanPolicy.forKey(plan);
         if (target == PlanPolicy.FREE) {
             // Guarded because PlanPolicy.forKey falls back to FREE on anything unrecognised, so
@@ -100,12 +104,46 @@ public class SubscriptionService {
         }
 
         BillingProvider provider = providers.active();
+        // Defaults to monthly on anything unrecognised. Billing someone yearly because a request
+        // carried a typo would take twelve times what they agreed to.
+        BillingProvider.BillingInterval interval =
+                BillingProvider.BillingInterval.forKey(billingInterval);
+
+        // A trial is the one status that grants paid limits with nothing paid, so it is only
+        // opened when something will close it. Both halves below matter: the plan must be offered
+        // a trial at all, and the provider must be able to end it. Stripe ends its own and emits
+        // customer.subscription.updated; the manual provider emits nothing, and a trial recorded
+        // under it would sit entitled forever because SubscriptionState treats trialing as
+        // entitled and nothing revisits it.
+        //
+        // Without a trial the row starts PAUSED, which is the only non-terminal status that grants
+        // no paid plan and can still reach active — exactly the "exists but is not billing yet"
+        // shape needed here. It is a moment long for a provider that activates immediately, and
+        // the honest state for one that does not.
+        int trialDays = provider.trialDays(target.key());
+        boolean trialing = trialDays > 0 && provider.capabilities().expiresTrials();
+        if (trialDays > 0 && !provider.capabilities().expiresTrials()) {
+            log.warn("[billing:{}] a {}-day trial is configured for plan '{}' but this provider "
+                            + "cannot end trials, so none was started for account {}",
+                    provider.key(), trialDays, target.key(), accountId);
+        }
 
         ObjectNode body = shape.objectMapper().createObjectNode();
         body.put("accountId", accountId.toString());
         body.put("plan", target.key());
-        body.put("status", SubscriptionState.TRIALING);
+        body.put("status", trialing ? SubscriptionState.TRIALING : SubscriptionState.PAUSED);
         body.put("provider", provider.key());
+        // NOTE the interval is deliberately NOT sent to the DAO: identity.subscriptions has no
+        // column for it, so the field would be silently dropped, and a value that looks stored
+        // but never arrives is worse than no value at all. It reaches Stripe through the price
+        // id — the thing that actually bills — and current_period_end shows the cadence in our
+        // own data. Persisting it needs a migration first.
+        if (trialing) {
+            // The expectation, not the authority. Stripe's own webhook carries the real end date;
+            // this is recorded so a trial is visible in our data before any event lands, and so an
+            // operator can answer "when does this end" without calling Stripe.
+            body.put("trialEndsAt", Instant.now().plus(Duration.ofDays(trialDays)).toString());
+        }
         JsonNode created = dao.post("/billing/subscriptions", body);
         String subscriptionId = created.path("id").asText();
 
@@ -114,7 +152,7 @@ public class SubscriptionService {
         // request said, and a payment flow is the most credible possible context for that. The
         // parameters are accepted only so a caller can name a path within our own origin.
         BillingProvider.CheckoutSession session = provider.startCheckout(
-                subscriptionId, accountId.toString(), target.key(),
+                subscriptionId, accountId.toString(), target.key(), interval,
                 safeReturnUrl(successUrl, "/billing?checkout=success"),
                 safeReturnUrl(cancelUrl, "/billing?checkout=cancelled"));
 
@@ -126,7 +164,9 @@ public class SubscriptionService {
             Instant now = Instant.now();
             update.put("status", SubscriptionState.ACTIVE);
             update.put("currentPeriodStart", now.toString());
-            update.put("currentPeriodEnd", now.plus(MANUAL_PERIOD).toString());
+            update.put("currentPeriodEnd", now.plus(
+                    interval == BillingProvider.BillingInterval.YEARLY
+                            ? MANUAL_YEAR : MANUAL_PERIOD).toString());
         }
         JsonNode saved = dao.put("/billing/subscriptions/" + subscriptionId, update);
 

@@ -43,25 +43,43 @@ public class StripeBillingProvider implements BillingProvider {
     private static final String PROVIDER = "stripe";
     private static final String API = "https://api.stripe.com/v1";
 
+    /** Stripe's own ceiling on trial_period_days. Clamping here turns a 400 into a shorter trial. */
+    private static final int MAX_TRIAL_DAYS = 730;
+
     private final OutboundHttpClient http;
     private final String secretKey;
     private final Map<String, String> priceIdByPlan;
+    private final Map<String, Integer> trialDaysByPlan;
 
     public StripeBillingProvider(
             OutboundHttpClient http,
             @Value("${web-experience.billing.stripe.secret-key:}") String secretKey,
             @Value("${web-experience.billing.stripe.price-pro:}") String pricePro,
-            @Value("${web-experience.billing.stripe.price-agency:}") String priceAgency) {
+            @Value("${web-experience.billing.stripe.price-agency:}") String priceAgency,
+            @Value("${web-experience.billing.stripe.price-pro-yearly:}") String priceProYearly,
+            @Value("${web-experience.billing.stripe.price-agency-yearly:}") String priceAgencyYearly,
+            @Value("${web-experience.billing.stripe.trial-days-pro:0}") int trialDaysPro,
+            @Value("${web-experience.billing.stripe.trial-days-agency:0}") int trialDaysAgency) {
         this.http = http;
         this.secretKey = secretKey == null ? "" : secretKey.trim();
+        // Per plan, because a trial is a pricing decision and the two plans do not have to make
+        // the same one — Agency is the tier a multi-client buyer cannot evaluate inside the free
+        // tier's one-brand limit, and Pro can convert without one.
+        //
+        // Clamped rather than validated-and-thrown: a negative or absurd value in configuration
+        // should not stop the service booting, and Stripe rejects anything outside 1..730 anyway.
+        this.trialDaysByPlan = Map.of(
+                "pro", clampTrial(trialDaysPro),
+                "agency", clampTrial(trialDaysAgency));
 
+        // Keyed "plan:interval". A missing yearly price simply means that cadence cannot be
+        // bought — startCheckout reports it rather than quietly falling back to monthly, which
+        // would charge a different amount than the customer chose.
         Map<String, String> prices = new LinkedHashMap<>();
-        if (pricePro != null && !pricePro.isBlank()) {
-            prices.put("pro", pricePro.trim());
-        }
-        if (priceAgency != null && !priceAgency.isBlank()) {
-            prices.put("agency", priceAgency.trim());
-        }
+        putPrice(prices, "pro", BillingInterval.MONTHLY, pricePro);
+        putPrice(prices, "agency", BillingInterval.MONTHLY, priceAgency);
+        putPrice(prices, "pro", BillingInterval.YEARLY, priceProYearly);
+        putPrice(prices, "agency", BillingInterval.YEARLY, priceAgencyYearly);
         this.priceIdByPlan = Map.copyOf(prices);
 
         if (this.secretKey.isEmpty()) {
@@ -79,6 +97,17 @@ public class StripeBillingProvider implements BillingProvider {
                     + "web-experience.billing.stripe.price-pro / price-agency to the ids from your "
                     + "Stripe product catalogue.");
         }
+    }
+
+    private static void putPrice(Map<String, String> into, String plan, BillingInterval interval,
+                                 String priceId) {
+        if (priceId != null && !priceId.isBlank()) {
+            into.put(priceKey(plan, interval), priceId.trim());
+        }
+    }
+
+    private static String priceKey(String plan, BillingInterval interval) {
+        return String.valueOf(plan).toLowerCase(Locale.ROOT) + ":" + interval.key();
     }
 
     @Override
@@ -101,6 +130,22 @@ public class StripeBillingProvider implements BillingProvider {
         return !secretKey.isEmpty() && !priceIdByPlan.isEmpty();
     }
 
+    /**
+     * How many days of trial checkout requests, or 0 for none.
+     *
+     * <p>Exposed so the caller can record {@code trial_ends_at} from the same number Stripe was
+     * asked for. The authoritative end date is whatever Stripe reports on its webhook; this is the
+     * expectation, recorded so an operator can see a trial was requested at all.
+     */
+    @Override
+    public int trialDays(String plan) {
+        return trialDaysByPlan.getOrDefault(String.valueOf(plan).toLowerCase(Locale.ROOT), 0);
+    }
+
+    private static int clampTrial(int days) {
+        return Math.max(0, Math.min(days, MAX_TRIAL_DAYS));
+    }
+
     /** Test-mode keys are prefixed by Stripe itself, so this needs no separate flag to get wrong. */
     public boolean isTestMode() {
         return secretKey.startsWith("sk_test_");
@@ -114,16 +159,23 @@ public class StripeBillingProvider implements BillingProvider {
         // NOTE it is true in test mode. A sandbox key does move a (fake) card through a real
         // charge flow, so the honest answer is that this adapter charges — displayName() and the
         // startup log carry the test/live distinction instead.
-        return new Capabilities(isConfigured(), true, true);
+        //
+        // expiresTrials tracks isConfigured() for the same reason chargesMoney does: an
+        // unconfigured adapter reaches no Stripe account, so no trial-ending webhook would ever
+        // arrive and a trial started under it would never close.
+        return new Capabilities(isConfigured(), true, true, isConfigured());
     }
 
     @Override
     public CheckoutSession startCheckout(String idempotencyKey, String accountId, String plan,
-                                         String successUrl, String cancelUrl) {
-        String priceId = priceIdByPlan.get(String.valueOf(plan).toLowerCase(Locale.ROOT));
+                                         BillingInterval interval, String successUrl,
+                                         String cancelUrl) {
+        BillingInterval cadence = interval == null ? BillingInterval.MONTHLY : interval;
+        String priceId = priceIdByPlan.get(priceKey(plan, cadence));
         if (!isConfigured() || priceId == null) {
             return new CheckoutSession(null, null, false,
-                    "Stripe is not configured for the " + plan + " plan.");
+                    "Stripe is not configured for the " + plan + " plan billed "
+                            + cadence.key() + ".");
         }
 
         Map<String, String> form = new LinkedHashMap<>();
@@ -138,6 +190,13 @@ public class StripeBillingProvider implements BillingProvider {
         form.put("metadata[accountId]", accountId);
         form.put("metadata[subscriptionId]", idempotencyKey);
         form.put("metadata[plan]", plan);
+        int trialDays = trialDays(plan);
+        if (trialDays > 0) {
+            // The whole reason a trial is safe here: Stripe owns the clock. It ends the trial on
+            // its own and emits customer.subscription.updated, which BillingWebhookService applies
+            // through the normal status path. Nothing in this codebase has to poll or schedule.
+            form.put("subscription_data[trial_period_days]", String.valueOf(trialDays));
+        }
 
         OutboundHttpClient.Response response =
                 http.postForm(API + "/checkout/sessions", form, authHeaders(idempotencyKey));

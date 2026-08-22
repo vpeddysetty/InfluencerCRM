@@ -32,7 +32,94 @@ class StripeBillingProviderTest {
     }
 
     private static StripeBillingProvider provider(String key, String pricePro, String priceAgency) {
-        return new StripeBillingProvider(http(), key, pricePro, priceAgency);
+        return provider(key, pricePro, priceAgency, 0);
+    }
+
+    private static StripeBillingProvider provider(String key, String pricePro, String priceAgency,
+                                                  int trialDays) {
+        // Agency-only trial, matching the shipped configuration. No yearly prices by default, so
+        // the monthly-only case stays the one most tests exercise.
+        return new StripeBillingProvider(http(), key, pricePro, priceAgency, "", "", 0, trialDays);
+    }
+
+    private static StripeBillingProvider providerWithYearly(String key) {
+        return new StripeBillingProvider(http(), key, "price_pro_m", "price_agency_m",
+                "price_pro_y", "price_agency_y", 0, 30);
+    }
+
+    @Test
+    @DisplayName("an unknown or absent interval bills monthly, never yearly")
+    void intervalFailsToMonthly() {
+        // The consequence of getting this backwards is charging someone a year for a field they
+        // never sent, so every unrecognised value resolves to the smaller commitment.
+        assertEquals(BillingProvider.BillingInterval.MONTHLY,
+                BillingProvider.BillingInterval.forKey(null));
+        assertEquals(BillingProvider.BillingInterval.MONTHLY,
+                BillingProvider.BillingInterval.forKey(""));
+        assertEquals(BillingProvider.BillingInterval.MONTHLY,
+                BillingProvider.BillingInterval.forKey("quarterly"));
+        assertEquals(BillingProvider.BillingInterval.YEARLY,
+                BillingProvider.BillingInterval.forKey("  Yearly "));
+        // Stripe's own vocabulary, so a value echoed back from a payload resolves.
+        assertEquals(BillingProvider.BillingInterval.YEARLY,
+                BillingProvider.BillingInterval.forKey("year"));
+        assertEquals(BillingProvider.BillingInterval.YEARLY,
+                BillingProvider.BillingInterval.forKey("annual"));
+    }
+
+    @Test
+    @DisplayName("a plan with no yearly price refuses yearly rather than billing monthly")
+    void missingYearlyPriceIsRefused() {
+        // The trap: silently falling back to the monthly price would charge $49 to someone who
+        // chose the $470 annual plan, and the checkout would look successful.
+        StripeBillingProvider stripe = provider("sk_test_abc", "price_pro", "price_agency");
+        BillingProvider.CheckoutSession session = stripe.startCheckout(
+                "sub-1", "acct-1", "pro", BillingProvider.BillingInterval.YEARLY, "s", "c");
+        assertNull(session.checkoutUrl());
+        assertFalse(session.activated());
+        assertTrue(session.detail().contains("yearly"));
+    }
+
+    @Test
+    @DisplayName("both cadences are configured when all four price ids are present")
+    void yearlyIsConfiguredWhenPriceIdsExist() {
+        StripeBillingProvider stripe = providerWithYearly("sk_test_abc");
+        assertTrue(stripe.capabilities().expiresTrials());
+        // Neither cadence is refused for want of configuration; both reach the network gate.
+        for (BillingProvider.BillingInterval cadence : BillingProvider.BillingInterval.values()) {
+            BillingProvider.CheckoutSession session =
+                    stripe.startCheckout("sub-1", "acct-1", "agency", cadence, "s", "c");
+            assertFalse(session.detail().contains("not configured"),
+                    "agency should be buyable " + cadence.key());
+        }
+    }
+
+    @Test
+    @DisplayName("trials are off unless configured, and clamp to Stripe's ceiling")
+    void trialDaysAreClampedAndDefaultOff() {
+        // 0 is the default because a trial grants paid limits with nothing paid: an operator has
+        // to ask for one.
+        assertEquals(0, provider("sk_test_abc", "price_pro", "price_agency").trialDays("agency"));
+        assertEquals(30, provider("sk_test_abc", "price_pro", "price_agency", 30).trialDays("agency"));
+        // Pro carries no trial even when Agency does - the per-plan split is the point.
+        assertEquals(0, provider("sk_test_abc", "price_pro", "price_agency", 30).trialDays("pro"));
+        // An unknown plan gets no trial rather than a default one.
+        assertEquals(0, provider("sk_test_abc", "price_pro", "price_agency", 30).trialDays("bogus"));
+        // Negative would otherwise reach Stripe as a 400 at checkout time - the worst moment.
+        assertEquals(0, provider("sk_test_abc", "price_pro", "price_agency", -5).trialDays("agency"));
+        assertEquals(730, provider("sk_test_abc", "price_pro", "price_agency", 99999).trialDays("agency"));
+    }
+
+    @Test
+    @DisplayName("only a configured adapter claims it can end a trial")
+    void expiresTrialsTracksConfiguration() {
+        // The guard SubscriptionService reads. An unconfigured adapter reaches no Stripe account,
+        // so no trial-ending webhook would ever arrive and a trial opened under it would never
+        // close - which is the exact bug this flag exists to prevent.
+        assertFalse(provider("", "", "", 14).capabilities().expiresTrials());
+        assertFalse(provider("sk_test_abc", "", "", 14).capabilities().expiresTrials());
+        assertTrue(provider("sk_test_abc", "price_pro", "price_agency", 14)
+                .capabilities().expiresTrials());
     }
 
     @Test
@@ -86,7 +173,7 @@ class StripeBillingProviderTest {
         StripeBillingProvider stripe = provider("", "", "");
 
         BillingProvider.CheckoutSession session =
-                stripe.startCheckout("sub-1", "acct-1", "pro", "s", "c");
+                stripe.startCheckout("sub-1", "acct-1", "pro", BillingProvider.BillingInterval.MONTHLY, "s", "c");
 
         assertNull(session.checkoutUrl());
         assertFalse(session.activated(), "nothing may be activated without a payment");
@@ -101,7 +188,7 @@ class StripeBillingProviderTest {
         StripeBillingProvider stripe = provider("sk_test_abc", "price_pro", "");
 
         BillingProvider.CheckoutSession session =
-                stripe.startCheckout("sub-1", "acct-1", "agency", "s", "c");
+                stripe.startCheckout("sub-1", "acct-1", "agency", BillingProvider.BillingInterval.MONTHLY, "s", "c");
 
         assertNull(session.checkoutUrl());
         assertFalse(session.activated());
@@ -117,7 +204,7 @@ class StripeBillingProviderTest {
 
         // The call fails at the network (no sandbox reachable in a unit test), and the contract
         // that matters is that it does not report an active subscription either way.
-        assertFalse(stripe.startCheckout("sub-1", "acct-1", "pro", "s", "c").activated());
+        assertFalse(stripe.startCheckout("sub-1", "acct-1", "pro", BillingProvider.BillingInterval.MONTHLY, "s", "c").activated());
     }
 
     @Test

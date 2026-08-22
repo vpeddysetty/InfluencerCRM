@@ -72,7 +72,7 @@ public class SubscriptionController {
         TenantContext context =
                 requestUserResolver.requirePermission(authorization, Permission.ACCOUNT_BILLING);
         return subscriptions.subscribe(context.accountId(), request.plan(),
-                request.successUrl(), request.cancelUrl());
+                request.billingInterval(), request.successUrl(), request.cancelUrl());
     }
 
     @PostMapping("/pause")
@@ -127,7 +127,14 @@ public class SubscriptionController {
     public record SubscriptionResponse(boolean subscribed, JsonNode subscription, boolean canManage) {
     }
 
-    public record SubscribeRequest(@NotBlank String plan, String successUrl, String cancelUrl) {
+    /**
+     * @param billingInterval {@code "monthly"} or {@code "yearly"}. Optional: an absent or
+     *                        unrecognised value bills monthly, because that is the smaller
+     *                        commitment and a client should never be charged for a year by
+     *                        omitting a field
+     */
+    public record SubscribeRequest(@NotBlank String plan, String billingInterval,
+                                   String successUrl, String cancelUrl) {
     }
 
     public record CancelRequest(boolean immediate) {

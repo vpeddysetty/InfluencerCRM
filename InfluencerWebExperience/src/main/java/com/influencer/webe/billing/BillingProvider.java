@@ -46,8 +46,19 @@ public interface BillingProvider {
      *                         roadmap's instruction for 2.1 is "hosted checkout, hosted portal — do
      *                         not build billing UI", so a provider offering one should be used
      *                         rather than reimplemented
+     * @param expiresTrials    whether the provider ENDS a trial on its own and tells us. A trial
+     *                         is the only subscription state that grants paid limits with no
+     *                         payment behind it, so something must eventually end it. Stripe does:
+     *                         it transitions the subscription and emits
+     *                         {@code customer.subscription.updated}, which
+     *                         {@code BillingWebhookService} already applies. A provider that
+     *                         cannot must not be offered a trial at all — otherwise
+     *                         {@code trialing} grants the paid plan forever, because
+     *                         {@code SubscriptionState} treats it as entitled and nothing else
+     *                         ever revisits it. Guarded in {@code SubscriptionService.subscribe}
      */
-    record Capabilities(boolean chargesMoney, boolean hostedCheckout, boolean hostedPortal) {
+    record Capabilities(boolean chargesMoney, boolean hostedCheckout, boolean hostedPortal,
+                        boolean expiresTrials) {
     }
 
     Capabilities capabilities();
@@ -63,7 +74,56 @@ public interface BillingProvider {
      * @return where to send the user, and what to record
      */
     CheckoutSession startCheckout(String idempotencyKey, String accountId, String plan,
-                                  String successUrl, String cancelUrl);
+                                  BillingInterval interval, String successUrl, String cancelUrl);
+
+    /**
+     * How often a subscription renews.
+     *
+     * <p>Separate from the plan because it is a different question with different consequences:
+     * the plan decides what an account may do ({@code PlanPolicy}), the interval only decides how
+     * often it is billed. Collapsing them into four plan keys would double {@code PlanPolicy} and
+     * put a billing concern inside an entitlement enum.
+     *
+     * <p>{@link #MONTHLY} is the default everywhere. A caller that omits the interval gets billed
+     * monthly, which is the smaller commitment — defaulting to a year would charge someone twelve
+     * times what they expected on a parameter they never sent.
+     */
+    enum BillingInterval {
+        MONTHLY("monthly"),
+        YEARLY("yearly");
+
+        private final String key;
+
+        BillingInterval(String key) {
+            this.key = key;
+        }
+
+        public String key() {
+            return key;
+        }
+
+        /** Fails to {@link #MONTHLY} on anything unrecognised, for the reason given above. */
+        public static BillingInterval forKey(String value) {
+            if (value == null || value.isBlank()) {
+                return MONTHLY;
+            }
+            String normalized = value.trim().toLowerCase(java.util.Locale.ROOT);
+            for (BillingInterval candidate : values()) {
+                if (candidate.key.equals(normalized)) {
+                    return candidate;
+                }
+            }
+            // Also accept Stripe's own words, so a value echoed back from a provider payload
+            // resolves rather than silently becoming monthly.
+            if ("year".equals(normalized) || "annual".equals(normalized)) {
+                return YEARLY;
+            }
+            if ("month".equals(normalized)) {
+                return MONTHLY;
+            }
+            return MONTHLY;
+        }
+    }
 
     /**
      * @param checkoutUrl  where to send the user to pay, or null when the provider takes no money
@@ -73,6 +133,22 @@ public interface BillingProvider {
      *                     waits for its webhook, because the user has not paid yet
      */
     record CheckoutSession(String checkoutUrl, String providerRef, boolean activated, String detail) {
+    }
+
+    /**
+     * How many days of trial {@link #startCheckout} asks for on {@code plan}, or 0 for none.
+     *
+     * <p><b>Per plan, not per provider.</b> Whether a tier gets a trial is a pricing decision that
+     * differs between tiers: a buyer who cannot evaluate a plan inside the free tier's limits needs
+     * one, and a plan that converts without a trial should not give away a month.
+     *
+     * <p>Defaults to 0 so a provider must opt in: a trial grants paid limits with nothing paid,
+     * and the safe answer for an implementation that has not considered the question is that it
+     * offers none. Only meaningful when {@link Capabilities#expiresTrials()} is true — a length
+     * without something to enforce it is how {@code trialing} becomes permanent.
+     */
+    default int trialDays(String plan) {
+        return 0;
     }
 
     /**
