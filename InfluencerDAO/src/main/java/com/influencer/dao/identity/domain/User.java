@@ -41,6 +41,16 @@ public class User {
     @Column(name = "plan", nullable = false)
     private String plan;
 
+    /**
+     * When this address was proven, or null for an account that predates verification.
+     *
+     * <p>Null is grandfathered rather than unverified — see {@code EmailVerificationPolicy}.
+     * Enforcement is on sign-in, so reading null as "not verified" would lock out every account
+     * that existed before the feature shipped.
+     */
+    @Column(name = "email_verified_at")
+    private Instant emailVerifiedAt;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -118,6 +128,14 @@ public class User {
 
     public void setPlan(String plan) {
         this.plan = plan;
+    }
+
+    public Instant getEmailVerifiedAt() {
+        return emailVerifiedAt;
+    }
+
+    public void setEmailVerifiedAt(Instant emailVerifiedAt) {
+        this.emailVerifiedAt = emailVerifiedAt;
     }
 
     public Instant getCreatedAt() {

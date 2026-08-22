@@ -22,17 +22,20 @@ public class AuthController {
     private final OAuthFlowService oauthFlowService;
     private final OAuthHandoffService oauthHandoffService;
     private final ConsentService consentService;
+    private final com.influencer.webe.identity.application.EmailVerificationService emailVerification;
     private final com.influencer.webe.shared.application.RequestUserResolver requestUserResolver;
 
     public AuthController(AuthService authService,
                           OAuthFlowService oauthFlowService,
                           OAuthHandoffService oauthHandoffService,
                           ConsentService consentService,
+                          com.influencer.webe.identity.application.EmailVerificationService emailVerification,
                           com.influencer.webe.shared.application.RequestUserResolver requestUserResolver) {
         this.authService = authService;
         this.oauthFlowService = oauthFlowService;
         this.oauthHandoffService = oauthHandoffService;
         this.consentService = consentService;
+        this.emailVerification = emailVerification;
         this.requestUserResolver = requestUserResolver;
     }
 
@@ -141,6 +144,33 @@ public class AuthController {
     @PostMapping("/login")
     public AuthService.AuthResponse login(@Valid @RequestBody LoginRequest request) {
         return authService.login(request.email(), request.password());
+    }
+
+    /**
+     * Redeems a verification link.
+     *
+     * <p>Unauthenticated by necessity: the whole point is that the holder cannot sign in yet. The
+     * 256-bit single-use token IS the credential, the same structural reason
+     * {@code /api/auth/oauth/handoff} is public.
+     */
+    @PostMapping("/verify-email")
+    public VerifyEmailResponse verifyEmail(@Valid @RequestBody VerifyEmailRequest request) {
+        emailVerification.verify(request.token());
+        return new VerifyEmailResponse(true, "Email confirmed. You can sign in now.");
+    }
+
+    /**
+     * Sends a fresh link.
+     *
+     * <p>Always answers the same way, whether or not the address has an account, has a challenge
+     * outstanding, or has hit the resend cap. An endpoint that cannot require authentication and
+     * answers differently per address is an oracle for which addresses are registered.
+     */
+    @PostMapping("/verify-email/resend")
+    public VerifyEmailResponse resendVerification(@Valid @RequestBody ResendVerificationRequest request) {
+        emailVerification.resendByEmail(request.email());
+        return new VerifyEmailResponse(true,
+                "If that address needs confirming, a new link is on its way.");
     }
 
     @PostMapping("/logout")
@@ -280,5 +310,14 @@ public class AuthController {
             @Email String fallbackEmail,
             String fallbackDisplayName,
             String brandName) {
+    }
+
+    public record VerifyEmailRequest(@jakarta.validation.constraints.NotBlank String token) {
+    }
+
+    public record ResendVerificationRequest(@jakarta.validation.constraints.NotBlank String email) {
+    }
+
+    public record VerifyEmailResponse(boolean ok, String message) {
     }
 }

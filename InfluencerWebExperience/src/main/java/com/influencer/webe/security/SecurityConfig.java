@@ -62,6 +62,11 @@ public class SecurityConfig {
             // for 60 seconds, consumed on first read, and issued only to the provider's redirect.
             // Same reasoning as /api/auth/refresh, which is public for the same structural reason.
             "/api/auth/oauth/handoff",
+            // Both unauthenticated by necessity: the holder cannot sign in yet, which is the whole
+            // reason they are here. The 256-bit single-use token IS the credential for verify, and
+            // resend answers identically for every address so it reveals nothing.
+            "/api/auth/verify-email",
+            "/api/auth/verify-email/resend",
             // Creator signup from a published landing page. A creator applying to a campaign has
             // no account, so this cannot require a token. The owning brand is derived from the
             // page slug (never from the body), only published pages accept signups, and the row

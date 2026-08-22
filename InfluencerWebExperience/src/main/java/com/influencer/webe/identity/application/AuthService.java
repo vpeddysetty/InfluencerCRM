@@ -25,6 +25,7 @@ public class AuthService {
     private final DaoFederatedIdentityClient daoFederatedIdentityClient;
     private final OAuthProfileService oauthProfileService;
     private final SessionService sessionService;
+    private final EmailVerificationService emailVerification;
     private final ObjectMapper objectMapper;
     private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
@@ -34,12 +35,14 @@ public class AuthService {
             DaoFederatedIdentityClient daoFederatedIdentityClient,
             OAuthProfileService oauthProfileService,
             SessionService sessionService,
+            EmailVerificationService emailVerification,
             ObjectMapper objectMapper) {
         this.daoUserClient = daoUserClient;
         this.daoTenancyClient = daoTenancyClient;
         this.daoFederatedIdentityClient = daoFederatedIdentityClient;
         this.oauthProfileService = oauthProfileService;
         this.sessionService = sessionService;
+        this.emailVerification = emailVerification;
         this.objectMapper = objectMapper;
     }
 
@@ -87,6 +90,12 @@ public class AuthService {
         DaoUserClient.UserRecord createdUser = daoUserClient.createUser(payload);
         provisionWorkspace(createdUser, brandName, resolvedType);
 
+        // A password signup has proven nothing about the address yet. The challenge is issued
+        // whether or not enforcement is on, so the path runs from day one rather than lying
+        // dormant until a flag flips. Delivery failure is logged, not thrown: the account already
+        // exists, and failing here would leave it with no way in and no way to ask for a link.
+        emailVerification.issue(createdUser.id(), createdUser.email());
+
         SessionService.SessionInfo session = sessionService.createSession(createdUser.id(), createdUser.email(), "password");
         return AuthResponse.from(createdUser, session);
     }
@@ -127,6 +136,18 @@ public class AuthService {
 
         if (!passwordEncoder.matches(password, user.passwordHash())) {
             throw new IllegalArgumentException("Invalid credentials");
+        }
+
+        // Checked AFTER the password, deliberately. Answering "verify your email" to a wrong
+        // password would confirm the address has an account, which is the same oracle the resend
+        // endpoint is careful not to be.
+        //
+        // The pending row is the authoritative signal rather than users.email_verified_at: a null
+        // timestamp cannot distinguish an account created before this feature from one created a
+        // minute ago, and only the newer one has a challenge outstanding. See
+        // EmailVerificationPolicy for why that distinction is what keeps existing users signed in.
+        if (emailVerification.blocksSignIn("password", null, user.id())) {
+            throw new EmailNotVerifiedException(user.id(), user.email());
         }
 
         SessionService.SessionInfo session = sessionService.createSession(user.id(), user.email(), "password");
@@ -320,6 +341,13 @@ public class AuthService {
                 Instant.now());
 
         DaoUserClient.UserRecord saved = existing == null ? daoUserClient.createUser(payload) : daoUserClient.updateUser(existing.id(), payload);
+        if (existing == null && profile.emailVerified()) {
+            // The provider asserted a VERIFIED address, so there is nothing for the user to prove
+            // and no challenge to issue. Guarded on emailVerified() rather than on being federated:
+            // an unverified provider assertion is exactly what FederatedIdentity.isTrustworthy()
+            // refuses to accept, and it must not silently satisfy this check either.
+            emailVerification.markVerifiedByProvider(saved.id());
+        }
         if (existing == null) {
             // A federated sign-up creates a user exactly like a password one and needs the same
             // workspace. This used to happen implicitly in the provisioning trigger; now that
