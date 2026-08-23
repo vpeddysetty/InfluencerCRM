@@ -488,6 +488,10 @@ function App() {
    */
   const permissions = authToken ? readPermissionsFromToken(authToken) : cookiePermissions
   const [authError, setAuthError] = useState('')
+  // Set when sign-in is refused for an unconfirmed address. Distinct from authError because the
+  // screen is different: a wrong password needs retyping, this needs an email.
+  const [unverifiedEmail, setUnverifiedEmail] = useState('')
+  const [verificationResendState, setVerificationResendState] = useState('idle')
   // Shown when a token could not be renewed silently. Held as state rather than handled inside
   // the API layer so the workspace stays mounted underneath — the user keeps their place, and
   // anything unsaved survives long enough for them to decide.
@@ -920,9 +924,34 @@ function App() {
         track(EVENTS.SIGNUP, { accountType })
       }
     } catch (error) {
+      // A correct password on an unconfirmed address is not an authentication failure and must not
+      // read as one. The person is stranded until a link they may never have received is clicked,
+      // so the screen has to offer a new one - branching on the server's errorCode rather than on
+      // its prose, which is free to change.
+      if (error?.errorCode === 'EMAIL_NOT_VERIFIED') {
+        setUnverifiedEmail(error?.details?.email || email)
+        setAuthError('')
+        return
+      }
       setAuthError(error instanceof Error ? error.message : 'Authentication failed.')
       throw error
     }
+  }
+
+  // Sends a fresh confirmation link to someone the sign-in gate just turned away.
+  const resendVerificationForBlockedSignIn = async () => {
+    if (!unverifiedEmail) {
+      return
+    }
+    setVerificationResendState('sending')
+    try {
+      await resendVerificationEmail(unverifiedEmail)
+    } catch {
+      // Swallowed on purpose: the endpoint answers identically for every address so it cannot be
+      // used to discover which ones are registered, and reporting a failure here would leak the
+      // difference it is careful to hide.
+    }
+    setVerificationResendState('sent')
   }
 
   // Captures the active brand from an auth/refresh/switch response. Called before any
@@ -2201,6 +2230,9 @@ function App() {
                 onAuthSubmit={handleAuthSubmit}
                 onSocialLogin={handleSocialLogin}
                 authError={oauthErrorFromUrl || authError}
+                unverifiedEmail={unverifiedEmail}
+                verificationResendState={verificationResendState}
+                onResendVerification={resendVerificationForBlockedSignIn}
               />
             }
           />
@@ -2239,6 +2271,9 @@ function App() {
                 onAuthSubmit={handleAuthSubmit}
                 onSocialLogin={handleSocialLogin}
                 authError={authError}
+                unverifiedEmail={unverifiedEmail}
+                verificationResendState={verificationResendState}
+                onResendVerification={resendVerificationForBlockedSignIn}
               />
             }
           />

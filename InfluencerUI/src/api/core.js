@@ -147,7 +147,14 @@ async function readResponse(response) {
 
   if (!response.ok) {
     const message = data?.message || data?.error || `Request failed with status ${response.status}`
-    throw new Error(message)
+    const error = new Error(message)
+    // The server's machine-readable code, carried through rather than flattened into a string.
+    // A caller that needs to BRANCH on the failure - EMAIL_NOT_VERIFIED offers a resend, an
+    // ordinary bad password does not - cannot do it by matching prose that is free to change.
+    error.errorCode = data?.errorCode || null
+    error.status = response.status
+    error.details = data?.details || null
+    throw error
   }
 
   return data

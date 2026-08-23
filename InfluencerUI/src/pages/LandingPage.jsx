@@ -4,7 +4,16 @@ import { MdsNote } from '../components/Mds'
 import { DEFAULT_ROUTE } from '../shell/routeManifest'
 import { BILLING_LIVE, visiblePublicTiers } from '../shell/plan'
 
-function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit, onSocialLogin, authError = '' }) {
+function LandingPage({
+  isSignUp,
+  setIsSignUp,
+  onAuthSubmit,
+  onSocialLogin,
+  authError = '',
+  unverifiedEmail = '',
+  verificationResendState = 'idle',
+  onResendVerification,
+}) {
   const navigate = useNavigate()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [socialProvider, setSocialProvider] = useState('')
@@ -317,6 +326,32 @@ function LandingPage({ isSignUp, setIsSignUp, onAuthSubmit, onSocialLogin, authE
               <span className="cta-shine" aria-hidden="true" />
             </button>
           </form>
+
+          {/* Sign-in refused because the address is unconfirmed. Deliberately NOT rendered as an
+              auth error: the password was right, and telling someone their credentials failed when
+              they did not is how a correct user concludes the product is broken. The only way
+              forward is a link in an inbox, so the screen offers to send another. */}
+          {unverifiedEmail ? (
+            <MdsNote className="auth-error-note">
+              <strong>Confirm your email to finish signing in.</strong>{' '}
+              We sent a link to {unverifiedEmail}. It works once and expires after 24 hours.
+              {verificationResendState === 'sent' ? (
+                <> A new link is on its way — check your inbox, and your spam folder.</>
+              ) : (
+                <>
+                  {' '}
+                  <button
+                    type="button"
+                    className="auth-link-btn"
+                    onClick={onResendVerification}
+                    disabled={verificationResendState === 'sending'}
+                  >
+                    {verificationResendState === 'sending' ? 'Sending…' : 'Send a new link'}
+                  </button>
+                </>
+              )}
+            </MdsNote>
+          ) : null}
 
           {authError ? (
             <MdsNote className="auth-error-note">
