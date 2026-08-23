@@ -39,9 +39,15 @@ locals {
   legal_bucket        = "tejdux-legal-static"
   legal_origin_domain = "${local.legal_bucket}.s3.${var.aws_region}.amazonaws.com"
 
-  # Exactly the three prefixes that exist in the bucket. Listed rather than wildcarded so a request
-  # for anything else keeps falling through to the SPA.
-  legal_path_patterns = ["/privacy/*", "/terms/*", "/data-deletion/*"]
+  # Exactly the prefixes that exist in the bucket. Listed rather than wildcarded so a request for
+  # anything else keeps falling through to the SPA.
+  #
+  # /pricing/ is here for the same reason the other three are, and was missing for the same reason
+  # they broke: the page was written and uploaded, but nothing routed to it, so it answered S3's
+  # AccessDenied through the shell. A public pricing page that 403s is worse than no pricing page --
+  # it is linked from the marketing copy and is the last step before signup. Adding a prefix here
+  # WITHOUT uploading the object produces that same 403, so the two changes belong together.
+  legal_path_patterns = ["/privacy/*", "/terms/*", "/data-deletion/*", "/pricing/*"]
 
   # The shell is the only distribution that claims the hostname the policies are linked under, so it
   # is the only one that needs the origin.
@@ -252,7 +258,7 @@ resource "aws_cloudfront_distribution" "ui" {
     }
   }
 
-  # /privacy/, /terms/, /data-deletion/ -> the legal bucket.
+  # /privacy/, /terms/, /data-deletion/, /pricing/ -> the legal bucket.
   #
   # These MUST be ordered_cache_behavior, not a change to the default: the default serves the SPA and
   # is what every other route depends on. An ordered behavior matches first and leaves the rest alone.
