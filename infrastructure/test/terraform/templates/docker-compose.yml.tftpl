@@ -196,6 +196,15 @@ services:
       # grants ses:SendEmail. That is a better credential than a long-lived IAM user secret in
       # configuration - it rotates itself, expires, and cannot be used off this instance.
       WEBE_EMAIL_PROVIDER: ses
+      # ON as of 2026-08-23. An unverified PASSWORD signup is refused at sign-in until the link is
+      # clicked; Google and Facebook are never blocked, because the provider already proved the
+      # address. Accounts that predate this are grandfathered - they have no outstanding challenge,
+      # which is what distinguishes them from a new signup.
+      #
+      # Only flipped after the whole path was proven against production: SES delivers, the link
+      # resolves, redemption stamps the user, and a blocked sign-in offers a resend. Turning this on
+      # with any of those broken locks every new signup out permanently.
+      WEBE_EMAIL_VERIFICATION_ENFORCED: "true"
       AWS_SES_REGION: ${region}
       # The workflow service exists and is healthy, but the cutover flag stays OFF: flipping it is a
       # deliberate act after a dual-run soak, and it is the rollback too.
