@@ -90,6 +90,31 @@ public class ConsentRecord {
     @Column(name = "metadata", columnDefinition = "jsonb", updatable = false)
     private String metadata;
 
+    /**
+     * The absolute URL the subject was shown, e.g. {@code https://www.tejdux.com/privacy/}.
+     *
+     * <p>Recorded per row rather than derived from {@code consentType}, because the address can
+     * change -- a document could move to a versioned path -- and the record must say where THIS
+     * person read it, not where the document lives today.
+     */
+    @Column(name = "document_url", updatable = false)
+    private String documentUrl;
+
+    /**
+     * SHA-256 (lowercase hex) of the exact document bytes as accepted.
+     *
+     * <p>What makes the S3 snapshot checkable. Without it the snapshot is another mutable file and
+     * proves no more than the live page did. NULL on rows captured before evidence capture existed:
+     * nothing can honestly invent what those users were shown, and a fabricated value would be
+     * unverifiable while looking identical to a real capture.
+     */
+    @Column(name = "document_sha256", updatable = false)
+    private String documentSha256;
+
+    /** Key of the immutable snapshot in the consent-evidence bucket. */
+    @Column(name = "evidence_s3_key", updatable = false)
+    private String evidenceS3Key;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -181,6 +206,30 @@ public class ConsentRecord {
 
     public void setUserAgent(String userAgent) {
         this.userAgent = userAgent;
+    }
+
+    public String getDocumentUrl() {
+        return documentUrl;
+    }
+
+    public void setDocumentUrl(String documentUrl) {
+        this.documentUrl = documentUrl;
+    }
+
+    public String getDocumentSha256() {
+        return documentSha256;
+    }
+
+    public void setDocumentSha256(String documentSha256) {
+        this.documentSha256 = documentSha256;
+    }
+
+    public String getEvidenceS3Key() {
+        return evidenceS3Key;
+    }
+
+    public void setEvidenceS3Key(String evidenceS3Key) {
+        this.evidenceS3Key = evidenceS3Key;
     }
 
     public String getMetadata() {

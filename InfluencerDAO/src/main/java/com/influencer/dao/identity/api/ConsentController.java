@@ -33,6 +33,10 @@ public class ConsentController {
             ConsentRecord.SUBJECT_CREATOR_IDENTITY,
             ConsentRecord.SUBJECT_LEAD);
 
+    /** Matches the check constraint added in V39; see validate(). */
+    private static final java.util.regex.Pattern SHA256_HEX =
+            java.util.regex.Pattern.compile("^[0-9a-f]{64}$");
+
     private static final Set<String> CONSENT_TYPES = Set.of(
             ConsentRecord.TYPE_TERMS,
             ConsentRecord.TYPE_PRIVACY);
@@ -108,6 +112,18 @@ public class ConsentController {
         if (!ConsentRecord.SUBJECT_LEAD.equals(record.getSubjectType()) && record.getSubjectId() == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "subjectId is required unless subjectType is " + ConsentRecord.SUBJECT_LEAD);
+        }
+        // Mirrors consent_records_document_sha256_format (V39), for the same reason as above.
+        //
+        // The value is optional -- absent means "captured before evidence capture existed", and a
+        // caller that could not snapshot the document deliberately sends nothing rather than a
+        // guess. But a value that IS present and malformed must not be stored: a hash that does not
+        // describe the bytes is worse than no hash, because it reads as evidence right up until
+        // somebody checks it.
+        String sha256 = record.getDocumentSha256();
+        if (sha256 != null && !sha256.isBlank() && !SHA256_HEX.matcher(sha256).matches()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "documentSha256 must be 64 lowercase hex characters");
         }
     }
 

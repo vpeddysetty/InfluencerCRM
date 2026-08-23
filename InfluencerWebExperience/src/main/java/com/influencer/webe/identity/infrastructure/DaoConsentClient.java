@@ -28,6 +28,30 @@ public class DaoConsentClient {
                            String ipAddress,
                            String userAgent,
                            String metadataJson) {
+        return record(subjectType, subjectId, subjectEmail, consentType, documentVersion, source,
+                ipAddress, userAgent, metadataJson, null, null, null);
+    }
+
+    /**
+     * As above, plus the evidence of what the subject was actually shown.
+     *
+     * <p>The three evidence arguments are all optional and are omitted from the payload when
+     * absent, which is the honest encoding of "this was captured before evidence capture existed"
+     * or "the snapshot could not be taken". A caller must not substitute a placeholder: the DAO
+     * rejects a malformed hash, and an invented one would read as evidence until checked.
+     */
+    public JsonNode record(String subjectType,
+                           UUID subjectId,
+                           String subjectEmail,
+                           String consentType,
+                           String documentVersion,
+                           String source,
+                           String ipAddress,
+                           String userAgent,
+                           String metadataJson,
+                           String documentUrl,
+                           String documentSha256,
+                           String evidenceS3Key) {
         ObjectNode body = JsonNodeFactory.instance.objectNode()
                 .put("subjectType", subjectType)
                 .put("subjectEmail", subjectEmail)
@@ -48,6 +72,15 @@ public class DaoConsentClient {
         }
         if (metadataJson != null && !metadataJson.isBlank()) {
             body.put("metadata", metadataJson);
+        }
+        if (documentUrl != null && !documentUrl.isBlank()) {
+            body.put("documentUrl", documentUrl);
+        }
+        if (documentSha256 != null && !documentSha256.isBlank()) {
+            body.put("documentSha256", documentSha256);
+        }
+        if (evidenceS3Key != null && !evidenceS3Key.isBlank()) {
+            body.put("evidenceS3Key", evidenceS3Key);
         }
         return gatewayClient.post("/consents", body);
     }

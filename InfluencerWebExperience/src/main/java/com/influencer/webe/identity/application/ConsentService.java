@@ -1,6 +1,18 @@
 package com.influencer.webe.identity.application;
 
 import com.influencer.webe.identity.infrastructure.DaoConsentClient;
+import com.influencer.webe.identity.infrastructure.ConsentEvidenceWriter;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
+
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -54,12 +66,96 @@ public class ConsentService {
     private final String termsVersion;
     private final String privacyVersion;
 
+    /**
+     * The addresses those versions are published at.
+     *
+     * <p>Paired with the version properties above and bumped in the same change, because the record
+     * has to say where the person read the document as well as which revision it was. A version
+     * without a URL cannot be resolved back to text once a document moves.
+     */
+    private final String termsUrl;
+    private final String privacyUrl;
+
+    private final ConsentEvidenceWriter evidenceWriter;
+
+    /**
+     * The snapshot taken for each document at startup, keyed by consent type.
+     *
+     * <p>Populated once by {@link #snapshotPublishedDocuments()} and read on every signup. Empty
+     * when no evidence bucket is configured, or when a document could not be fetched -- in which
+     * case consent is still recorded, just without the hash. Losing the evidence must not lose the
+     * consent.
+     */
+    private final Map<String, ConsentEvidenceWriter.Snapshot> snapshots = new ConcurrentHashMap<>();
+
     public ConsentService(DaoConsentClient consentClient,
+                          ConsentEvidenceWriter evidenceWriter,
                           @Value("${web-experience.legal.terms-version:2026-08-11}") String termsVersion,
-                          @Value("${web-experience.legal.privacy-version:2026-08-11}") String privacyVersion) {
+                          @Value("${web-experience.legal.privacy-version:2026-08-11}") String privacyVersion,
+                          @Value("${web-experience.legal.terms-url:https://www.tejdux.com/terms/}") String termsUrl,
+                          @Value("${web-experience.legal.privacy-url:https://www.tejdux.com/privacy/}") String privacyUrl) {
         this.consentClient = consentClient;
+        this.evidenceWriter = evidenceWriter;
         this.termsVersion = termsVersion;
         this.privacyVersion = privacyVersion;
+        this.termsUrl = termsUrl;
+        this.privacyUrl = privacyUrl;
+    }
+
+    /**
+     * Fetches each published document and stores its bytes, once, at startup.
+     *
+     * <p><b>Why at startup and not per signup.</b> The document changes when it is republished, not
+     * when someone signs up. Fetching per signup would put an external HTTP call on the signup path
+     * and write the same bytes thousands of times into a bucket where nothing can be deleted for
+     * seven years.
+     *
+     * <p><b>Why it never throws.</b> A failure here means signups record consent without a hash --
+     * exactly what every account created before this feature did. An application that refuses to
+     * start because a marketing page is briefly unreachable would turn a cosmetic outage into a
+     * total one.
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    public void snapshotPublishedDocuments() {
+        if (!evidenceWriter.enabled()) {
+            return;
+        }
+        snapshot(TYPE_TERMS, termsVersion, termsUrl);
+        snapshot(TYPE_PRIVACY, privacyVersion, privacyUrl);
+    }
+
+    private void snapshot(String consentType, String version, String url) {
+        try {
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .timeout(Duration.ofSeconds(15))
+                    .GET()
+                    .build();
+            HttpResponse<byte[]> response = HttpClient.newBuilder()
+                    .connectTimeout(Duration.ofSeconds(5))
+                    .followRedirects(HttpClient.Redirect.NORMAL)
+                    .build()
+                    .send(request, HttpResponse.BodyHandlers.ofByteArray());
+
+            if (response.statusCode() != 200) {
+                log.error("Cannot snapshot {} {}: GET {} returned {}. Consent will be recorded "
+                        + "without a document hash.", consentType, version, url, response.statusCode());
+                return;
+            }
+            ConsentEvidenceWriter.Snapshot stored =
+                    evidenceWriter.snapshotDocument(consentType, version, url, response.body());
+            if (stored != null) {
+                snapshots.put(consentType, stored);
+            }
+        } catch (Exception e) {
+            log.error("Cannot snapshot {} {} from {}: {}. Consent will be recorded without a "
+                    + "document hash.", consentType, version, url, e.toString());
+        }
+    }
+
+    /** The URL a document of this type is published at. */
+    private String urlFor(String consentType) {
+        return TYPE_TERMS.equals(consentType) ? termsUrl : privacyUrl;
     }
 
     /**
@@ -127,8 +223,15 @@ public class ConsentService {
                         String metadataJson,
                         String ipAddress,
                         String userAgent) {
+        // Absent when no bucket is configured or the fetch failed. Nothing is substituted: the DAO
+        // rejects a malformed hash, and an invented one would read as evidence until checked.
+        ConsentEvidenceWriter.Snapshot snapshot = snapshots.get(consentType);
+        String documentUrl = urlFor(consentType);
+        String documentSha256 = snapshot == null ? null : snapshot.sha256();
+        String evidenceKey = snapshot == null ? null : snapshot.s3Key();
+
         try {
-            consentClient.record(
+            com.fasterxml.jackson.databind.JsonNode saved = consentClient.record(
                     subjectType,
                     subjectId,
                     email,
@@ -137,7 +240,24 @@ public class ConsentService {
                     source,
                     ipAddress,
                     userAgent,
-                    metadataJson);
+                    metadataJson,
+                    documentUrl,
+                    documentSha256,
+                    evidenceKey);
+
+            // After the authoritative write, and never in place of it. The receipt is a convenience
+            // for an auditor reading the bucket; the row is the record.
+            UUID consentId = null;
+            if (saved != null && saved.hasNonNull("id")) {
+                try {
+                    consentId = UUID.fromString(saved.get("id").asText());
+                } catch (IllegalArgumentException ignored) {
+                    // A receipt keyed by a random id is still a usable receipt.
+                }
+            }
+            evidenceWriter.writeReceipt(consentId, subjectType, subjectId, email, consentType,
+                    documentVersion, documentUrl, documentSha256, source, ipAddress, userAgent,
+                    Instant.now());
         } catch (RuntimeException e) {
             log.error("Failed to record {} consent for {} {} from {}: {}",
                     consentType, subjectType, subjectId, source, e.toString());

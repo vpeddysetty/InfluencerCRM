@@ -405,6 +405,10 @@ locals {
 
     ses_from_address         = var.ses_from_address
     workflow_service_enabled = tostring(var.workflow_service_enabled)
+
+    # Empty would disable evidence capture; this is always the real bucket because the
+    # resource is unconditional. See consent-evidence.tf.
+    consent_evidence_bucket  = aws_s3_bucket.consent_evidence.bucket
     dao_tls_verification     = tostring(local.compose_dao_tls_verification)
     instagram_own_username   = var.instagram_own_username
 

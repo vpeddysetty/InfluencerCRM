@@ -203,6 +203,21 @@ services:
       # reputation until SES throttles the account. Handling these is also what the production-access
       # application commits to.
       AWS_SES_CONFIGURATION_SET: influencrm-prod
+
+      # Where the accepted text of the terms and privacy policy is snapshotted, and where a receipt
+      # per acceptance is written. Empty disables the whole path: consent is still recorded in
+      # Postgres, just without a hash that can be checked against stored bytes.
+      #
+      # The bucket has Object Lock in COMPLIANCE mode - see consent-evidence.tf. Nothing written
+      # here can be deleted or overwritten for seven years, by anyone, which is why the writer
+      # validates and hashes before it PUTs.
+      WEBE_CONSENT_EVIDENCE_BUCKET: ${consent_evidence_bucket}
+      WEBE_CONSENT_EVIDENCE_REGION: ${region}
+      # The addresses the snapshotted documents are fetched from. Paired with the version properties
+      # below: when a policy is republished, the version AND the URL move together, because a
+      # version string cannot be resolved back to text once a document moves.
+      WEBE_LEGAL_TERMS_URL: https://www.tejdux.com/terms/
+      WEBE_LEGAL_PRIVACY_URL: https://www.tejdux.com/privacy/
       # The workflow service exists and is healthy, but the cutover flag stays OFF: flipping it is a
       # deliberate act after a dual-run soak, and it is the rollback too.
       WORKFLOW_SERVICE_ENABLED: "${workflow_service_enabled}"
