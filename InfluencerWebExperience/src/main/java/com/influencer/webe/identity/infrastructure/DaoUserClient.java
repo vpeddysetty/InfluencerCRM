@@ -9,9 +9,11 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -56,7 +58,13 @@ public class DaoUserClient {
             return Optional.empty();
         }
         HttpRequest request = authorized(HttpRequest.newBuilder())
-                .uri(URI.create(properties.getDaoBaseUrl() + "/users/by-email?email=" + normalizedEmail))
+                // ENCODED. An address is user-supplied and routinely contains "+", which a query
+                // string decodes to a SPACE - so "a+b@x.com" was looked up as "a b@x.com", found
+                // nothing, and login answered "Invalid credentials" to someone typing the right
+                // password. Plus-addressing is the normal way people tag a signup, so this hit real
+                // users, not just tests. Found 2026-08-22.
+                .uri(URI.create(properties.getDaoBaseUrl() + "/users/by-email?email="
+                        + URLEncoder.encode(normalizedEmail, StandardCharsets.UTF_8)))
                 .timeout(Duration.ofSeconds(10))
                 .GET()
                 .build();

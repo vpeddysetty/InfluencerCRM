@@ -20,7 +20,12 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-TF_DIR="${REPO_ROOT}/infrastructure/test/terraform"
+# RELATIVE, deliberately. On Windows/Git Bash an absolute MSYS path ("/c/AI/...") reaches the
+# Windows terraform.exe unconverted and it fails with "chdir /c/...: The system cannot find the path
+# specified" - which reads as a missing output and sends you looking for a Terraform problem that
+# does not exist. The script cds to REPO_ROOT immediately below, so a relative path is equivalent
+# and works on both platforms.
+TF_DIR="infrastructure/test/terraform"
 cd "$REPO_ROOT"
 
 tf_output() {
