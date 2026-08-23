@@ -197,6 +197,12 @@ services:
       # configuration - it rotates itself, expires, and cannot be used off this instance.
       WEBE_EMAIL_PROVIDER: ses
       AWS_SES_REGION: ${region}
+      # Routes bounces, complaints and rejections to the influencrm-prod-ses-events SNS topic.
+      # SesEmailSender already supported this and nothing ever set it, so every send was untracked:
+      # a hard bounce was invisible here, and repeated sends to a dead address damage sending
+      # reputation until SES throttles the account. Handling these is also what the production-access
+      # application commits to.
+      AWS_SES_CONFIGURATION_SET: influencrm-prod
       # The workflow service exists and is healthy, but the cutover flag stays OFF: flipping it is a
       # deliberate act after a dual-run soak, and it is the rollback too.
       WORKFLOW_SERVICE_ENABLED: "${workflow_service_enabled}"

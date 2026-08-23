@@ -29,6 +29,61 @@ resource "aws_sns_topic" "alerts" {
   tags = { Name = "${local.name_prefix}-alerts" }
 }
 
+# SES bounce and complaint events, deliberately on their OWN topic and deliberately NOT encrypted.
+#
+# Two reasons it is not the alerts topic. That one uses `alias/aws/sns`, an AWS-managed key whose
+# policy cannot be edited - and SES needs kms:GenerateDataKey and kms:Decrypt to publish, so it is
+# refused outright ("Access denied to KMS key for SNS topic"). Moving the alerts topic onto the
+# platform's customer-managed key would fix that and put a service-principal grant on the key that
+# also wraps EBS, Secrets Manager and CloudWatch Logs - the same key whose policy, when last
+# rewritten, silently revoked EBS access and stopped an instance from booting. Not worth it for
+# bounce notifications.
+#
+# Unencrypted is a considered choice, not an oversight. The payload is a recipient address and a
+# bounce type: it says a message to that address failed, which is the same fact the address itself
+# already implies. An alarm body naming hosts and resources is a different matter, which is why
+# that topic stays encrypted.
+resource "aws_sns_topic" "ses_events" {
+  name = "${local.name_prefix}-ses-events"
+
+  tags = { Name = "${local.name_prefix}-ses-events" }
+}
+
+resource "aws_sns_topic_policy" "ses_events" {
+  arn = aws_sns_topic.ses_events.arn
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid    = "AllowSesEventPublishing"
+      Effect = "Allow"
+      Principal = {
+        Service = "ses.amazonaws.com"
+      }
+      Action   = "SNS:Publish"
+      Resource = aws_sns_topic.ses_events.arn
+      Condition = {
+        # Confused-deputy guard, same as the alerts topic: without it another account's SES could
+        # publish here.
+        StringEquals = {
+          "AWS:SourceAccount" = data.aws_caller_identity.current.account_id
+        }
+      }
+    }]
+  })
+}
+
+# Same conditional as the alerts subscription and for the same reason: an SNS email subscription
+# must be confirmed by clicking a link, so creating one nobody confirms leaves a topic that looks
+# wired up and delivers nothing.
+resource "aws_sns_topic_subscription" "ses_events_email" {
+  count = var.alert_email != "" ? 1 : 0
+
+  topic_arn = aws_sns_topic.ses_events.arn
+  protocol  = "email"
+  endpoint  = var.alert_email
+}
+
 resource "aws_sns_topic_policy" "alerts" {
   arn = aws_sns_topic.alerts.arn
 
@@ -48,6 +103,7 @@ resource "aws_sns_topic_policy" "alerts" {
           "AWS:SourceAccount" = data.aws_caller_identity.current.account_id
         }
       }
+
     }]
   })
 }
