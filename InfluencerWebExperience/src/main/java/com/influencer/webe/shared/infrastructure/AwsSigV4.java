@@ -7,6 +7,7 @@ import java.security.MessageDigest;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
 
@@ -123,6 +124,128 @@ public final class AwsSigV4 {
         return headers;
     }
 
+    /**
+     * Signs an S3 PUT of raw bytes and returns the headers to send with it.
+     *
+     * <p><b>Why this is a sibling of {@link #signJsonPost} and not a generalisation of it.</b> That
+     * method hardcodes {@code POST} and {@code content-type: application/json} in the canonical
+     * request, and it is the signing path every transactional email already goes through in
+     * production. Widening it to take a verb and a content type would put an SES outage one
+     * refactor away from an S3 feature, and the two have no reason to share a failure. What is
+     * duplicated here is the canonical-request skeleton, which is fixed by the SigV4 spec and does
+     * not drift.
+     *
+     * <p><b>The payload is hashed as bytes.</b> An HTML document is not necessarily UTF-8, and
+     * hashing {@code new String(bytes)} would round-trip through a charset and change the digest -
+     * producing a signature S3 rejects, and worse, an {@code x-amz-content-sha256} that disagrees
+     * with the sha256 recorded as evidence. The evidence hash and the signature hash must be the
+     * same number over the same bytes or the record proves nothing.
+     *
+     * @param key          the object key WITHOUT a leading slash, e.g. {@code receipts/2026/a.json}
+     * @param body         the exact bytes that will be transmitted
+     * @param contentType  e.g. {@code text/html; charset=utf-8}
+     * @param extraHeaders additional {@code x-amz-*} headers to sign, or null. Object Lock is set
+     *                     this way; a header sent but not signed is rejected outright.
+     * @return headers including {@code Authorization}, {@code X-Amz-Date} and {@code Host}
+     */
+    public static Map<String, String> signS3Put(String accessKeyId,
+                                                String secretAccessKey,
+                                                String sessionToken,
+                                                String region,
+                                                String host,
+                                                String key,
+                                                byte[] body,
+                                                String contentType,
+                                                Map<String, String> extraHeaders,
+                                                Instant now) {
+
+        String amzDate = AMZ_DATE.format(now);
+        String dateStamp = DATE_STAMP.format(now);
+        String payloadHash = hexSha256(body == null ? new byte[0] : body);
+
+        TreeMap<String, String> canonicalHeaders = new TreeMap<>();
+        canonicalHeaders.put("content-type", contentType);
+        canonicalHeaders.put("host", host);
+        canonicalHeaders.put("x-amz-content-sha256", payloadHash);
+        canonicalHeaders.put("x-amz-date", amzDate);
+        if (sessionToken != null && !sessionToken.isBlank()) {
+            canonicalHeaders.put("x-amz-security-token", sessionToken);
+        }
+        if (extraHeaders != null) {
+            // Lowercased because the canonical request is defined over lowercase header names; a
+            // mixed-case entry would sort into the wrong position and break the signature.
+            extraHeaders.forEach((name, value) -> canonicalHeaders.put(name.toLowerCase(Locale.ROOT), value));
+        }
+
+        StringBuilder headerBlock = new StringBuilder();
+        StringBuilder signedHeaders = new StringBuilder();
+        for (Map.Entry<String, String> header : canonicalHeaders.entrySet()) {
+            headerBlock.append(header.getKey()).append(':').append(header.getValue().trim()).append('\n');
+            if (signedHeaders.length() > 0) {
+                signedHeaders.append(';');
+            }
+            signedHeaders.append(header.getKey());
+        }
+
+        // S3 requires each path SEGMENT encoded, with the separators left alone. URLEncoder is
+        // form-encoding, not path-encoding: it turns a space into '+' and escapes '/', both of
+        // which produce a key that is not the one asked for.
+        String canonicalUri = "/" + encodeS3Key(key);
+
+        String canonicalRequest = "PUT\n"
+                + canonicalUri + "\n"
+                + "\n"
+                + headerBlock + "\n"
+                + signedHeaders + "\n"
+                + payloadHash;
+
+        String credentialScope = dateStamp + "/" + region + "/s3/aws4_request";
+        String stringToSign = ALGORITHM + "\n"
+                + amzDate + "\n"
+                + credentialScope + "\n"
+                + hexSha256(canonicalRequest);
+
+        byte[] signingKey = signingKey(secretAccessKey, dateStamp, region, "s3");
+        String signature = hex(hmac(signingKey, stringToSign));
+
+        String authorization = ALGORITHM
+                + " Credential=" + accessKeyId + "/" + credentialScope
+                + ", SignedHeaders=" + signedHeaders
+                + ", Signature=" + signature;
+
+        Map<String, String> headers = new TreeMap<>(canonicalHeaders);
+        headers.put("Authorization", authorization);
+        return headers;
+    }
+
+    /**
+     * Percent-encodes an object key segment by segment, leaving {@code /} as a separator.
+     *
+     * <p>RFC 3986 unreserved characters pass through. Everything else becomes %XX in UPPERCASE,
+     * which the canonical request requires - lowercase hex yields a valid-looking signature that
+     * S3 rejects.
+     *
+     * <p>Public because the caller has to build the request URI with the SAME encoding used in the
+     * canonical request. Encoding the path one way and signing it another produces a 403 whose
+     * message names neither, which is a long afternoon.
+     */
+    public static String encodeS3Key(String key) {
+        StringBuilder out = new StringBuilder(key.length() + 16);
+        for (byte b : key.getBytes(StandardCharsets.UTF_8)) {
+            char c = (char) (b & 0xFF);
+            boolean unreserved = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+                    || (c >= '0' && c <= '9') || c == '-' || c == '.' || c == '_' || c == '~';
+            if (unreserved || c == '/') {
+                out.append(c);
+            } else {
+                out.append('%')
+                   .append(Character.toUpperCase(Character.forDigit((b >> 4) & 0xF, 16)))
+                   .append(Character.toUpperCase(Character.forDigit(b & 0xF, 16)));
+            }
+        }
+        return out.toString();
+    }
+
     /** The four-step derived key. Each step narrows the key's validity: date, region, service. */
     private static byte[] signingKey(String secret, String dateStamp, String region, String service) {
         byte[] kDate = hmac(("AWS4" + secret).getBytes(StandardCharsets.UTF_8), dateStamp);
@@ -142,9 +265,20 @@ public final class AwsSigV4 {
     }
 
     private static String hexSha256(String value) {
+        return hexSha256(value.getBytes(StandardCharsets.UTF_8));
+    }
+
+    /**
+     * Digest over raw bytes.
+     *
+     * <p>Public because the consent evidence writer needs the SAME digest it signs with: the hash
+     * stored in Postgres and the hash in {@code x-amz-content-sha256} have to be one number over
+     * one sequence of bytes, or the stored value cannot be used to check the stored object.
+     */
+    public static String hexSha256(byte[] value) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            return hex(digest.digest(value.getBytes(StandardCharsets.UTF_8)));
+            return hex(digest.digest(value == null ? new byte[0] : value));
         } catch (Exception broken) {
             throw new IllegalStateException("SHA-256 unavailable", broken);
         }
