@@ -198,6 +198,34 @@ resource "aws_sns_topic_subscription" "deletion_intake_email" {
   endpoint  = var.alert_email
 }
 
+# The application endpoint that parses the message and records the request.
+#
+# WHY THIS IS SEPARATE FROM THE EMAIL SUBSCRIPTION ABOVE. The email is the fallback: it reaches a
+# human even when the platform is down, which is exactly when an automated intake cannot help. This
+# one does the work. Losing either leaves the other, and losing both is visible in the intake
+# bucket, which keeps the raw message for 90 days.
+#
+# SNS confirms the subscription by POSTing a SubscriptionConfirmation the endpoint must fetch. The
+# controller only honours a SubscribeURL on an sns.amazonaws.com host, so a stranger cannot use the
+# same endpoint to subscribe us to their topic.
+#
+# endpoint_auto_confirms tells Terraform to wait for that handshake rather than leaving the
+# subscription Pending. It requires the endpoint to be REACHABLE AT APPLY TIME -- which it is not
+# on a first apply, before the image carrying the controller is deployed. Left false for that
+# reason: the subscription is created Pending and confirms itself the first time SNS retries
+# against a running endpoint.
+resource "aws_sns_topic_subscription" "deletion_intake_app" {
+  topic_arn = aws_sns_topic.deletion_intake.arn
+  protocol  = "https"
+  endpoint  = "${var.public_base_url}/api/deletion-requests"
+
+  endpoint_auto_confirms = false
+
+  # Raw delivery OFF. The controller expects the SNS envelope: it reads Type to tell a
+  # SubscriptionConfirmation from a Notification, and raw delivery strips exactly that.
+  raw_message_delivery = false
+}
+
 # ---------------------------------------------------------------------------
 # The receipt rule
 # ---------------------------------------------------------------------------
