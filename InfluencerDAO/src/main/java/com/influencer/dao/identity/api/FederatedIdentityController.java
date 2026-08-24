@@ -99,6 +99,26 @@ public class FederatedIdentityController {
         repository.deleteById(id);
     }
 
+    /**
+     * Removes every link this user has to one provider.
+     *
+     * <p>The provider-scoped deletion {@code /data-deletion/} section 3.2 promises: erase what came
+     * from Facebook without touching the account. The existing delete-by-id cannot express that,
+     * because the caller knows the person and the provider but not the link's identifier.
+     *
+     * <p>Deleting nothing is success. The goal is that no link remains, and a user who never
+     * connected that provider already satisfies it -- reporting an error would make a legitimate
+     * request look like a failure.
+     */
+    @DeleteMapping("/users/{userId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void unlinkProvider(@PathVariable UUID userId, @RequestParam String provider) {
+        String normalized = require(provider, "provider").toLowerCase(java.util.Locale.ROOT);
+        repository.findByUserId(userId).stream()
+                .filter(identity -> normalized.equalsIgnoreCase(identity.getProvider()))
+                .forEach(repository::delete);
+    }
+
     private String require(String value, String fieldName) {
         if (value == null || value.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, fieldName + " is required");

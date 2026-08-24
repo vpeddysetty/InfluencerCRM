@@ -66,6 +66,23 @@ public class TenancyController {
         this.userRepository = userRepository;
     }
 
+    /**
+     * The brands this user OWNS -- narrower than the ones they can reach.
+     *
+     * <p>Used by the deletion workflow before it destroys an account. An owner's workspace holds
+     * creator records the BRAND is controller for, so deleting the owner would erase other people's
+     * personal data held under the brand's legal basis and cut off teammates without notice. The
+     * workflow refuses and asks for ownership to be transferred first.
+     *
+     * <p>Ownership means a membership row with {@code role = 'OWNER'}. An ADMIN or FINANCE user
+     * reaches every brand in the account and owns none, so this must not be confused with
+     * {@link #accessibleBrands}: refusing their request would be wrong.
+     */
+    @GetMapping("/users/{userId}/owned-brands")
+    public List<String> ownedBrands(@PathVariable UUID userId) {
+        return brandRepository.findOwnedBrandNames(userId);
+    }
+
     /** Every brand this user may reach, with the role held on each. */
     @GetMapping("/users/{userId}/brands")
     public List<BrandAccessResponse> accessibleBrands(@PathVariable UUID userId) {

@@ -60,6 +60,30 @@ public interface BrandRepository extends JpaRepository<Brand, UUID> {
             """, nativeQuery = true)
     List<BrandAccessRow> findAccessibleBrands(@Param("userId") UUID userId);
 
+    /**
+     * Brands this user OWNS, which is narrower than the ones they can reach.
+     *
+     * <p>Deliberately {@code role = 'OWNER'} only, not the account-wide set that
+     * {@link #findAccessibleBrands} treats as reaching every brand. An ADMIN or a FINANCE user can
+     * see every brand in the account and owns none of them; refusing their deletion request would
+     * be wrong, and deleting an OWNER without warning would destroy a workspace of other people's
+     * records.
+     *
+     * <p>Used by the deletion workflow to decide whether to refuse. Returns brand names so the
+     * refusal can say which workspaces are in the way.
+     */
+    @Query(value = """
+            select b.name
+              from memberships m
+              join brands b on b.account_id = m.account_id
+             where m.user_id = :userId
+               and m.status = 'active'
+               and b.status = 'active'
+               and m.role = 'OWNER'
+             order by b.name
+            """, nativeQuery = true)
+    List<String> findOwnedBrandNames(@Param("userId") UUID userId);
+
     /** Projection for {@link #findAccessibleBrands(UUID)}. */
     interface BrandAccessRow {
         UUID getBrandId();

@@ -45,6 +45,12 @@ public class SecurityConfig {
             // UUIDs under a brand prefix, so an asset cannot be enumerated or guessed — being
             // shown a page that references it is the only way to learn its URL.
             "/assets/**",
+            // The operator's deletion approval link, clicked from an email client that holds no
+            // session. The 256-bit single-use token IS the credential -- same structural reason as
+            // /api/auth/verify-email below. It expires after 7 days and every refusal (unknown
+            // token, expired, already used, requester owns a workspace) happens before anything is
+            // destroyed.
+            "/api/deletion-requests/approve",
             // Public keys, by definition. Every JWKS endpoint is unauthenticated; the response
             // contains only public halves and is what lets another service verify tokens itself.
             "/.well-known/jwks.json"
@@ -62,6 +68,12 @@ public class SecurityConfig {
             // for 60 seconds, consumed on first read, and issued only to the provider's redirect.
             // Same reasoning as /api/auth/refresh, which is public for the same structural reason.
             "/api/auth/oauth/handoff",
+            // SNS posts here when SES receives a deletion request. It cannot hold a session or a
+            // bearer token: the caller is AWS infrastructure. The protections are the subscription
+            // handshake, a check that SubscribeURL names an sns.amazonaws.com host under this
+            // account, and the fact that the endpoint only RECORDS and notifies -- it deletes
+            // nothing, so a forged notification costs an operator one email, not any data.
+            "/api/deletion-requests",
             // Both unauthenticated by necessity: the holder cannot sign in yet, which is the whole
             // reason they are here. The 256-bit single-use token IS the credential for verify, and
             // resend answers identically for every address so it reveals nothing.
