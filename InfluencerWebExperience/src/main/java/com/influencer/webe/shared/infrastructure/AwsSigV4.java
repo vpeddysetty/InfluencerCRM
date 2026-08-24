@@ -219,6 +219,71 @@ public final class AwsSigV4 {
     }
 
     /**
+     * Signs an S3 HEAD, for reading an object's metadata without fetching it.
+     *
+     * <p>Used to ask what is already stored under a key before writing over it. The payload is
+     * empty, so the content hash is the digest of zero bytes -- the same constant AWS documents as
+     * the empty-payload hash, computed here rather than pasted so it cannot be mistyped.
+     */
+    public static Map<String, String> signS3Head(String accessKeyId,
+                                                 String secretAccessKey,
+                                                 String sessionToken,
+                                                 String region,
+                                                 String host,
+                                                 String key,
+                                                 Map<String, String> extraHeaders,
+                                                 Instant now) {
+
+        String amzDate = AMZ_DATE.format(now);
+        String dateStamp = DATE_STAMP.format(now);
+        String payloadHash = hexSha256(new byte[0]);
+
+        TreeMap<String, String> canonicalHeaders = new TreeMap<>();
+        canonicalHeaders.put("host", host);
+        canonicalHeaders.put("x-amz-content-sha256", payloadHash);
+        canonicalHeaders.put("x-amz-date", amzDate);
+        if (sessionToken != null && !sessionToken.isBlank()) {
+            canonicalHeaders.put("x-amz-security-token", sessionToken);
+        }
+        if (extraHeaders != null) {
+            extraHeaders.forEach((name, value) -> canonicalHeaders.put(name.toLowerCase(Locale.ROOT), value));
+        }
+
+        StringBuilder headerBlock = new StringBuilder();
+        StringBuilder signedHeaders = new StringBuilder();
+        for (Map.Entry<String, String> header : canonicalHeaders.entrySet()) {
+            headerBlock.append(header.getKey()).append(':').append(header.getValue().trim()).append('\n');
+            if (signedHeaders.length() > 0) {
+                signedHeaders.append(';');
+            }
+            signedHeaders.append(header.getKey());
+        }
+
+        String canonicalRequest = "HEAD\n"
+                + "/" + encodeS3Key(key) + "\n"
+                + "\n"
+                + headerBlock + "\n"
+                + signedHeaders + "\n"
+                + payloadHash;
+
+        String credentialScope = dateStamp + "/" + region + "/s3/aws4_request";
+        String stringToSign = ALGORITHM + "\n"
+                + amzDate + "\n"
+                + credentialScope + "\n"
+                + hexSha256(canonicalRequest);
+
+        byte[] signingKey = signingKey(secretAccessKey, dateStamp, region, "s3");
+        String signature = hex(hmac(signingKey, stringToSign));
+
+        Map<String, String> headers = new TreeMap<>(canonicalHeaders);
+        headers.put("Authorization", ALGORITHM
+                + " Credential=" + accessKeyId + "/" + credentialScope
+                + ", SignedHeaders=" + signedHeaders
+                + ", Signature=" + signature);
+        return headers;
+    }
+
+    /**
      * Percent-encodes an object key segment by segment, leaving {@code /} as a separator.
      *
      * <p>RFC 3986 unreserved characters pass through. Everything else becomes %XX in UPPERCASE,

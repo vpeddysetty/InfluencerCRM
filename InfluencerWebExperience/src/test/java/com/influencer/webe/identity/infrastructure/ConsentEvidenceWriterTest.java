@@ -79,6 +79,33 @@ class ConsentEvidenceWriterTest {
     }
 
     @Test
+    @DisplayName("a version whose text changed is refused, not silently overwritten")
+    void changedTextUnderAnExistingVersionIsRefused() throws Exception {
+        // THE BUG THIS PINS, found in production on 2026-08-23.
+        //
+        // The privacy policy was edited to add two links without bumping its version. A restart
+        // re-fetched it and wrote the NEW text under the OLD version key, so the key a consent row
+        // pointed at resolved to a document that row's subject had never seen. Object Lock kept the
+        // original as a prior object version, so nothing was destroyed -- but "2026-08-11" then had
+        // two meanings, which is the precise ambiguity a version exists to remove.
+        //
+        // The guard reads S3's own stored checksum before writing and refuses when it differs.
+        // Asserted here on the source, because exercising it needs a live bucket: the writer is
+        // disabled without one, and a mock would only prove the mock was called.
+        String writer = java.nio.file.Files.readString(java.nio.file.Path.of(
+                "src/main/java/com/influencer/webe/identity/infrastructure/ConsentEvidenceWriter.java"),
+                StandardCharsets.UTF_8);
+
+        assertTrue(writer.contains("existingDigest(documentKey)"),
+                "the stored digest must be read before writing");
+        assertTrue(writer.contains("REFUSING to overwrite the snapshot"),
+                "a changed document under an existing version must be refused loudly");
+        // And an unchanged document must stay a no-op: every boot re-runs this.
+        assertTrue(writer.contains("already stored and unchanged"),
+                "re-uploading identical bytes must not be an error");
+    }
+
+    @Test
     @DisplayName("the base64 checksum is byte-for-byte what S3 independently computed")
     void checksumMatchesWhatS3Recorded() {
         // Captured from the live bucket on 2026-08-23. These exact bytes were PUT with signS3Put,

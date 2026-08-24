@@ -128,6 +128,36 @@ public class ConsentEvidenceWriter {
             String base = "documents/" + consentType + "/" + version;
             String documentKey = base + "/document.html";
 
+            // REFUSE TO WRITE DIFFERENT BYTES UNDER AN EXISTING VERSION.
+            //
+            // Found in production on 2026-08-23. The privacy policy was edited to add two links
+            // without bumping its version, and a restart re-fetched it and wrote the NEW text under
+            // the OLD version key. Object Lock preserved the original as a prior object version, so
+            // no evidence was destroyed -- but the key that a consent row points at now resolved to
+            // a document that row's subject never saw, which is exactly the ambiguity the version
+            // is supposed to remove.
+            //
+            // Checking the digest first turns "silently record the wrong text" into "log loudly and
+            // change nothing". A version is a promise that the bytes behind it are fixed; the fix
+            // for changed text is a NEW version, never a second meaning for an old one.
+            //
+            // Re-uploading IDENTICAL bytes stays a no-op rather than an error: every boot re-runs
+            // this, and an unchanged document is the normal case, not a fault.
+            String existing = existingDigest(documentKey);
+            if (existing != null) {
+                if (existing.equals(digest)) {
+                    log.debug("Consent snapshot for {} {} already stored and unchanged",
+                            consentType, version);
+                    return new Snapshot(digest, documentKey, content.length);
+                }
+                log.error("REFUSING to overwrite the snapshot of {} {}: stored sha256 {} but the "
+                        + "published document now hashes to {}. The document changed without its "
+                        + "version being bumped. Publish it as a new version -- consent recorded "
+                        + "against {} must keep resolving to the text those users accepted.",
+                        consentType, version, existing, digest, version);
+                return null;
+            }
+
             boolean stored = put(documentKey, content, "text/html; charset=utf-8");
             if (!stored) {
                 return null;
@@ -203,6 +233,72 @@ public class ConsentEvidenceWriter {
 
     /** One stored snapshot: the digest, where it went, and how big it was. */
     public record Snapshot(String sha256, String s3Key, int bytes) { }
+
+    /**
+     * The SHA-256 of an object already in the bucket, or null when there is none.
+     *
+     * <p>Reads S3's own {@code x-amz-checksum-sha256}, which S3 computed from the stored bytes when
+     * the object was written. That is stronger than trusting the manifest we wrote beside it: the
+     * manifest is our claim about the object, while this is the object store's.
+     *
+     * <p>A failure here returns null, which lets the write proceed. The alternative -- treating an
+     * unreadable HEAD as "something is there" -- would block the first snapshot on any transient
+     * error and leave consent recorded with no evidence at all.
+     */
+    private String existingDigest(String key) {
+        InstanceRoleCredentials.Credentials temporary = instanceRole.current();
+        String keyId = temporary != null ? temporary.accessKeyId() : accessKeyId;
+        String secret = temporary != null ? temporary.secretAccessKey() : secretAccessKey;
+        String token = temporary != null ? temporary.sessionToken() : sessionToken;
+        if (keyId == null || keyId.isBlank() || secret == null || secret.isBlank()) {
+            return null;
+        }
+
+        String host = bucket + ".s3." + region + ".amazonaws.com";
+        try {
+            Map<String, String> extra = new HashMap<>();
+            // Without this S3 omits the checksum from the response entirely.
+            extra.put("x-amz-checksum-mode", "ENABLED");
+
+            Map<String, String> headers = AwsSigV4.signS3Head(
+                    keyId, secret, token, region, host, key, extra, Instant.now());
+
+            HttpRequest.Builder request = HttpRequest.newBuilder()
+                    .uri(URI.create("https://" + host + "/" + AwsSigV4.encodeS3Key(key)))
+                    .timeout(TIMEOUT)
+                    .method("HEAD", HttpRequest.BodyPublishers.noBody());
+            headers.forEach((name, value) -> {
+                if (!"host".equalsIgnoreCase(name)) {
+                    request.header(name, value);
+                }
+            });
+
+            HttpResponse<Void> response =
+                    httpClient.send(request.build(), HttpResponse.BodyHandlers.discarding());
+
+            if (response.statusCode() == 404) {
+                return null;
+            }
+            if (response.statusCode() / 100 != 2) {
+                log.warn("Could not read the stored checksum for {}: HTTP {}", key, response.statusCode());
+                return null;
+            }
+            String base64 = response.headers().firstValue("x-amz-checksum-sha256").orElse(null);
+            if (base64 == null) {
+                return null;
+            }
+            // S3 reports base64; everything else in this feature speaks lowercase hex.
+            StringBuilder hex = new StringBuilder(64);
+            for (byte b : java.util.Base64.getDecoder().decode(base64)) {
+                hex.append(Character.forDigit((b >> 4) & 0xF, 16))
+                   .append(Character.forDigit(b & 0xF, 16));
+            }
+            return hex.toString();
+        } catch (Exception e) {
+            log.warn("Could not check the stored snapshot at {}: {}", key, e.toString());
+            return null;
+        }
+    }
 
     /**
      * The SHA-256 of the body, base64-encoded for {@code x-amz-checksum-sha256}.
