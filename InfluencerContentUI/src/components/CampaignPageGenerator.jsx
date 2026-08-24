@@ -180,6 +180,62 @@ function CampaignPageGenerator({ onGenerate, onUseDraft, onRewriteSection, onReg
     return block.type === 'productCta' ? { ...block, label: body } : { ...block, text: body }
   }
 
+  /**
+   * Render a draft as a GrapesJS document, so the visual builder can open it.
+   *
+   * The blocks array alone is not enough: the visual builder reads `document` (html/css) and never
+   * looks at `blocks`, so a draft handed over as blocks only appears in the Block list editor. That
+   * made "Use this draft" look broken to anyone who expected the builder they had been using.
+   *
+   * Both representations travel together — the server keeps both columns and the public renderer
+   * prefers `document` — so a draft opens in either editor and publishes identically.
+   *
+   * Tokens are left as literal {{coupon.code}} text: they are substituted at request time against
+   * the visiting creator's own coupon, so resolving them here would freeze one creator's code into
+   * every visitor's page.
+   */
+  function toBuilderDocument(variant) {
+    const esc = (v) => String(v ?? '')
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+
+    const body = variant.sections.map((section) => {
+      const text = esc(section.body)
+      switch (section.type) {
+        case 'hero':
+          return `<h1 class="cpg-hero">${text}</h1>`
+        case 'couponBlock':
+          // Rendered by the server per creator; the placeholder is what the builder shows.
+          return '<p class="cpg-coupon">Use code <strong>{{coupon.code}}</strong> for {{discount}}</p>'
+        case 'productCta':
+          return `<a class="cpg-cta" href="{{coupon.landingUrl}}">${esc(section.body || variant.ctaText)}</a>`
+        case 'legal':
+          return `<p class="cpg-legal">${text}</p>`
+        default:
+          return `<p class="cpg-text">${text}</p>`
+      }
+    }).join('\n')
+
+    const sub = variant.subheadline
+      ? `<p class="cpg-sub">${esc(variant.subheadline)}</p>`
+      : ''
+
+    return {
+      html: `<section class="cpg-page">\n${body.replace('</h1>', `</h1>\n${sub}`)}\n</section>`,
+      // Deliberately plain: this is a starting point the user edits in the builder, not a finished
+      // design. Opinionated styling here would be harder to undo than to add.
+      css: [
+        '.cpg-page{max-width:640px;margin:0 auto;padding:32px 24px}',
+        '.cpg-hero{font-size:2rem;line-height:1.2;margin:0 0 .5rem}',
+        '.cpg-sub{color:#475569;margin:0 0 1.5rem}',
+        '.cpg-text{line-height:1.6;margin:0 0 1rem}',
+        '.cpg-coupon{background:#eef2ff;color:#3730a3;padding:.75rem 1rem;border-radius:10px}',
+        '.cpg-cta{display:inline-block;background:#4f46e5;color:#fff;text-decoration:none;',
+        'padding:.75rem 1.25rem;border-radius:10px;margin:1rem 0}',
+        '.cpg-legal{color:#64748b;font-size:.8rem;margin-top:2rem}',
+      ].join(''),
+    }
+  }
+
   const variants = result?.variants || []
 
   return (
@@ -415,7 +471,7 @@ function CampaignPageGenerator({ onGenerate, onUseDraft, onRewriteSection, onReg
                     type="button"
                     className="primary-btn"
                     disabled={!editable || busy}
-                    onClick={() => onUseDraft(variant)}
+                    onClick={() => onUseDraft({ ...variant, document: toBuilderDocument(variant) })}
                   >
                     Use this draft
                   </button>

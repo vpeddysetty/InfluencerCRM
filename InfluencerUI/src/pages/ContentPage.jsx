@@ -74,6 +74,10 @@ function ContentPage({
   const [mediaAssets, setMediaAssets] = useState([])
   // Scheduled publish (PR-35). The input is a local-time `datetime-local` string; the server
   // takes UTC, so the conversion happens at the boundary below rather than in state.
+  // A draft the user just selected, before it has been saved. Held separately from
+  // `currentTemplate.document` because nothing is persisted until they press save — the builder
+  // must show it, and a reload must not resurrect a draft they walked away from.
+  const [generatedDocument, setGeneratedDocument] = useState(null)
   const [scheduleAt, setScheduleAt] = useState('')
   const [scheduling, setScheduling] = useState(false)
 
@@ -116,6 +120,9 @@ function ContentPage({
 
   // Hydrate the template builder when the campaign / its template changes.
   useEffect(() => {
+    // An unsaved draft belongs to the campaign it was generated for. Clearing it here stops it
+    // following the user to the next campaign, where it would look like that campaign's page.
+    setGeneratedDocument(null)
     const t = templates.find((x) => x.campaignId === campaignId) || null
     if (t) {
       setTemplateName(t.name || 'Landing page')
@@ -307,12 +314,19 @@ function ContentPage({
   }
 
   const useGeneratedDraft = (variant) => {
+    // BOTH representations are kept. The visual builder reads `document` and never looks at
+    // `blocks`; the block editor is the reverse. Loading only one meant "Use this draft" appeared
+    // to do nothing for anyone whose editor was the other one — which is what happened when the
+    // draft arrived as blocks and the builder showed an empty canvas.
     setBlocks(Array.isArray(variant.blocks) ? variant.blocks : [])
-    setEditorMode('blocks')
+    setGeneratedDocument(variant.document || null)
+    // Stay in the visual builder, which is the default and where most people already are. The
+    // block editor remains one click away and now holds the same draft.
+    setEditorMode('visual')
     setTemplateStatus('draft')
     setTemplateFeedback({
       type: 'success',
-      message: 'Draft loaded. Edit it below, then save — nothing is published yet.',
+      message: 'Draft loaded into the builder. Edit it below, then save — nothing is published yet.',
     })
   }
 
@@ -603,8 +617,10 @@ function ContentPage({
                 public link.
               </MdsNote>
               <LandingBuilder
-                key={campaignId}
-                initialDocument={currentTemplate?.document || null}
+                // `key` forces a remount when a draft is chosen: the builder snapshots its initial
+                // document in a ref, so without a new key it keeps showing the old canvas.
+                key={generatedDocument ? `gen-${campaignId}` : campaignId}
+                initialDocument={generatedDocument || currentTemplate?.document || null}
                 onSave={saveBuilderDocument}
                 onPreview={previewBuilderDocument}
                 can={can}
