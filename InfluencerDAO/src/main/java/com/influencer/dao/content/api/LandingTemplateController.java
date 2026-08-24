@@ -80,6 +80,16 @@ public class LandingTemplateController {
         // permanently silent. The cost is that a PUT omitting the field clears it, which at worst
         // re-sends one warning; the guarded alternative loses them all.
         existing.setHostingWarningSentAtDays(template.getHostingWarningSentAtDays());
+        // PR-35. Unguarded for the same reason as the line above: clearing it is a meaningful
+        // operation, not an omission. The scheduler consumes a pending time by writing NULL, and a
+        // null-guard would make that unexpressible — the page would publish once, keep its time,
+        // and republish on every sweep thereafter.
+        //
+        // The cost is the mirror image: a PUT that omits the field cancels a pending schedule. That
+        // is why every BFF caller writing this row restates it — see LandingService.saveTemplate,
+        // which carries the existing value forward so an ordinary builder save does not silently
+        // un-schedule a publish the user set.
+        existing.setScheduledPublishAt(template.getScheduledPublishAt());
         return repository.save(existing);
     }
 

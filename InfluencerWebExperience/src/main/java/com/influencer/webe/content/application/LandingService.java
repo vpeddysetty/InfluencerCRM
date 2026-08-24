@@ -75,6 +75,13 @@ public class LandingService {
         // `document` is the GrapesJS output; omitted by the legacy block editor, which is
         // exactly why it must not be defaulted here — see the column comment.
         stringifyJsonb(payload, body, "blocks", "theme", "document");
+        // A pending scheduled publish must survive an ordinary save. The DAO's PUT replaces the
+        // row and does not null-guard this column (clearing it is how the scheduler consumes a
+        // fired publish), so omitting it here would let any builder edit silently cancel a launch
+        // the user had scheduled — with no error and nothing on screen to notice.
+        if (existing != null && existing.hasNonNull("scheduledPublishAt")) {
+            body.put("scheduledPublishAt", existing.get("scheduledPublishAt").asText());
+        }
         String stage = textOr(payload, "stage", existing != null ? textOr(existing, "stage", "draft") : "draft");
         requireValidStage(stage);
         body.put("stage", stage);
