@@ -135,6 +135,9 @@ echo "  saved: $(echo "$SAVED" | jqv id)   slug: $SLUG"
 echo "  headline: $HEADLINE"
 
 step "Public pages (one per creator)"
+# Exported, not just assigned: the Python below reads them from the environment, and a bare
+# shell variable is not visible to a child process.
+export BFF SLUG
 CODES=$(api GET "/api/influencer-campaign-codes?campaignId=$CAMPAIGN" "$TOKEN")
 python -c "
 import sys, json, os
