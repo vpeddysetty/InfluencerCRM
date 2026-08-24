@@ -78,6 +78,16 @@ public class LandingTemplate {
     @Column(name = "hosting_warning_sent_at_days")
     private Integer hostingWarningSentAtDays;
 
+    /**
+     * When this page should publish automatically (PR-35), in UTC.
+     *
+     * <p>NULL both before scheduling and after the publish fires — the column records what is
+     * still owed, never what happened. The audit trail of an actual publish lives in
+     * landing_page_transitions, which is where a question about history belongs.
+     */
+    @Column(name = "scheduled_publish_at")
+    private Instant scheduledPublishAt;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -210,6 +220,14 @@ public class LandingTemplate {
 
     public void setStage(String stage) {
         this.stage = stage;
+    }
+
+    public Instant getScheduledPublishAt() {
+        return scheduledPublishAt;
+    }
+
+    public void setScheduledPublishAt(Instant scheduledPublishAt) {
+        this.scheduledPublishAt = scheduledPublishAt;
     }
 
     public Instant getCreatedAt() {

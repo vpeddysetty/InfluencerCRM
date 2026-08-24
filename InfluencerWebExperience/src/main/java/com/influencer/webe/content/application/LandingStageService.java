@@ -14,6 +14,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.time.Instant;
 import java.util.UUID;
 
 /**
@@ -153,6 +154,83 @@ public class LandingStageService {
         }
 
         return shape.landingTemplate(updated);
+    }
+
+    // ---- scheduled publish (PR-35) -------------------------------------
+
+    /**
+     * Set or move the time this page should publish itself.
+     *
+     * <p><b>Validated here, not by the scheduler.</b> Refusing an unpublishable page at schedule
+     * time tells the user now, while they are looking at the page; discovering it at 9am on launch
+     * day means a page that silently did not go live. The same {@code requirePublishable} guard the
+     * manual publish uses, applied a few hours earlier.
+     *
+     * <p><b>A past time is refused</b> rather than quietly publishing on the next sweep. "Publish
+     * at 9am" typed after 9am is far more likely to be a wrong date than a request to publish
+     * immediately — and the immediate path already exists.
+     */
+    public JsonNode schedulePublish(UUID brandId, UUID templateId, Instant at) {
+        if (at == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "A publish time is required");
+        }
+        JsonNode template = requireOwned(brandId, templateId);
+
+        if (!at.isAfter(Instant.now())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "That publish time has already passed. Pick a future time, or publish now.");
+        }
+        // Already-published pages have nothing to schedule: the scheduler's transition would be a
+        // no-op and the user would be left waiting for something that already happened.
+        if (LandingStageMachine.PUBLISHED.equals(normalize(template.path("stage").asText("")))) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "This page is already published");
+        }
+        requirePublishable(template);
+
+        return writeSchedule(brandId, template, templateId, at);
+    }
+
+    /**
+     * Clear a pending schedule — used both by a user cancelling and by the scheduler after it
+     * publishes. Idempotent: clearing an unscheduled page is not an error, because a retry after a
+     * partial failure must be able to finish the job.
+     */
+    public JsonNode clearSchedule(UUID brandId, UUID templateId) {
+        return writeSchedule(brandId, requireOwned(brandId, templateId), templateId, null);
+    }
+
+    /**
+     * Write the schedule column, preserving everything the projection carries.
+     *
+     * <p>The DAO PUT replaces the row, so the body must restate the fields that must survive. This
+     * mirrors {@code changeStage}'s body rather than sending the whole template back, because the
+     * jsonb columns arrive as strings through the projection and round-tripping them here would
+     * re-encode them.
+     */
+    private JsonNode writeSchedule(UUID brandId, JsonNode template, UUID templateId, Instant at) {
+        ObjectNode body = shape.objectMapper().createObjectNode();
+        body.put("brandId", brandId.toString());
+        body.put("campaignId", template.get("campaignId").asText());
+        body.put("publicSlug", template.get("publicSlug").asText());
+        body.put("name", template.path("name").asText("Landing page"));
+        body.put("stage", template.path("stage").asText(LandingStageMachine.DRAFT));
+        body.put("status", template.path("status").asText("draft"));
+        if (at == null) {
+            body.putNull("scheduledPublishAt");
+        } else {
+            body.put("scheduledPublishAt", at.toString());
+        }
+        return shape.landingTemplate(dao.put("/landing-templates/" + templateId, body));
+    }
+
+    /** The page, or 404 — a page owned by another brand is indistinguishable from a missing one. */
+    private JsonNode requireOwned(UUID brandId, UUID templateId) {
+        JsonNode template = dao.get("/landing-templates/" + templateId, null);
+        if (template == null || !template.hasNonNull("brandId")
+                || !template.get("brandId").asText().equals(brandId.toString())) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Landing page not found");
+        }
+        return template;
     }
 
     /**

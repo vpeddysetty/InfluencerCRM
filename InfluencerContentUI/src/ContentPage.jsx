@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { MdsKicker, MdsSectionRule, MdsNote } from './components/Mds'
 import LandingBuilder from './components/LandingBuilder'
+import CampaignPageGenerator from './components/CampaignPageGenerator'
 import { publicPageUrl } from './api/core'
 
 const EMPTY_CONTENT = { summary: '', goals: '', dos: '', donts: '', talkingPoints: '' }
@@ -36,6 +37,11 @@ function ContentPage({
   onRestoreVersion,
   onLoadAssets,
   onUploadAsset,
+  onGeneratePage,
+  onRewriteSection,
+  onRegenerateVariant,
+  onSchedulePublish,
+  onCancelSchedule,
   can,
 }) {
   const [campaignId, setCampaignId] = useState('')
@@ -66,6 +72,10 @@ function ContentPage({
   const [editorMode, setEditorMode] = useState('visual')
   const [versions, setVersions] = useState([])
   const [mediaAssets, setMediaAssets] = useState([])
+  // Scheduled publish (PR-35). The input is a local-time `datetime-local` string; the server
+  // takes UTC, so the conversion happens at the boundary below rather than in state.
+  const [scheduleAt, setScheduleAt] = useState('')
+  const [scheduling, setScheduling] = useState(false)
 
   const currentBrief = useMemo(
     () => briefs.find((b) => b.campaignId === campaignId) || null,
@@ -238,6 +248,73 @@ function ContentPage({
     return next
   })
   const editBlock = (i, field, value) => setBlocks((prev) => prev.map((b, idx) => (idx === i ? { ...b, [field]: value } : b)))
+
+  /**
+   * Load a generated draft into the block editor (PR-35).
+   *
+   * Deliberately does NOT save. The design spec requires a review step before publishing, and a
+   * draft that wrote itself to the campaign's page on selection would overwrite an existing page
+   * with one the user had only glanced at. It also switches to the block list rather than the
+   * visual builder: the builder renders `document`, which a generated draft has no value for, so
+   * landing there would show an empty canvas beside a page that does exist.
+   */
+  /**
+   * Schedule this page to publish itself.
+   *
+   * The browser gives a local wall-clock string with no zone; `new Date(...)` interprets it in the
+   * user's zone and `toISOString()` converts to the UTC instant the server stores. Sending the raw
+   * string would schedule at the wrong hour for anyone not on UTC.
+   */
+  const schedulePublish = async () => {
+    if (!currentTemplate || !scheduleAt) return
+    setScheduling(true)
+    setTemplateFeedback({ type: '', message: '' })
+    try {
+      const saved = await onSchedulePublish(currentTemplate.id, new Date(scheduleAt).toISOString())
+      // Refresh from the server rather than patching local state: the response is the page as it
+      // now is, and guessing would drift from it.
+      await refreshTemplates()
+      setScheduleAt('')
+      setTemplateFeedback({
+        type: 'success',
+        message: `Scheduled to publish on ${new Date(saved.scheduledPublishAt).toLocaleString()}.`,
+      })
+    } catch (error) {
+      setTemplateFeedback({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'Unable to schedule.',
+      })
+    } finally {
+      setScheduling(false)
+    }
+  }
+
+  const cancelScheduledPublish = async () => {
+    if (!currentTemplate) return
+    setScheduling(true)
+    try {
+      await onCancelSchedule(currentTemplate.id)
+      await refreshTemplates()
+      setTemplateFeedback({ type: 'success', message: 'Scheduled publish cancelled.' })
+    } catch (error) {
+      setTemplateFeedback({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'Unable to cancel.',
+      })
+    } finally {
+      setScheduling(false)
+    }
+  }
+
+  const useGeneratedDraft = (variant) => {
+    setBlocks(Array.isArray(variant.blocks) ? variant.blocks : [])
+    setEditorMode('blocks')
+    setTemplateStatus('draft')
+    setTemplateFeedback({
+      type: 'success',
+      message: 'Draft loaded. Edit it below, then save — nothing is published yet.',
+    })
+  }
 
   /**
    * Save from the visual builder. Sends `document` (GrapesJS html/css) instead of `blocks`;
@@ -473,6 +550,27 @@ function ContentPage({
           <label className="auth-label">Page name</label>
           <input type="text" value={templateName} onChange={(e) => setTemplateName(e.target.value)} />
 
+          {/* Generation sits above the editors, because the whole point of PR-35 is that the
+              blank canvas is no longer the first thing a non-designer meets. The builder is
+              still right below, unchanged, for anyone who would rather start from scratch. */}
+          {onGeneratePage ? (
+            <details className="page-stack">
+              <summary>Start from a campaign goal</summary>
+              <MdsNote>
+                Describe the campaign and get drafts to compare. You can edit whichever you pick
+                in the builder below before anything is saved.
+              </MdsNote>
+              <CampaignPageGenerator
+                onGenerate={onGeneratePage}
+                onUseDraft={useGeneratedDraft}
+                onRewriteSection={onRewriteSection}
+                onRegenerate={onRegenerateVariant}
+                busy={savingTemplate}
+                can={can}
+              />
+            </details>
+          ) : null}
+
           <div className="row-actions" role="group" aria-label="Editor mode">
             <button
               type="button"
@@ -594,6 +692,58 @@ function ContentPage({
           ) : null}
           </>
           )}
+
+          {/* Page-level, deliberately: a schedule applies to the page, not to whichever editor
+              happens to be open. Only shown once the page exists — there is nothing to schedule
+              until it has been saved and has a slug. */}
+          {currentTemplate && onSchedulePublish ? (
+            <div className="page-stack">
+              <MdsSectionRule />
+              <label className="auth-label" htmlFor="cpg-schedule">Schedule publish</label>
+              {currentTemplate.scheduledPublishAt ? (
+                <>
+                  <MdsNote>
+                    This page publishes automatically on{' '}
+                    <strong>{new Date(currentTemplate.scheduledPublishAt).toLocaleString()}</strong>.
+                  </MdsNote>
+                  <div className="row-actions">
+                    <button
+                      type="button"
+                      className="ghost-btn"
+                      disabled={scheduling}
+                      onClick={cancelScheduledPublish}
+                    >
+                      {scheduling ? 'Cancelling…' : 'Cancel scheduled publish'}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <input
+                    id="cpg-schedule"
+                    type="datetime-local"
+                    value={scheduleAt}
+                    onChange={(e) => setScheduleAt(e.target.value)}
+                    disabled={scheduling || !can('CONTENT_WRITE')}
+                  />
+                  <MdsNote>
+                    Your local time. The page must have content, and the time must be in the
+                    future — publishing now is the button above.
+                  </MdsNote>
+                  <div className="row-actions">
+                    <button
+                      type="button"
+                      className="ghost-btn"
+                      disabled={scheduling || !scheduleAt || !can('CONTENT_WRITE')}
+                      onClick={schedulePublish}
+                    >
+                      {scheduling ? 'Scheduling…' : 'Schedule publish'}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          ) : null}
 
           {campaignCoupons.length ? (
             <>

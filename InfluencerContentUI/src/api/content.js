@@ -29,6 +29,43 @@ export async function previewLandingTemplate(token, payload) {
   return text
 }
 
+// ---- AI campaign-page generation (PR-35) ----
+
+// Always resolves with drafts on a 2xx: the server substitutes a template draft rather than
+// failing, and reports which generator ran via `generator` / `fallback` on the payload. The UI
+// shows that distinction rather than presenting a template draft as an AI one.
+export async function generateCampaignPage(token, brief) {
+  return request('/api/campaign-pages/generate', { method: 'POST', token, body: brief })
+}
+
+// Rewrite one section of a draft. Always resolves on a 2xx: `rewritten: false` with a `detail`
+// means the generator had no suggestion, which is an answer rather than a failure — the caller's
+// own text is untouched either way.
+export async function rewriteCampaignPageSection(token, payload) {
+  return request('/api/campaign-pages/sections/rewrite', { method: 'POST', token, body: payload })
+}
+
+// One more draft, skipping headlines already on screen. Returns zero variants when the generator
+// has nothing new — not an error, just nothing further to offer.
+export async function regenerateCampaignPageVariant(token, payload) {
+  return request('/api/campaign-pages/variants/regenerate', { method: 'POST', token, body: payload })
+}
+
+// Schedule / cancel a timed publish. `publishAt` is an ISO-8601 instant in UTC; the server
+// refuses a past time rather than publishing immediately, since "9am" typed after 9am is far more
+// likely a wrong date than a request to go live now.
+export async function scheduleLandingPublish(token, templateId, publishAt) {
+  return request(`/api/landing-pages/${encodeURIComponent(templateId)}/schedule`, {
+    method: 'PUT', token, body: { publishAt },
+  })
+}
+
+export async function cancelLandingPublishSchedule(token, templateId) {
+  return request(`/api/landing-pages/${encodeURIComponent(templateId)}/schedule`, {
+    method: 'DELETE', token,
+  })
+}
+
 // ---- version history (Phase A.5) ----
 
 export async function listLandingVersions(token, campaignId) {

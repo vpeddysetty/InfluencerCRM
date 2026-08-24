@@ -62,12 +62,52 @@ public class LandingStageController {
         }
         String source = payload.path("source").asText("api");
         if (!java.util.Set.of("board", "builder", "api").contains(source)) {
+            // "scheduler" is deliberately NOT accepted here: it is written by
+            // ScheduledPublishScheduler calling the service directly, and a caller that could
+            // claim it over HTTP could forge an audit row saying a human never pressed publish.
             // Not cosmetic: an unrecognised source would be stored and could later suppress
             // the wrong echo, so it is rejected rather than coerced.
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "source must be one of board, builder, api");
         }
         return stageService.changeStage(brandId, id, to, source, payload.path("idempotencyKey").asText(null));
+    }
+
+    /**
+     * Schedule this page to publish itself at a future time (PR-35, screen 6).
+     *
+     * <p>Requires {@code CONTENT_WRITE}, the same permission as publishing by hand — scheduling is
+     * publishing, with a delay. Validation (publishable, not already published, time in the future)
+     * happens now rather than at fire time, so a mistake surfaces while the user is still looking
+     * at the page.
+     */
+    @PutMapping("/api/landing-pages/{id}/schedule")
+    public JsonNode schedulePublish(@RequestHeader(value = "Authorization", required = false) String authorization,
+                                    @PathVariable UUID id,
+                                    @RequestBody ObjectNode payload) {
+        UUID brandId = requestUserResolver.requirePermissionForBrand(authorization, Permission.CONTENT_WRITE);
+        String at = payload.path("publishAt").asText(null);
+        if (at == null || at.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "'publishAt' is required");
+        }
+        java.time.Instant when;
+        try {
+            when = java.time.Instant.parse(at);
+        } catch (RuntimeException e) {
+            // Explicit about the expected format: a browser sending a local-time string with no
+            // zone is the likely mistake, and it would otherwise schedule at the wrong hour.
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "'publishAt' must be an ISO-8601 instant in UTC, e.g. 2026-09-01T09:00:00Z");
+        }
+        return stageService.schedulePublish(brandId, id, when);
+    }
+
+    /** Cancel a pending scheduled publish. Idempotent — cancelling twice is not an error. */
+    @DeleteMapping("/api/landing-pages/{id}/schedule")
+    public JsonNode cancelSchedule(@RequestHeader(value = "Authorization", required = false) String authorization,
+                                   @PathVariable UUID id) {
+        UUID brandId = requestUserResolver.requirePermissionForBrand(authorization, Permission.CONTENT_WRITE);
+        return stageService.clearSchedule(brandId, id);
     }
 
     /** The stage vocabulary and what each stage may move to — so the UI can grey out illegal drops. */

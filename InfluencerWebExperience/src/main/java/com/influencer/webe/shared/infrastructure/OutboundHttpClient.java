@@ -147,6 +147,67 @@ public class OutboundHttpClient {
     }
 
     /**
+     * POST a JSON body and parse the JSON response, with a caller-supplied timeout.
+     *
+     * <p><b>Why the explicit timeout.</b> The shared {@code request-timeout-ms} default is 10s,
+     * tuned for social-profile lookups. A language model generating several page drafts routinely
+     * takes longer than that, so reusing the default would turn every successful generation into a
+     * timeout. Rather than raise the global value — which would also let a hung social API hold a
+     * request thread three times as long — the slow caller states its own budget.
+     *
+     * <p>Returns the body on non-2xx as well, for the same reason as {@link #postForm}: model
+     * providers put the reason (rate limit, overloaded, invalid key) in the error body, and those
+     * three demand different responses from the caller.
+     */
+    public Response postJson(String url, Object body, Map<String, String> headers, Duration timeout) {
+        String payload;
+        try {
+            payload = objectMapper.writeValueAsString(body);
+        } catch (Exception e) {
+            // A body we cannot serialize is a programming error, but it must not throw here: the
+            // contract of this class is that callers get a Response, never an exception.
+            log.warn("Outbound POST {} could not serialize its body: {}", stripQuery(url), e.toString());
+            return new Response(false, 0, objectMapper.createObjectNode());
+        }
+
+        HttpRequest.Builder builder = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .timeout(timeout == null ? requestTimeout : timeout)
+                .header("Accept", "application/json")
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(payload));
+        if (headers != null) {
+            headers.forEach(builder::header);
+        }
+
+        try {
+            HttpResponse<String> response = client.send(builder.build(), HttpResponse.BodyHandlers.ofString());
+            JsonNode parsed;
+            try {
+                parsed = objectMapper.readTree(response.body());
+            } catch (Exception e) {
+                parsed = objectMapper.createObjectNode();
+            }
+            boolean ok = response.statusCode() / 100 == 2;
+            if (!ok) {
+                // URL only. The body carries the prompt, which carries customer campaign data, and
+                // the headers carry the API key.
+                log.warn("Outbound POST(json) {} returned {}", stripQuery(url), response.statusCode());
+            }
+            return new Response(ok, response.statusCode(), parsed);
+        } catch (java.io.InterruptedIOException e) {
+            log.warn("Outbound POST(json) {} timed out", stripQuery(url));
+            return new Response(false, 0, objectMapper.createObjectNode());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return new Response(false, 0, objectMapper.createObjectNode());
+        } catch (Exception e) {
+            log.warn("Outbound POST(json) {} failed: {}", stripQuery(url), e.toString());
+            return new Response(false, 0, objectMapper.createObjectNode());
+        }
+    }
+
+    /**
      * @param ok     whether the status was 2xx
      * @param status the HTTP status, or 0 if the call never completed
      * @param body   the parsed body — present on failure too, since that is where a provider

@@ -370,7 +370,12 @@ public class ResponseShapeService {
                 // and the expiry sweep both PUT back a page they read through this projection,
                 // and a field dropped here would be cleared on every save — silently re-arming
                 // warnings that had already been sent.
-                "hostingWarningSentAtDays");
+                "hostingWarningSentAtDays",
+                // PR-35. Same read-modify-write reasoning as the field above: LandingService and
+                // the scheduled-publish sweep both PUT back a page they read through this
+                // projection, so a pending schedule dropped here would be silently cancelled by
+                // the next unrelated save.
+                "scheduledPublishAt");
         out.set("blocks", parseJsonOrDefault(source, "blocks", objectMapper.createArrayNode()));
         out.set("theme", parseJsonOrDefault(source, "theme", objectMapper.createObjectNode()));
         // `document` is passed through as JSON null when absent rather than defaulted to {}:

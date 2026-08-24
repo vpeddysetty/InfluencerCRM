@@ -93,6 +93,11 @@ import {
   listLandingTemplates,
   saveLandingTemplate,
   previewLandingTemplate,
+  generateCampaignPage,
+  rewriteCampaignPageSection,
+  regenerateCampaignPageVariant,
+  scheduleLandingPublish,
+  cancelLandingPublishSchedule,
   listLandingVersions,
   restoreLandingVersion,
   listAssets,
@@ -1722,6 +1727,11 @@ function App() {
   const previewLandingRecord = async (payload) => previewLandingTemplate(authToken, { userId, ...payload })
   const loadAssetsRecord = async () => listAssets(authToken)
   const uploadAssetRecord = async (file) => uploadAsset(authToken, file)
+  const generateCampaignPageRecord = async (brief) => generateCampaignPage(authToken, brief)
+  const rewriteCampaignPageSectionRecord = async (payload) => rewriteCampaignPageSection(authToken, payload)
+  const regenerateCampaignPageVariantRecord = async (payload) => regenerateCampaignPageVariant(authToken, payload)
+  const scheduleLandingPublishRecord = async (id, publishAt) => scheduleLandingPublish(authToken, id, publishAt)
+  const cancelLandingPublishScheduleRecord = async (id) => cancelLandingPublishSchedule(authToken, id)
   const loadLandingVersionsRecord = async (campaignId) => listLandingVersions(authToken, campaignId)
   const restoreLandingVersionRecord = async (campaignId, versionNo) =>
     restoreLandingVersion(authToken, campaignId, versionNo)
@@ -2534,6 +2544,11 @@ function App() {
                   onRestoreVersion={restoreLandingVersionRecord}
                   onLoadAssets={loadAssetsRecord}
                   onUploadAsset={uploadAssetRecord}
+                  onGeneratePage={generateCampaignPageRecord}
+                  onRewriteSection={rewriteCampaignPageSectionRecord}
+                  onRegenerateVariant={regenerateCampaignPageVariantRecord}
+                  onSchedulePublish={scheduleLandingPublishRecord}
+                  onCancelSchedule={cancelLandingPublishScheduleRecord}
                   can={(permission) => permissions.includes(permission)}
                 />
               }
