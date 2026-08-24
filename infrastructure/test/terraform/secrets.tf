@@ -179,6 +179,14 @@ locals {
   # here is safe but not invisible.
   external_secrets = {
     openai-api-key               = "The agent's OpenAI key. Unset: OpenAIAdvisor reports itself unavailable and mapping falls back to the deterministic matcher. ROTATE THE KEY CURRENTLY IN .env — it was committed to the working tree."
+    # PR-35. NOT the same key as openai-api-key above, and not interchangeable with it: that one is
+    # OpenAI and belongs to the Python agent, this one is Anthropic and belongs to the BFF's landing
+    # page generator. Both exist because the two AI paths were built independently and have not been
+    # converged — see the PR-35 note in MASTER-ROADMAP.md.
+    #
+    # Unset: AnthropicPageGenerator's bean is never created (@ConditionalOnProperty), the registry
+    # resolves to the template generator, and page generation keeps working without a model.
+    page-generation-api-key      = "Anthropic API key for AI landing-page generation. Unset: the registry falls back to TemplatePageGenerator, which still produces publishable drafts."
     jwt-signing-key              = "RSA JWK (private) signing access tokens. Unset: the BFF REFUSES TO START. Generate with infrastructure/scripts/generate-jwt-key.sh."
     dao-keystore-b64             = "base64 of the DAO's PKCS12 keystore. Unset: the DAO refuses to start, because server.ssl.key-store points at a file that is not there."
     dao-keystore-password        = "Password for the keystore above."

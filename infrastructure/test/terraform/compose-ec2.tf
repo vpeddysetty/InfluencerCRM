@@ -352,6 +352,11 @@ locals {
     INSTAGRAM_ACCESS_TOKEN        = local.secret_arns["instagram-access-token"]
     INSTAGRAM_BUSINESS_ACCOUNT_ID = local.secret_arns["instagram-business-account-id"]
     OPENAI_API_KEY                = local.secret_arns["openai-api-key"]
+    # Anthropic, for the BFF's landing-page generator. Distinct from OPENAI_API_KEY above — that one
+    # is the Python agent's, and the two AI paths are not converged (see PR-35 in MASTER-ROADMAP.md).
+    # Fetched whether or not the provider is switched on, so turning it on is a variable flip rather
+    # than a secrets change; the generator ignores the value unless its provider is selected.
+    WEBE_PAGE_GENERATION_API_KEY  = local.secret_arns["page-generation-api-key"]
     SES_ACCESS_KEY_ID             = local.secret_arns["ses-access-key-id"]
     SES_SECRET_ACCESS_KEY         = local.secret_arns["ses-secret-access-key"]
   }
@@ -405,6 +410,11 @@ locals {
 
     ses_from_address         = var.ses_from_address
     workflow_service_enabled = tostring(var.workflow_service_enabled)
+
+    # PR-35. A variable rather than a literal because every generation on `anthropic` is a billed
+    # API call: switching it on — or straight back off if the spend or the output disappoints — is
+    # a one-line change with no rebuild, since the code for both paths already ships in the image.
+    page_generation_provider = var.page_generation_provider
 
     # Empty would disable evidence capture; this is always the real bucket because the
     # resource is unconditional. See consent-evidence.tf.

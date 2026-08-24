@@ -416,6 +416,35 @@ variable "log_retention_days" {
 # Compose deployment
 # ---------------------------------------------------------------------------
 
+variable "page_generation_provider" {
+  description = <<-EOT
+    Which generator turns a campaign brief into landing page drafts (roadmap PR-35).
+
+    `template` composes the drafts deterministically with no network call and no cost. Unlike the
+    billing and email defaults, this default is NOT a no-op: it produces real, publishable pages,
+    because a page builder that returned nothing would leave the user staring at the blank canvas
+    the whole feature exists to remove.
+
+    `anthropic` calls the Anthropic API using the page-generation-api-key secret. Every generation
+    is then a billed request, which is why this is a variable and not a literal — switching it on,
+    or straight back off, is a one-line change with no rebuild.
+
+    Selecting `anthropic` is safe even when the key is empty or the account has no credit: the
+    generator reports itself unavailable and the registry substitutes `template`, so the user still
+    gets drafts. They are marked `fallback: true` so the UI can say which produced them.
+  EOT
+  type        = string
+  default     = "template"
+
+  validation {
+    # A typo would otherwise fall through to the template generator silently, which looks exactly
+    # like the AI being switched off on purpose — the failure this catches is a config change that
+    # appears to have worked and did nothing.
+    condition     = contains(["template", "anthropic"], var.page_generation_provider)
+    error_message = "page_generation_provider must be either \"template\" or \"anthropic\"."
+  }
+}
+
 variable "workflow_service_enabled" {
   description = <<-EOT
     Whether the BFF routes workflow traffic to the extracted workflow service instead of serving it from

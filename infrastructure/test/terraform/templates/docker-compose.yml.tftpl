@@ -211,6 +211,20 @@ services:
       # The bucket has Object Lock in COMPLIANCE mode - see consent-evidence.tf. Nothing written
       # here can be deleted or overwritten for seven years, by anyone, which is why the writer
       # validates and hashes before it PUTs.
+      # AI landing-page generation (PR-35). The provider is a VARIABLE, not a literal, because the
+      # key it needs is billed per call: this stays `template` until someone deliberately turns it
+      # on, and turning it off again is a variable flip rather than a code change.
+      #
+      # `template` is not a no-op. Unlike the billing and email defaults, it produces real,
+      # publishable drafts by composing the brief - a page builder that returned nothing would
+      # leave the user at the blank canvas the feature exists to remove. So the fallback is a
+      # working feature, and `anthropic` is an upgrade to it rather than the only path that works.
+      #
+      # With `anthropic` selected but the key empty or the account out of credit, the generator
+      # reports itself unavailable and the registry substitutes `template` - the user still gets
+      # drafts, marked `fallback: true` so the UI can say which produced them.
+      WEBE_PAGE_GENERATION_PROVIDER: ${page_generation_provider}
+      WEBE_PAGE_GENERATION_API_KEY: $${WEBE_PAGE_GENERATION_API_KEY}
       WEBE_CONSENT_EVIDENCE_BUCKET: ${consent_evidence_bucket}
       WEBE_CONSENT_EVIDENCE_REGION: ${region}
       # The addresses the snapshotted documents are fetched from. Paired with the version properties
