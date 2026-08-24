@@ -724,7 +724,7 @@ function ContentPage({
                     type="datetime-local"
                     value={scheduleAt}
                     onChange={(e) => setScheduleAt(e.target.value)}
-                    disabled={scheduling || !can('CONTENT_WRITE')}
+                    disabled={scheduling || !can('content:write')}
                   />
                   <MdsNote>
                     Your local time. The page must have content, and the time must be in the
@@ -734,7 +734,7 @@ function ContentPage({
                     <button
                       type="button"
                       className="ghost-btn"
-                      disabled={scheduling || !scheduleAt || !can('CONTENT_WRITE')}
+                      disabled={scheduling || !scheduleAt || !can('content:write')}
                       onClick={schedulePublish}
                     >
                       {scheduling ? 'Scheduling…' : 'Schedule publish'}

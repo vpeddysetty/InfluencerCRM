@@ -60,7 +60,7 @@ function CampaignPageGenerator({ onGenerate, onUseDraft, onRewriteSection, onReg
   const [regenerating, setRegenerating] = useState('')
   const [notice, setNotice] = useState('')
 
-  const editable = can('CONTENT_WRITE')
+  const editable = can('content:write')
   // Goal is the only required field: it is what the whole page is about, and the server rejects a
   // brief without one. Everything else degrades to an omitted section rather than a blocked form.
   const canGenerate = brief.goal.trim().length > 0 && !generating && !busy && editable

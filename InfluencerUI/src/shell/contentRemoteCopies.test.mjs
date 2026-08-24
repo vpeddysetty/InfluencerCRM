@@ -55,6 +55,28 @@ test('the content remote carries the same page generator', () => {
   )
 })
 
+test('permission checks use the wire key, not the server-side enum name', () => {
+  // `can()` is handed the permission strings from the JWT, which are colon-style (`content:write`).
+  // The Java enum CONSTANT name (`CONTENT_WRITE`) never crosses the wire, so checking for it always
+  // returns false — and because these gates only DISABLE controls, the failure is silent: the whole
+  // authoring form renders greyed out with no error, for a user who has every permission.
+  //
+  // Caught in production on 2026-08-24: an OWNER with all 33 permissions could not press Generate.
+  for (const file of [
+    resolve(SHELL, 'components/CampaignPageGenerator.jsx'),
+    resolve(SHELL, 'pages/ContentPage.jsx'),
+    resolve(REMOTE, 'components/CampaignPageGenerator.jsx'),
+    resolve(REMOTE, 'ContentPage.jsx'),
+  ]) {
+    const text = read(file)
+    assert.doesNotMatch(
+      text,
+      /can\(\s*['"][A-Z_]+['"]\s*\)/,
+      `${file} calls can() with an ENUM_NAME; the JWT carries colon-style keys like content:write`,
+    )
+  }
+})
+
 test('both API clients expose campaign-page generation against the same endpoint', () => {
   // The two api/content.js files are a deliberate fork (each remote owns its API surface), so
   // they are not compared wholesale. What must not drift is the endpoint itself: a remote calling
