@@ -47,7 +47,7 @@ locals {
   # AccessDenied through the shell. A public pricing page that 403s is worse than no pricing page --
   # it is linked from the marketing copy and is the last step before signup. Adding a prefix here
   # WITHOUT uploading the object produces that same 403, so the two changes belong together.
-  legal_path_patterns = ["/privacy/*", "/terms/*", "/data-deletion/*", "/pricing/*"]
+  legal_path_patterns = ["/privacy/*", "/terms/*", "/data-deletion/*", "/pricing/*", "/dpa/*", "/subprocessors/*"]
 
   # The shell is the only distribution that claims the hostname the policies are linked under, so it
   # is the only one that needs the origin.
@@ -258,7 +258,7 @@ resource "aws_cloudfront_distribution" "ui" {
     }
   }
 
-  # /privacy/, /terms/, /data-deletion/, /pricing/ -> the legal bucket.
+  # /privacy/, /terms/, /data-deletion/, /pricing/, /dpa/, /subprocessors/ -> the legal bucket.
   #
   # These MUST be ordered_cache_behavior, not a change to the default: the default serves the SPA and
   # is what every other route depends on. An ordered behavior matches first and leaves the rest alone.

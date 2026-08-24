@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sub-processors &mdash; Tejdux</title>
+<meta name="description" content="The third parties Tejdux engages to process personal data on behalf of its customers, and what each one receives.">
+<style>
+  :root{
+    --bg:#ffffff; --fg:#1a1d21; --muted:#5b6470; --rule:#e3e6ea;
+    --accent:#2f5bd8; --card:#f6f8fa; --warn-bg:#fff8e6; --warn-br:#e0b44a; --warn-fg:#6b4e08;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#14171a; --fg:#e6e9ed; --muted:#9aa4b0; --rule:#2a2f36;
+      --accent:#7ea1ff; --card:#1b1f24; --warn-bg:#2b2410; --warn-br:#7d6320; --warn-fg:#e8cf92;
+    }
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0; background:var(--bg); color:var(--fg);
+    font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  .wrap{max-width:820px; margin:0 auto; padding:48px 24px 96px}
+  header{border-bottom:1px solid var(--rule); padding-bottom:24px; margin-bottom:8px}
+  .brand{font-size:14px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); margin:0 0 8px}
+  /* The wordmark is the conventional link home; keep it looking like the label it replaced. */
+  .brand a{color:inherit; text-decoration:none}
+  .brand a:hover{text-decoration:underline}
+  h1{font-size:32px; line-height:1.2; margin:0 0 12px; letter-spacing:-.02em}
+  .meta{color:var(--muted); font-size:14px; margin:0}
+  h2{font-size:20px; margin:40px 0 12px; letter-spacing:-.01em; scroll-margin-top:24px}
+  h3{font-size:16px; margin:24px 0 8px}
+  p,li{color:var(--fg)}
+  a{color:var(--accent)}
+  ul,ol{padding-left:22px}
+  li{margin:6px 0}
+  .toc{background:var(--card); border:1px solid var(--rule); border-radius:10px; padding:20px 24px; margin:32px 0}
+  .toc h2{margin:0 0 12px; font-size:15px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted)}
+  .toc ol{margin:0; columns:2; column-gap:32px}
+  @media(max-width:620px){ .toc ol{columns:1} }
+  .toc a{text-decoration:none}
+  .toc a:hover{text-decoration:underline}
+  .notice{
+    background:var(--warn-bg); border:1px solid var(--warn-br); color:var(--warn-fg);
+    border-radius:10px; padding:16px 20px; margin:28px 0; font-size:14.5px;
+  }
+  .notice strong{display:block; margin-bottom:4px}
+  .callout{
+    background:var(--card); border:1px solid var(--rule); border-left:3px solid var(--accent);
+    border-radius:8px; padding:16px 20px; margin:20px 0; font-size:15px;
+  }
+  .ph{background:rgba(127,127,127,.16); border-bottom:1px dashed var(--muted); padding:0 4px; border-radius:3px}
+  .tw{overflow-x:auto; margin:20px 0; -webkit-overflow-scrolling:touch}
+  table{border-collapse:collapse; width:100%; min-width:520px; font-size:15px}
+  th,td{text-align:left; padding:10px 12px; border-bottom:1px solid var(--rule); vertical-align:top}
+  th{font-weight:600; color:var(--muted); font-size:13px; text-transform:uppercase; letter-spacing:.04em}
+  footer{margin-top:64px; padding-top:24px; border-top:1px solid var(--rule); color:var(--muted); font-size:14px}
+  footer a{color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <p class="brand"><a href="https://www.tejdux.com">Tejdux</a></p>
+  <h1>Sub-processors</h1>
+  <p class="meta">Last updated 23 August 2026</p>
+</header>
+
+<p>
+  A sub-processor is a third party we engage to process personal data on behalf of our customers.
+  This page lists every one, what it does, and what it receives. It is referenced by Section 7 of our
+  <a href="/dpa/">Data Processing Addendum</a> and by Section 7 of our
+  <a href="/privacy/">Privacy Policy</a>.
+</p>
+
+<div class="callout">
+  <b>How to be told when this changes.</b> We give at least <b>30 days' notice</b> before adding or
+  replacing a sub-processor, by email to your account's notification address. You may object on
+  reasonable data protection grounds within that period &mdash; Section 7.3 of the DPA sets out what
+  happens then, including a pro-rata refund if no solution can be found.
+</div>
+
+<h2 id="current">Current sub-processors</h2>
+
+<div class="tw">
+<table>
+  <tr>
+    <th>Sub-processor</th>
+    <th>Purpose</th>
+    <th>Data it receives</th>
+    <th>Location</th>
+  </tr>
+  <tr>
+    <td>Amazon Web Services, Inc.</td>
+    <td>Hosting, database, storage, backups, and outbound email delivery</td>
+    <td>All Customer Personal Data held in the Service</td>
+    <td>United States (us-east-1)</td>
+  </tr>
+  <tr>
+    <td>Stripe, Inc.</td>
+    <td>Subscription billing and payment processing</td>
+    <td>
+      Your billing contact details and payment method. <b>No Customer Personal Data</b> &mdash; no
+      creator record ever reaches Stripe.
+    </td>
+    <td>United States</td>
+  </tr>
+  <tr>
+    <td>OpenAI, L.L.C.</td>
+    <td>Suggesting how spreadsheet columns map to fields during an import</td>
+    <td>
+      Column headings and target field names only &mdash; for example &ldquo;Instagram
+      Handle&rdquo;, &ldquo;Fee Paid&rdquo;. <b>The rows beneath those headings are never
+      transmitted.</b>
+    </td>
+    <td>United States</td>
+  </tr>
+  <tr>
+    <td>Google LLC</td>
+    <td>Business email, for support and service correspondence</td>
+    <td>Your email address and the content of messages you send us</td>
+    <td>United States</td>
+  </tr>
+</table>
+</div>
+
+<div class="callout">
+  <b>Why the import feature sends so little.</b> Mapping a spreadsheet needs to know what a column is
+  called, not what is in it. Sending the headings alone is enough for the suggestion to be useful, and
+  it means a creator's name, email or fee never leaves our systems for this feature. The suggestion is
+  advisory in any case &mdash; whoever runs the import reviews and confirms the mapping before any
+  record is created.
+</div>
+
+<h2 id="not-sub-processors">Services that are not sub-processors</h2>
+
+<p>
+  Some third parties receive data because you tell the Service to exchange data with them. They act as
+  independent controllers under their own terms rather than on our instructions, so they are not
+  sub-processors and are not covered by the notice commitment above. They are listed here because the
+  distinction is easy to lose.
+</p>
+
+<div class="tw">
+<table>
+  <tr><th>Service</th><th>When it receives anything</th><th>Acting as</th></tr>
+  <tr>
+    <td>Google, Facebook (sign-in)</td>
+    <td>Only if you choose to sign in with that provider</td>
+    <td>Independent controller</td>
+  </tr>
+  <tr>
+    <td>Instagram / Facebook Graph, YouTube</td>
+    <td>Only for an integration you connect, within the scope you authorise</td>
+    <td>Independent controller</td>
+  </tr>
+  <tr>
+    <td>Commerce platforms you connect</td>
+    <td>Only for a store you connect, to read orders and discount codes</td>
+    <td>Independent controller</td>
+  </tr>
+</table>
+</div>
+
+<h2 id="not-engaged">Not currently engaged</h2>
+
+<p>
+  These are integrations the software supports but which are switched off in production. They receive
+  nothing today. They are listed so that the absence is a deliberate, checkable statement rather than
+  something inferred from silence &mdash; and so that enabling one means editing this row rather than
+  remembering that a row is missing.
+</p>
+
+<div class="tw">
+<table>
+  <tr><th>Service</th><th>What it would do</th><th>Status</th></tr>
+  <tr>
+    <td>Anthropic, PBC</td>
+    <td>Generating draft landing-page copy from a campaign brief</td>
+    <td>
+      <b>Disabled.</b> The feature is off by default and is not enabled in production. If it is
+      turned on, this page and Annex C of the DPA are updated and the 30 days' notice is given
+      before it is enabled.
+    </td>
+  </tr>
+</table>
+</div>
+
+<!-- INTERNAL, not rendered: [ENGINEERING: the Anthropic row was verified disabled on 2026-08-23:
+     web-experience.landing.generation.provider defaults to `template`, AnthropicPageGenerator is
+     @ConditionalOnProperty(havingValue = "anthropic"), and the deployed compose template does not
+     set WEBE_PAGE_GENERATION_PROVIDER. If that changes, this page, DPA Annex C, and the Privacy
+     Policy sharing table must all change in the SAME commit, and notice must precede enablement. A
+     sub-processor list that is quietly false is worse than none - it is a contractual
+     representation, not a description.] -->
+
+<!-- INTERNAL, not rendered: [ENGINEERING: outbound third-party hosts found in the Java sources on
+     2026-08-23 were api.stripe.com, api.anthropic.com, graph.facebook.com and www.googleapis.com.
+     AWS and Google Workspace do not appear as literals because they are reached by SDK/SMTP
+     configuration. Re-run that search when adding an integration, and reconcile it against this
+     page.] -->
+
+<h2 id="contact">Questions</h2>
+
+<p>
+  To ask about a sub-processor, request a signed copy of the DPA, or object to a proposed change:
+  <a href="mailto:privacy@tejdux.com">privacy@tejdux.com</a>.
+</p>
+
+<footer>
+  <p>
+    InfluencerCRM &middot; <a href="https://www.tejdux.com">www.tejdux.com</a> &middot;
+    <a href="/terms/">Terms of Service</a> &middot;
+    <a href="/privacy/">Privacy Policy</a> &middot;
+    <a href="/dpa/">Data Processing Addendum</a><br>
+    Sub-processor list, last updated 23 August 2026.
+  </p>
+</footer>
+
+</div>
+</body>
+</html>

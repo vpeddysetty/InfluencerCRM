@@ -91,7 +91,7 @@ public class ConsentService {
     public ConsentService(DaoConsentClient consentClient,
                           ConsentEvidenceWriter evidenceWriter,
                           @Value("${web-experience.legal.terms-version:2026-08-11}") String termsVersion,
-                          @Value("${web-experience.legal.privacy-version:2026-08-11}") String privacyVersion,
+                          @Value("${web-experience.legal.privacy-version:2026-08-23}") String privacyVersion,
                           @Value("${web-experience.legal.terms-url:https://www.tejdux.com/terms/}") String termsUrl,
                           @Value("${web-experience.legal.privacy-url:https://www.tejdux.com/privacy/}") String privacyUrl) {
         this.consentClient = consentClient;
