@@ -397,7 +397,25 @@ public class LandingService {
                 return "<h1 class=\"hero\">" + esc(fill(textOrDefault(block, "text", ""), tokens)) + "</h1>";
             case "image": {
                 String url = textOrDefault(block, "url", "");
-                return url.isBlank() ? "" : "<img src=\"" + escAttr(url) + "\" alt=\"\">";
+                // An unfilled placeholder renders as NOTHING on the public page, not as an empty
+                // frame. A generated draft ships image blocks the brand has not filled yet, and a
+                // grey box reading "add an image" on a live page is worse than the section simply
+                // not being there. The builder still shows the placeholder, so it stays findable.
+                return url.isBlank() ? "" : "<img src=\"" + escAttr(url) + "\" alt=\""
+                        + escAttr(textOrDefault(block, "alt", "")) + "\" loading=\"lazy\">";
+            }
+            case "video": {
+                String url = textOrDefault(block, "url", "");
+                if (url.isBlank()) {
+                    return "";
+                }
+                // No autoplay: a page that starts playing on open is a page visitors close. `muted`
+                // and `playsinline` are set so a brand that later adds autoplay in the builder gets
+                // the behaviour mobile browsers actually permit rather than a silent no-op.
+                String poster = textOrDefault(block, "poster", "");
+                return "<video controls playsinline preload=\"metadata\" src=\"" + escAttr(url) + "\""
+                        + (poster.isBlank() ? "" : " poster=\"" + escAttr(poster) + "\"")
+                        + "></video>";
             }
             case "couponBlock":
                 return "<p>Use code <span class=\"code\">" + esc(textOrDefault(coupon, "code", "")) + "</span>"

@@ -54,6 +54,21 @@ public class LandingDocumentSanitizer {
             // Data attributes are how the builder tags a block for later editing. They are
             // inert in the browser, and preserving them keeps a rendered page round-trippable.
             .addAttributes(":all", "data-gjs-type", "data-block", "data-block-id")
+            // Video, for a brand's own uploaded footage (roadmap PR-35 media blocks). Added
+            // narrowly and deliberately WITHOUT iframe: an iframe would let a page embed any
+            // third-party origin — an ad network, a tracker, an attacker's page — inside a
+            // document served under the brand's name. A <video> element plays bytes from a URL
+            // and executes nothing, which is the whole difference.
+            //
+            // `controls` is the only interaction attribute allowed. `autoplay` is deliberately
+            // absent: a landing page that starts playing sound on open is a page visitors close.
+            .addTags("video", "source")
+            .addAttributes("video", "src", "poster", "width", "height", "controls",
+                           "muted", "playsinline", "preload")
+            .addAttributes("source", "src", "type")
+            .addProtocols("video", "src", "http", "https")
+            .addProtocols("video", "poster", "http", "https")
+            .addProtocols("source", "src", "http", "https")
             .addProtocols("img", "src", "http", "https", "data")
             .addProtocols("a", "href", "http", "https", "mailto", "tel");
 

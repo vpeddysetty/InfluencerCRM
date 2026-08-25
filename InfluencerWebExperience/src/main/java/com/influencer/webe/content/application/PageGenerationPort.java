@@ -89,7 +89,26 @@ public interface PageGenerationPort {
      * by {@code LandingService.renderBlock} with no new render path. Inventing a parallel section
      * taxonomy would have required a second renderer and a migration.
      */
-    record Section(String type, String title, String body) {}
+    /**
+     * One section of a generated page.
+     *
+     * <p>{@code type} reuses the renderer's block vocabulary so a draft writes straight into
+     * {@code landing_templates.blocks}. {@code mediaUrl} is set only on the media types, and is a
+     * PLACEHOLDER the brand replaces from its asset library — the model is never asked to invent an
+     * image URL, because a plausible-looking one that 404s is worse on a public page than an
+     * obvious empty frame.
+     */
+    record Section(String type, String title, String body, String mediaUrl) {
+
+        /** The common case: a text section with no media. */
+        public Section(String type, String title, String body) {
+            this(type, title, body, null);
+        }
+
+        public boolean isMedia() {
+            return "image".equals(type) || "video".equals(type);
+        }
+    }
 
     /**
      * One generated page option.
