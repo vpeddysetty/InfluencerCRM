@@ -78,6 +78,10 @@ function ContentPage({
   // `currentTemplate.document` because nothing is persisted until they press save — the builder
   // must show it, and a reload must not resurrect a draft they walked away from.
   const [generatedDocument, setGeneratedDocument] = useState(null)
+  // Which draft is on the canvas. Part of the builder's `key`, because the builder snapshots its
+  // initial document at mount: without a per-draft key, switching from one draft to another keeps
+  // the first one on screen and the second selection appears to do nothing.
+  const [generatedDraftId, setGeneratedDraftId] = useState('')
   const [scheduleAt, setScheduleAt] = useState('')
   const [scheduling, setScheduling] = useState(false)
 
@@ -123,6 +127,7 @@ function ContentPage({
     // An unsaved draft belongs to the campaign it was generated for. Clearing it here stops it
     // following the user to the next campaign, where it would look like that campaign's page.
     setGeneratedDocument(null)
+    setGeneratedDraftId('')
     const t = templates.find((x) => x.campaignId === campaignId) || null
     if (t) {
       setTemplateName(t.name || 'Landing page')
@@ -320,6 +325,7 @@ function ContentPage({
     // draft arrived as blocks and the builder showed an empty canvas.
     setBlocks(Array.isArray(variant.blocks) ? variant.blocks : [])
     setGeneratedDocument(variant.document || null)
+    setGeneratedDraftId(variant.id || '')
     // Stay in the visual builder, which is the default and where most people already are. The
     // block editor remains one click away and now holds the same draft.
     setEditorMode('visual')
@@ -619,7 +625,7 @@ function ContentPage({
               <LandingBuilder
                 // `key` forces a remount when a draft is chosen: the builder snapshots its initial
                 // document in a ref, so without a new key it keeps showing the old canvas.
-                key={generatedDocument ? `gen-${campaignId}` : campaignId}
+                key={generatedDocument ? `gen-${campaignId}-${generatedDraftId}` : campaignId}
                 initialDocument={generatedDocument || currentTemplate?.document || null}
                 onSave={saveBuilderDocument}
                 onPreview={previewBuilderDocument}
