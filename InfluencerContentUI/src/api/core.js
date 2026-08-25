@@ -45,7 +45,11 @@ export function getActiveBrandId() {
   return activeBrandId
 }
 
-function buildHeaders(token, extraHeaders = {}) {
+// Exported for the landing preview, which must fetch() directly because it returns
+// text/html rather than JSON and so cannot go through request(). Before this it called
+// buildHeaders as an undeclared global and threw a ReferenceError on every invocation —
+// swallowed by the caller's catch, so the preview silently did nothing.
+export function buildHeaders(token, extraHeaders = {}) {
   const headers = {
     ...extraHeaders,
   }

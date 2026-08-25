@@ -109,7 +109,11 @@ export function getActiveBrandId() {
   return activeBrandId
 }
 
-function resolveApiUrl(path) {
+// Exported for callers that must fetch() directly (the landing preview returns
+// text/html, not JSON, so it cannot go through request()). Without this they fall back
+// to a RELATIVE path, which resolves against the SPA's own origin instead of the BFF —
+// the request then never reaches the API and fails silently.
+export function resolveApiUrl(path) {
   if (!path || /^https?:\/\//i.test(path)) {
     return path
   }
@@ -125,7 +129,11 @@ function resolveApiUrl(path) {
   return new URL(path, baseUrl).toString()
 }
 
-function buildHeaders(token, extraHeaders = {}) {
+// Exported for the landing preview, which must fetch() directly because it returns
+// text/html rather than JSON and so cannot go through request(). Before this it called
+// buildHeaders as an undeclared global and threw a ReferenceError on every invocation —
+// swallowed by the caller's catch, so the preview silently did nothing.
+export function buildHeaders(token, extraHeaders = {}) {
   const headers = {
     ...extraHeaders,
   }

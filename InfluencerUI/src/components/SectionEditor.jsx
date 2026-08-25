@@ -94,11 +94,23 @@ export default function SectionEditor({
 
   const debouncedSections = useDebounced(sections, 400)
 
+  // `onPreview` IS a dependency, and the ref that used to stand in for it was a mistake worth
+  // recording. React runs child effects before parent ones, so `useRef(onPreview)` captured the
+  // callback as it existed at mount — closing over `campaignId === ''`. That closure hits its own
+  // `if (!campaignId) return ''` guard and resolves to an empty string, which is still a string,
+  // so it was written into the iframe as an empty document: a permanently blank canvas with no
+  // error anywhere. Depending on the prop directly means the effect re-runs with the CURRENT
+  // closure once the campaign is known.
+  //
+  // Re-running on every parent render is not a problem here: `debouncedSections` changes rarely,
+  // and a duplicate render request is idempotent and cheap next to silently showing nothing.
   useEffect(() => {
     let cancelled = false
     if (typeof onPreview !== 'function') return undefined
     Promise.resolve(onPreview(debouncedSections))
-      .then((html) => { if (!cancelled && typeof html === 'string') setPreviewHtml(html) })
+      // An empty string means the caller declined (no campaign yet) — keep whatever is on screen
+      // rather than blanking it, which is what made this failure invisible.
+      .then((html) => { if (!cancelled && typeof html === 'string' && html) setPreviewHtml(html) })
       .catch(() => { /* a failed preview leaves the last good one on screen */ })
     return () => { cancelled = true }
   }, [debouncedSections, onPreview])

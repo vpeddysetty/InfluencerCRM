@@ -1,4 +1,4 @@
-import { request, unwrapList } from './core'
+import { request, unwrapList, resolveApiUrl, buildHeaders } from './core'
 
 // Content & Landing context: templates, previews, drafting.
 // Split out in Phase 6 so each micro-frontend owns its own API surface rather than
@@ -17,7 +17,7 @@ export async function saveLandingTemplate(token, payload) {
 // Returns rendered HTML (text, not JSON) for the live builder preview.
 
 export async function previewLandingTemplate(token, payload) {
-  const response = await fetch('/api/landing-templates/preview', {
+  const response = await fetch(resolveApiUrl('/api/landing-templates/preview'), {
     method: 'POST',
     headers: buildHeaders(token, { 'Content-Type': 'application/json' }),
     body: JSON.stringify(payload),

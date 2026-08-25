@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { MdsKicker, MdsSectionRule, MdsNote } from './components/Mds'
 import LandingBuilder from './components/LandingBuilder'
 import SectionEditor from './components/SectionEditor'
@@ -374,9 +374,22 @@ function ContentPage({
     return () => { cancelled = true }
   }, [onLoadPageTemplates, serverEditor])
 
-  // Load the page's saved sections when the campaign changes. A generated draft wins, because
-  // the user just asked for it; otherwise the stored page is what they were last editing.
+  // Seed the section list ONCE per campaign, not on every render.
+  //
+  // `seededFor` is the guard, and it is load-bearing. This effect necessarily depends on values
+  // whose identity changes on a parent render (`campaigns` is a prop array, `currentTemplate` is
+  // derived), and its body builds a NEW array. Without the guard it re-ran constantly and replaced
+  // `sections` with a fresh array each time — which restarted the preview debounce, so the
+  // in-flight preview was cancelled before it could ever land and the canvas stayed blank. It
+  // would also have discarded whatever the user had just typed.
+  //
+  // Found in production on the first real page. A local harness never showed it because nothing
+  // was re-rendering the parent.
+  const seededFor = useRef(null)
   useEffect(() => {
+    if (!campaignId || seededFor.current === campaignId) return
+    seededFor.current = campaignId
+
     const stored = currentTemplate?.sections
     if (Array.isArray(stored) && stored.length > 0) {
       setSections(stored)
@@ -387,7 +400,7 @@ function ContentPage({
     const campaign = campaigns.find((c) => c.id === campaignId)
     const matched = templateForCampaignType(campaign?.campaignType)
     setSections(matched ? applyTemplate(matched, []).sections : [])
-  }, [currentTemplate, campaignId, campaigns])
+  }, [campaignId, currentTemplate, campaigns])
 
   const saveSections = async (next) => {
     if (!campaignId) {
