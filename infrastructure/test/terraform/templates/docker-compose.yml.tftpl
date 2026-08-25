@@ -224,6 +224,8 @@ services:
       # reports itself unavailable and the registry substitutes `template` - the user still gets
       # drafts, marked `fallback: true` so the UI can say which produced them.
       WEBE_PAGE_GENERATION_PROVIDER: ${page_generation_provider}
+      # PR-39. `builder` (GrapesJS) or `sections` (curated section editor).
+      WEBE_LANDING_EDITOR: ${landing_editor}
       WEBE_PAGE_GENERATION_API_KEY: $${WEBE_PAGE_GENERATION_API_KEY}
       WEBE_CONSENT_EVIDENCE_BUCKET: ${consent_evidence_bucket}
       WEBE_CONSENT_EVIDENCE_REGION: ${region}

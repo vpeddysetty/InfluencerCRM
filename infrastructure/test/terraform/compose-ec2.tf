@@ -415,6 +415,7 @@ locals {
     # API call: switching it on — or straight back off if the spend or the output disappoints — is
     # a one-line change with no rebuild, since the code for both paths already ships in the image.
     page_generation_provider = var.page_generation_provider
+    landing_editor           = var.landing_editor
 
     # Empty would disable evidence capture; this is always the real bucket because the
     # resource is unconditional. See consent-evidence.tf.
