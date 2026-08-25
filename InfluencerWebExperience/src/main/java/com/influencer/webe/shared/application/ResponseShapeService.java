@@ -382,6 +382,11 @@ public class ResponseShapeService {
         // the builder reads null as "new page, start from a template" and an empty object
         // as "an existing page that was deliberately cleared". Those are different states.
         out.set("document", parseJsonOrDefault(source, "document", objectMapper.nullNode()));
+        // PR-39. Null, not [], for the reason above and one more: the renderer's precedence is
+        // `sections` -> `document` -> `blocks`, so an empty array here would be indistinguishable
+        // from a page authored in the section editor and then emptied — which must still render
+        // as an empty section page rather than silently falling back to the old builder document.
+        out.set("sections", parseJsonOrDefault(source, "sections", objectMapper.nullNode()));
         if (!out.has("status")) {
             out.put("status", "draft");
         }

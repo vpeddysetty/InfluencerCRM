@@ -1,6 +1,7 @@
 package com.influencer.webe.content.application;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.influencer.webe.shared.application.PlatformMetrics;
 import com.influencer.webe.shared.application.ResponseShapeService;
@@ -240,13 +241,96 @@ public class LandingStageService {
      * public URL would render an empty page — the board would be reporting a state the page
      * does not have, which is the exact divergence Phase D exists to prevent.
      */
+    /**
+     * What the brand should know before publishing this page.
+     *
+     * <p><b>Advisory, never a refusal.</b> This is deliberately separate from
+     * {@link #requirePublishable}: that method decides what is <i>impossible</i> (an empty page),
+     * this one reports what is merely <i>unwise</i>. A page with no coupon is a legitimate page —
+     * a brand-awareness launch or an announcement was never meant to carry an offer — so blocking
+     * it would refuse real work to enforce a preference. The user is told and decides.
+     *
+     * <p><b>Why it is a GET and not a field on the page.</b> The answer depends on the campaign's
+     * coupons, not on the page row, so it would go stale the moment a coupon was added or removed
+     * elsewhere. Reading it at the moment of publishing is the only way it is true when shown.
+     *
+     * @return {@code { trackable, couponCount, warnings: [ { code, message, suggestion } ] }}
+     */
+    public JsonNode publishReadiness(UUID brandId, UUID templateId) {
+        JsonNode template = requireOwnedTemplate(brandId, templateId);
+
+        ObjectNode out = shape.objectMapper().createObjectNode();
+        ArrayNode warnings = out.putArray("warnings");
+
+        int couponCount = countCoupons(brandId, template.path("campaignId").asText(null));
+        out.put("couponCount", couponCount);
+        // "Trackable" here means PURCHASE-trackable. Visits are always countable — the public
+        // renderer records a landing_page_view either way — so naming this field `trackable`
+        // without that qualification in the message would overstate what is lost.
+        out.put("trackable", couponCount > 0);
+
+        if (couponCount == 0) {
+            ObjectNode w = warnings.addObject();
+            w.put("code", "no_coupon");
+            w.put("severity", "warning");
+            w.put("message", "This page has no coupon code, so sales made after visiting it "
+                    + "cannot be traced back here. Visits are still counted.");
+            // The alternative is offered rather than described, because a warning that names no
+            // way forward reads as an obstacle. UTM tagging is the honest one: it attributes the
+            // CLICK to a campaign and creator without identifying the visitor, which is the only
+            // thing available on an anonymous public page with no consent gate.
+            w.put("suggestion", "Add a coupon to attribute sales, or publish with campaign "
+                    + "tracking on the link to see which creators send the most visits.");
+            w.put("canTagLinks", true);
+        }
+
+        return out;
+    }
+
+    /**
+     * How many coupons the campaign has.
+     *
+     * <p>Best-effort by design: a failure to reach the coupon list must not stop someone
+     * publishing. The cost of being wrong is one missing advisory; the cost of throwing is a
+     * publish button that breaks because an unrelated service is down.
+     */
+    private int countCoupons(UUID brandId, String campaignId) {
+        if (campaignId == null || campaignId.isBlank()) {
+            return 0;
+        }
+        try {
+            Map<String, String> q = new LinkedHashMap<>();
+            q.put("brandId", brandId.toString());
+            q.put("campaignId", campaignId);
+            JsonNode coupons = dao.get("/influencer-campaign-codes", q);
+            return coupons != null && coupons.isArray() ? coupons.size() : 0;
+        } catch (RuntimeException e) {
+            return 0;
+        }
+    }
+
+    /** The page, or 404 — never distinguishing another brand's page from a missing one. */
+    private JsonNode requireOwnedTemplate(UUID brandId, UUID templateId) {
+        JsonNode template = dao.get("/landing-templates/" + templateId, null);
+        if (template == null || !template.hasNonNull("brandId")
+                || !template.get("brandId").asText().equals(brandId.toString())) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Landing page not found");
+        }
+        return template;
+    }
+
     private void requirePublishable(JsonNode template) {
         // Both fields arrive as JSON *strings* from the DAO (the entity maps jsonb as String),
         // so they must be parsed before being judged. Measuring the raw node's length instead
         // treats the four characters of "\"[]\"" as content and lets an empty page publish.
+        // PR-39. `sections` counts as content, and it has to be checked FIRST for the same
+        // reason it wins at render time: a page authored entirely in the section editor has no
+        // document and no blocks, and without this it would be refused as empty — the publish
+        // button dead-ending on the only editor the brand was given.
+        boolean hasSections = hasContent(template.get("sections"), true);
         boolean hasDocument = hasContent(template.get("document"), false);
         boolean hasBlocks = hasContent(template.get("blocks"), true);
-        if (!hasDocument && !hasBlocks) {
+        if (!hasSections && !hasDocument && !hasBlocks) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "This page has no content yet, so it cannot be published. "
                             + "Add content in the builder first.");

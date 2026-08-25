@@ -49,6 +49,19 @@ public class LandingTemplate {
     @JdbcTypeCode(SqlTypes.JSON)
     private String document;
 
+    /**
+     * Ordered typed sections [{type,variant,fields}] from the curated editor (PR-39).
+     *
+     * <p>Nullable with no default and NOT initialized in {@code @PrePersist} — unlike
+     * {@code blocks}, which defaults to {@code []}. It follows {@code document}: NULL is the
+     * signal that this page has never been authored in the section editor, and it is what the
+     * renderer branches on. Defaulting it to an empty array would promote every existing page
+     * onto the section path with nothing in it, i.e. render blank.
+     */
+    @Column(name = "sections", columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
+    private String sections;
+
     @Column(name = "status", nullable = false)
     private String status;
 
@@ -204,6 +217,14 @@ public class LandingTemplate {
 
     public void setDocument(String document) {
         this.document = document;
+    }
+
+    public String getSections() {
+        return sections;
+    }
+
+    public void setSections(String sections) {
+        this.sections = sections;
     }
 
     public String getStatus() {

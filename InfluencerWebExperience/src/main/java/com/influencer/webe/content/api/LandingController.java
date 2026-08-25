@@ -6,9 +6,11 @@ import com.influencer.webe.shared.infrastructure.DaoGatewayClient;
 import com.influencer.webe.content.application.LandingService;
 import com.influencer.webe.identity.application.EntitlementService;
 import com.influencer.webe.identity.application.PlanPolicy;
+import com.influencer.webe.security.Permission;
 import com.influencer.webe.shared.application.RequestUserResolver;
 import com.influencer.webe.shared.application.ResponseShapeService;
 import org.springframework.http.MediaType;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.LinkedHashMap;
@@ -30,16 +32,48 @@ public class LandingController {
     private final ResponseShapeService shape;
     private final EntitlementService entitlements;
 
+    /**
+     * Which editor the UI should mount (PR-39): {@code sections} or {@code builder}.
+     *
+     * <p>Read here rather than baked into the frontend bundle because the whole point of the flag
+     * is that switching it is a variable flip and an instance refresh — a value compiled into the
+     * UI would need a rebuild and a CloudFront invalidation to change, which is a redeploy by
+     * another name and would not be a rollback path worth having.
+     */
+    private final String editorMode;
+
     public LandingController(LandingService landingService,
                             DaoGatewayClient dao,
                             RequestUserResolver requestUserResolver,
                             ResponseShapeService shape,
-                            EntitlementService entitlements) {
+                            EntitlementService entitlements,
+                            @Value("${web-experience.landing.editor:builder}") String editorMode) {
         this.landingService = landingService;
         this.dao = dao;
         this.requestUserResolver = requestUserResolver;
         this.shape = shape;
         this.entitlements = entitlements;
+        // An unrecognised value falls back to `builder` rather than throwing, matching
+        // BillingProviderRegistry.active(): a typo in an environment variable must not stop the
+        // application booting. It is silent, which is the documented trade — the shipped default
+        // is also the safe one, so a typo lands on the editor that is already in production.
+        this.editorMode = "sections".equalsIgnoreCase(String.valueOf(editorMode).trim())
+                ? "sections" : "builder";
+    }
+
+    /**
+     * Which page editor this deployment serves (PR-39).
+     *
+     * <p>CONTENT_READ: it says nothing about the brand, only about the deployment, but it sits
+     * behind auth because every other endpoint here does and an unauthenticated config endpoint
+     * is a needless surface.
+     */
+    @GetMapping("/api/landing-templates/editor")
+    public JsonNode editor(@RequestHeader(value = "Authorization", required = false) String authorization) {
+        requestUserResolver.requirePermissionForBrand(authorization, Permission.CONTENT_READ);
+        ObjectNode out = shape.objectMapper().createObjectNode();
+        out.put("editor", editorMode);
+        return out;
     }
 
     // ---- brand-authenticated template management -----------------------

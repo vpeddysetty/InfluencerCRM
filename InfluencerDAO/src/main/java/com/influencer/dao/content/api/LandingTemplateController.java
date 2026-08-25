@@ -64,6 +64,12 @@ public class LandingTemplateController {
         // there is no default to fall back to — but a PUT that omits it must still not
         // erase a document the builder has already written.
         existing.setDocument(firstNonNull(template.getDocument(), existing.getDocument()));
+        // PR-39. Same guard, same reason: nullable by design (NULL = never authored in the
+        // section editor), so a PUT that omits it must leave an authored page alone. Unguarded,
+        // any legacy-shaped write — the hosting sweep, the scheduled-publish sweep, a stage change
+        // from the Kanban board — would silently blank a section page and drop it back onto the
+        // GrapesJS document underneath it.
+        existing.setSections(firstNonNull(template.getSections(), existing.getSections()));
         existing.setStatus(template.getStatus());
         existing.setStage(firstNonNull(template.getStage(), existing.getStage(), "draft"));
         // Phase E. Null-guarded: a PUT that omits these must not clear a hosting window that

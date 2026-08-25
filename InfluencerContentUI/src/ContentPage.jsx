@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { MdsKicker, MdsSectionRule, MdsNote } from './components/Mds'
 import LandingBuilder from './components/LandingBuilder'
+import SectionEditor from './components/SectionEditor'
+import { applyTemplate, stripForTemplate, templateById, templateForCampaignType, PAGE_TEMPLATES } from './pageTemplates.js'
 import CampaignPageGenerator from './components/CampaignPageGenerator'
 import { publicPageUrl } from './api/core'
 
@@ -40,6 +42,10 @@ function ContentPage({
   onGeneratePage,
   onRewriteSection,
   onRegenerateVariant,
+  onLoadEditorMode,
+  onLoadPageTemplates,
+  onSavePageTemplate,
+  onDeletePageTemplate,
   onSchedulePublish,
   onCancelSchedule,
   can,
@@ -70,6 +76,13 @@ function ContentPage({
   // Visual builder (Phase A). `visual` is the default for new pages; a page saved by the
   // old block editor opens in `blocks` so nobody's existing work silently changes shape.
   const [editorMode, setEditorMode] = useState('visual')
+  // PR-39. Which editor this DEPLOYMENT serves, read from the server rather than compiled in —
+  // the flag's whole value is that flipping it is a variable change and an instance refresh.
+  // Starts as null (unknown) rather than 'builder' so the editor does not flash the old one and
+  // then swap while the answer is in flight.
+  const [serverEditor, setServerEditor] = useState(null)
+  const [sections, setSections] = useState([])
+  const [savedTemplates, setSavedTemplates] = useState([])
   const [versions, setVersions] = useState([])
   const [mediaAssets, setMediaAssets] = useState([])
   // Scheduled publish (PR-35). The input is a local-time `datetime-local` string; the server
@@ -341,6 +354,138 @@ function ContentPage({
    * the server keeps both columns and renders whichever is present, so switching editors
    * never destroys the other representation.
    */
+  useEffect(() => {
+    let cancelled = false
+    if (typeof onLoadEditorMode !== 'function') return undefined
+    Promise.resolve(onLoadEditorMode())
+      .then((mode) => { if (!cancelled) setServerEditor(mode === 'sections' ? 'sections' : 'builder') })
+      // A failed read falls back to the builder: it is what production serves today, so an
+      // unreachable config endpoint must not strand the user in the newer editor by accident.
+      .catch(() => { if (!cancelled) setServerEditor('builder') })
+    return () => { cancelled = true }
+  }, [onLoadEditorMode])
+
+  useEffect(() => {
+    let cancelled = false
+    if (typeof onLoadPageTemplates !== 'function' || serverEditor !== 'sections') return undefined
+    Promise.resolve(onLoadPageTemplates())
+      .then((list) => { if (!cancelled && Array.isArray(list)) setSavedTemplates(list) })
+      .catch(() => { /* the picker degrades to built-ins only */ })
+    return () => { cancelled = true }
+  }, [onLoadPageTemplates, serverEditor])
+
+  // Load the page's saved sections when the campaign changes. A generated draft wins, because
+  // the user just asked for it; otherwise the stored page is what they were last editing.
+  useEffect(() => {
+    const stored = currentTemplate?.sections
+    if (Array.isArray(stored) && stored.length > 0) {
+      setSections(stored)
+      return
+    }
+    // A campaign with no page yet starts from the template matching its type, so choosing a
+    // campaign type and choosing a page shape stay one decision rather than two.
+    const campaign = campaigns.find((c) => c.id === campaignId)
+    const matched = templateForCampaignType(campaign?.campaignType)
+    setSections(matched ? applyTemplate(matched, []).sections : [])
+  }, [currentTemplate, campaignId, campaigns])
+
+  const saveSections = async (next) => {
+    if (!campaignId) {
+      setTemplateFeedback({ type: 'error', message: 'Pick a campaign first.' })
+      return
+    }
+    setSavingTemplate(true)
+    setTemplateFeedback({ type: '', message: '' })
+    try {
+      const saved = await onSaveTemplate({
+        campaignId,
+        name: templateName.trim() || 'Landing page',
+        sections: next,
+        status: templateStatus,
+      })
+      setTemplates((prev) => {
+        const others = prev.filter((t) => t.id !== saved.id && t.campaignId !== saved.campaignId)
+        return [saved, ...others]
+      })
+      try {
+        const reloaded = await onReloadCoupons()
+        if (Array.isArray(reloaded)) setPageCoupons(reloaded)
+      } catch { /* non-fatal */ }
+      await refreshVersions()
+      setTemplateFeedback({ type: 'success', message: `Landing page saved (slug: ${saved.publicSlug}).` })
+    } catch (error) {
+      setTemplateFeedback({ type: 'error', message: error instanceof Error ? error.message : 'Unable to save landing page.' })
+    } finally {
+      setSavingTemplate(false)
+    }
+  }
+
+  /** Server-rendered preview of the current sections — the real renderer, not an approximation. */
+  const previewSections = async (next) => {
+    if (!campaignId) return ''
+    return onPreviewLanding({
+      campaignId,
+      name: templateName.trim() || 'Landing page',
+      sections: next,
+      couponId: previewCouponId || undefined,
+    })
+  }
+
+  /**
+   * Switch templates, keeping the words.
+   *
+   * The warning is shown BEFORE applying rather than after, because "three sections were
+   * discarded" is not information anyone can act on once it has happened.
+   */
+  const applyPageTemplate = (kind, id) => {
+    const template = kind === 'saved'
+      ? savedTemplates.find((t) => t.id === id)
+      : templateById(id)
+    if (!template) return
+    if (kind === 'saved') {
+      setSections(Array.isArray(template.sections) ? template.sections : [])
+      return
+    }
+    const { sections: next, discarded } = applyTemplate(template, sections)
+    if (discarded.length > 0) {
+      const names = discarded.map((d) => d.type).join(', ')
+      if (!window.confirm(
+        `This template has no place for what you wrote in: ${names}. That text will be lost. Continue?`)) return
+    }
+    setSections(next)
+  }
+
+  const savePageAsTemplate = async (name) => {
+    if (typeof onSavePageTemplate !== 'function') return
+    const { sections: stripped, assets } = stripForTemplate(sections)
+    try {
+      const saved = await onSavePageTemplate({ name, sections: stripped })
+      setSavedTemplates((prev) => [saved, ...prev.filter((t) => t.id !== saved.id)])
+      setTemplateFeedback({
+        type: 'success',
+        message: assets.length > 0
+          // Naming the count matters: deleting one of these images later leaves a hole in every
+          // page made from this template, and this is the only moment the link is visible.
+          ? `Saved as “${name}”. It uses ${assets.length} image${assets.length === 1 ? '' : 's'} from your library — deleting them will affect pages made from it.`
+          : `Saved as “${name}”.`,
+      })
+    } catch (error) {
+      setTemplateFeedback({ type: 'error', message: error instanceof Error ? error.message : 'Unable to save the template.' })
+    }
+  }
+
+  const deletePageTemplate = async (id) => {
+    if (typeof onDeletePageTemplate !== 'function') return
+    const target = savedTemplates.find((t) => t.id === id)
+    if (target && !window.confirm(`Delete the template “${target.name}”? Pages already made from it are unaffected.`)) return
+    try {
+      await onDeletePageTemplate(id)
+      setSavedTemplates((prev) => prev.filter((t) => t.id !== id))
+    } catch (error) {
+      setTemplateFeedback({ type: 'error', message: error instanceof Error ? error.message : 'Unable to delete the template.' })
+    }
+  }
+
   const saveBuilderDocument = async (document) => {
     if (!campaignId) {
       setTemplateFeedback({ type: 'error', message: 'Pick a campaign first.' })
@@ -591,6 +736,49 @@ function ContentPage({
             </details>
           ) : null}
 
+          {/* PR-39. The section editor REPLACES the builder rather than joining it as a third
+              mode: offering both would mean a page could be authored two ways and the precedence
+              rule (sections -> document -> blocks) would become a thing users have to reason
+              about. Which one a deployment serves is the server's answer, not a user preference.
+
+              `serverEditor === null` means the answer is still in flight; rendering nothing for
+              that moment avoids showing the builder and then swapping it out underneath someone
+              who has started typing. */}
+          {serverEditor === null ? (
+            <p className="mds-note">Loading the editor…</p>
+          ) : serverEditor === 'sections' ? (
+            <>
+              <label className="auth-label">Status</label>
+              <select value={templateStatus} onChange={(e) => setTemplateStatus(e.target.value)}>
+                <option value="draft">Draft</option>
+                <option value="published">Published</option>
+              </select>
+              <SectionEditor
+                sections={sections}
+                onChange={setSections}
+                onPreview={previewSections}
+                onSave={saveSections}
+                onRewrite={onRewriteSection}
+                assets={mediaAssets}
+                onUploadAsset={onUploadAsset}
+                busy={savingTemplate}
+                templates={PAGE_TEMPLATES}
+                savedTemplates={savedTemplates}
+                onApplyTemplate={applyPageTemplate}
+                onSaveAsTemplate={savePageAsTemplate}
+                onDeleteTemplate={deletePageTemplate}
+              />
+              {currentTemplate ? (
+                <p className="mds-note">
+                  Brand page:{' '}
+                  <a href={publicPageUrl(`/s/${currentTemplate.publicSlug}`)} target="_blank" rel="noreferrer">
+                    {publicPageUrl(`/s/${currentTemplate.publicSlug}`)}
+                  </a>
+                </p>
+              ) : null}
+            </>
+          ) : (
+          <>
           <div className="row-actions" role="group" aria-label="Editor mode">
             <button
               type="button"
@@ -712,6 +900,8 @@ function ContentPage({
               <iframe title="Landing preview" className="landing-preview-frame" srcDoc={previewHtml} sandbox="" />
             </div>
           ) : null}
+          </>
+          )}
           </>
           )}
 

@@ -45,10 +45,10 @@ public enum PlanPolicy {
      * account keeps its people and simply cannot invite more; its roles also keep working, because
      * {@link #allowsRoleBasedAccess()} is checked when assigning a role, not when honouring one.
      */
-    FREE("free", 1, 25, 1, 3),
+    FREE("free", 1, 25, 1, 3, 2),
 
     /** Creator cap in the same range competitors meter at — see MARKET-ANALYSIS.md §2. */
-    PRO("pro", 1, 250, 10, 25),
+    PRO("pro", 1, 250, 10, 25, 20),
 
     /**
      * The multi-brand tier. Mirrors {@code account_type = 'agency'}, which already exists in the
@@ -56,7 +56,7 @@ public enum PlanPolicy {
      */
     // -1 is UNLIMITED. Written as a literal only because Java forbids an enum constant from
     // referring to a static field declared after it, and the field must follow the constants.
-    AGENCY("agency", -1, -1, -1, -1);
+    AGENCY("agency", -1, -1, -1, -1, -1);
 
     /** Sentinel for "no limit". -1 rather than MAX_VALUE so an accidental increment cannot wrap. */
     public static final int UNLIMITED = -1;
@@ -67,12 +67,28 @@ public enum PlanPolicy {
     private final int maxMembers;
     private final int maxLandingPages;
 
-    PlanPolicy(String key, int maxBrands, int maxCreators, int maxMembers, int maxLandingPages) {
+    /**
+     * Saved page templates per brand (PR-39).
+     *
+     * <p><b>Why free gets a small allowance rather than none.</b> Saving a page shape you like and
+     * reusing it is the moment the editor stops being a one-off tool, and a free tier that cannot
+     * do it once never demonstrates the value being charged for. Two is enough to see the point
+     * and not enough to run an agency on.
+     *
+     * <p><b>Why it is metered at all.</b> An unbounded per-brand jsonb table on a tier with no
+     * revenue attached is a storage cost with no ceiling — the one shape of free-tier abuse that
+     * costs real money rather than just capacity.
+     */
+    private final int maxSavedTemplates;
+
+    PlanPolicy(String key, int maxBrands, int maxCreators, int maxMembers, int maxLandingPages,
+               int maxSavedTemplates) {
         this.key = key;
         this.maxBrands = maxBrands;
         this.maxCreators = maxCreators;
         this.maxMembers = maxMembers;
         this.maxLandingPages = maxLandingPages;
+        this.maxSavedTemplates = maxSavedTemplates;
     }
 
     public String key() {
@@ -124,6 +140,7 @@ public enum PlanPolicy {
             case CREATOR -> maxCreators;
             case MEMBER -> maxMembers;
             case LANDING_PAGE -> maxLandingPages;
+            case SAVED_TEMPLATE -> maxSavedTemplates;
         };
     }
 
@@ -166,7 +183,8 @@ public enum PlanPolicy {
         BRAND("brand", "brands"),
         CREATOR("creator", "creators"),
         MEMBER("team member", "team members"),
-        LANDING_PAGE("landing page", "landing pages");
+        LANDING_PAGE("landing page", "landing pages"),
+        SAVED_TEMPLATE("saved template", "saved templates");
 
         private final String singular;
         private final String plural;

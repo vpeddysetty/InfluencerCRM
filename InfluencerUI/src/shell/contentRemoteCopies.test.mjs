@@ -35,7 +35,12 @@ function read(path) {
  * Normalizing here rather than in the source keeps both files idiomatic for where they live.
  */
 function withRemoteImportDepth(text) {
-  return text.replace(/from '\.\.\//g, "from './")
+  return text
+    // PR-39. The shell keeps shared modules in `shell/`; the remote has no such directory and
+    // holds them at its own root. Collapse that FIRST — otherwise the generic `../` rule below
+    // turns `../shell/x` into `./shell/x`, which the remote does not have.
+    .replace(/from '\.\.\/shell\//g, "from './")
+    .replace(/from '\.\.\//g, "from './")
 }
 
 test('the content remote carries the same campaign page', () => {
@@ -87,5 +92,35 @@ test('both API clients expose campaign-page generation against the same endpoint
       /generateCampaignPage[\s\S]*?\/api\/campaign-pages\/generate/,
       `${path} should call the campaign-page generation endpoint`,
     )
+  }
+})
+
+test('the content remote carries the same section editor', () => {
+  // PR-39. The editor is where the "cannot look wrong" rules live — which fields exist, what
+  // reordering does, what a template switch discards. A drift here is not cosmetic: the two
+  // copies would offer different editing behaviour, and only the remote's is served in production.
+  //
+  // Compared BELOW the header comment, like remoteCopies.test.mjs does: each copy's header
+  // explains its own side of the duplication, so those legitimately differ. Everything after
+  // must match, modulo the one import path the remote cannot express.
+  const body = (path) => {
+    const text = read(path)
+    return text.slice(text.indexOf('*/') + 2).trim()
+  }
+  assert.equal(
+    body(resolve(SHELL, 'components/SectionEditor.jsx')).replace("from '../shell/sectionTypes'", "from '../sectionTypes.js'"),
+    body(resolve(REMOTE, 'components/SectionEditor.jsx')),
+    'InfluencerContentUI/src/components/SectionEditor.jsx has drifted — copy the change across',
+  )
+})
+
+test('both API clients call the same section-editor endpoints', () => {
+  // Same reasoning as the generation endpoint below: the api/content.js pair is a deliberate fork,
+  // so only the paths are pinned. A remote calling an endpoint the BFF does not serve fails in
+  // production only, and only for this one context.
+  for (const path of [resolve(SHELL, 'api/content.js'), resolve(REMOTE, 'api/content.js')]) {
+    const text = read(path)
+    assert.match(text, /\/api\/landing-templates\/editor/, `${path} should read the editor mode`)
+    assert.match(text, /\/api\/brand-page-templates/, `${path} should call the saved-template endpoints`)
   }
 })

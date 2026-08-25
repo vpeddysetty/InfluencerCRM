@@ -23,6 +23,7 @@ import { dirname, resolve } from 'node:path'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const REMOTE = resolve(here, '../../../InfluencerCreatorsUI/src')
+const CONTENT_REMOTE = resolve(here, '../../../InfluencerContentUI/src')
 
 /** Everything from the first line after the module's opening block comment. */
 function bodyOf(path) {
@@ -45,5 +46,16 @@ test('the creators remote carries the same provenance vocabulary', () => {
     bodyOf(resolve(REMOTE, 'provenance.js')),
     bodyOf(resolve(here, 'provenance.js')),
     'InfluencerCreatorsUI/src/provenance.js has drifted from shell/provenance.js — copy the change across',
+  )
+})
+
+test('the content remote carries the same section vocabulary', () => {
+  // PR-39. The stakes here are higher than for the two above: this file decides which fields the
+  // editor offers, and the server renders the same names. If the copies drift, a brand fills in a
+  // field that never reaches their page — which looks like it worked.
+  assert.equal(
+    bodyOf(resolve(CONTENT_REMOTE, 'sectionTypes.js')),
+    bodyOf(resolve(here, 'sectionTypes.js')),
+    'InfluencerContentUI/src/sectionTypes.js has drifted from shell/sectionTypes.js — copy the change across',
   )
 })

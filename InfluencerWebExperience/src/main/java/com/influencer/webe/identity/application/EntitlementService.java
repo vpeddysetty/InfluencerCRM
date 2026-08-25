@@ -154,6 +154,11 @@ public class EntitlementService {
             case MEMBER -> count(dao.get("/tenancy/accounts/" + accountId + "/members", Map.of()));
             case CREATOR -> countAcrossBrands(accountId, "/creators");
             case LANDING_PAGE -> countAcrossBrands(accountId, "/landing-templates");
+            // PR-39. Counted across the account's brands like landing pages, NOT per brand: the
+            // limit exists to bound storage on a free tier, and metering per brand would let an
+            // agency account multiply its allowance by adding brands — which are themselves
+            // unlimited on that tier.
+            case SAVED_TEMPLATE -> countAcrossBrands(accountId, "/brand-page-templates");
         };
     }
 

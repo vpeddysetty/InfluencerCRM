@@ -29,6 +29,28 @@ export async function previewLandingTemplate(token, payload) {
   return text
 }
 
+// ---- Curated section editor (PR-39) ----
+
+// Which editor this DEPLOYMENT serves: `sections` or `builder`. Read at runtime rather than
+// compiled into the bundle, because the flag's value is that flipping it is a variable change and
+// an instance refresh — a build-time constant would need a rebuild and a cache invalidation.
+export async function loadLandingEditorMode(token) {
+  const payload = await request('/api/landing-templates/editor', { token })
+  return payload?.editor === 'sections' ? 'sections' : 'builder'
+}
+
+export async function listPageTemplates(token) {
+  return unwrapList(await request('/api/brand-page-templates', { token }))
+}
+
+export async function savePageTemplate(token, payload) {
+  return request('/api/brand-page-templates', { method: 'POST', token, body: payload })
+}
+
+export async function deletePageTemplate(token, id) {
+  return request(`/api/brand-page-templates/${encodeURIComponent(id)}`, { method: 'DELETE', token })
+}
+
 // ---- AI campaign-page generation (PR-35) ----
 
 // Always resolves with drafts on a 2xx: the server substitutes a template draft rather than

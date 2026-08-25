@@ -125,6 +125,20 @@ public class LandingStageController {
         return out;
     }
 
+    /**
+     * What the brand should know before publishing (PR-39).
+     *
+     * <p>Read by the publish confirmation so the warning is shown at the moment of the decision.
+     * CONTENT_READ, not CONTENT_WRITE: this only reports, and a reviewer who can see the page
+     * should be able to see why publishing it is a bad idea.
+     */
+    @GetMapping("/api/landing-pages/{id}/publish-readiness")
+    public JsonNode publishReadiness(@RequestHeader(value = "Authorization", required = false) String authorization,
+                                     @PathVariable UUID id) {
+        UUID brandId = requestUserResolver.requirePermissionForBrand(authorization, Permission.CONTENT_READ);
+        return stageService.publishReadiness(brandId, id);
+    }
+
     /** Transition history for a page — the answer to "why did this card move?". */
     @GetMapping("/api/landing-pages/{id}/transitions")
     public JsonNode transitions(@RequestHeader(value = "Authorization", required = false) String authorization,

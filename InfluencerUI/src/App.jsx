@@ -95,6 +95,10 @@ import {
   previewLandingTemplate,
   generateCampaignPage,
   rewriteCampaignPageSection,
+  loadLandingEditorMode,
+  listPageTemplates,
+  savePageTemplate,
+  deletePageTemplate,
   regenerateCampaignPageVariant,
   scheduleLandingPublish,
   cancelLandingPublishSchedule,
@@ -1729,6 +1733,12 @@ function App() {
   const uploadAssetRecord = async (file) => uploadAsset(authToken, file)
   const generateCampaignPageRecord = async (brief) => generateCampaignPage(authToken, brief)
   const rewriteCampaignPageSectionRecord = async (payload) => rewriteCampaignPageSection(authToken, payload)
+  // PR-39. useCallback so the effect that reads it does not re-run on every App render — these
+  // are passed straight into a dependency array in ContentPage.
+  const loadEditorModeRecord = useCallback(async () => loadLandingEditorMode(authToken), [authToken])
+  const loadPageTemplatesRecord = useCallback(async () => listPageTemplates(authToken), [authToken])
+  const savePageTemplateRecord = async (payload) => savePageTemplate(authToken, payload)
+  const deletePageTemplateRecord = async (id) => deletePageTemplate(authToken, id)
   const regenerateCampaignPageVariantRecord = async (payload) => regenerateCampaignPageVariant(authToken, payload)
   const scheduleLandingPublishRecord = async (id, publishAt) => scheduleLandingPublish(authToken, id, publishAt)
   const cancelLandingPublishScheduleRecord = async (id) => cancelLandingPublishSchedule(authToken, id)
@@ -2547,6 +2557,10 @@ function App() {
                   onGeneratePage={generateCampaignPageRecord}
                   onRewriteSection={rewriteCampaignPageSectionRecord}
                   onRegenerateVariant={regenerateCampaignPageVariantRecord}
+                  onLoadEditorMode={loadEditorModeRecord}
+                  onLoadPageTemplates={loadPageTemplatesRecord}
+                  onSavePageTemplate={savePageTemplateRecord}
+                  onDeletePageTemplate={deletePageTemplateRecord}
                   onSchedulePublish={scheduleLandingPublishRecord}
                   onCancelSchedule={cancelLandingPublishScheduleRecord}
                   can={(permission) => permissions.includes(permission)}

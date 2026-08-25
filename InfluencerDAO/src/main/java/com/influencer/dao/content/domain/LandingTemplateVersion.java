@@ -41,6 +41,11 @@ public class LandingTemplateVersion {
     @JdbcTypeCode(SqlTypes.JSON)
     private String document;
 
+    /** Snapshot of the page's typed sections (PR-39); see LandingTemplate.sections. */
+    @Column(name = "sections", columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
+    private String sections;
+
     @Column(name = "blocks", columnDefinition = "jsonb")
     @JdbcTypeCode(SqlTypes.JSON)
     private String blocks;
@@ -114,6 +119,14 @@ public class LandingTemplateVersion {
 
     public void setDocument(String document) {
         this.document = document;
+    }
+
+    public String getSections() {
+        return sections;
+    }
+
+    public void setSections(String sections) {
+        this.sections = sections;
     }
 
     public String getBlocks() {
