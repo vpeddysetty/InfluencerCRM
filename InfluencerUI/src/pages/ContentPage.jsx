@@ -3,6 +3,7 @@ import { MdsKicker, MdsSectionRule, MdsNote } from '../components/Mds'
 import LandingBuilder from '../components/LandingBuilder'
 import SectionEditor from '../components/SectionEditor'
 import { applyTemplate, stripForTemplate, templateById, templateForCampaignType, PAGE_TEMPLATES } from '../shell/pageTemplates.js'
+import { blankSection } from '../shell/sectionTypes.js'
 import CampaignPageGenerator from '../components/CampaignPageGenerator'
 import { publicPageUrl } from '../api/core'
 
@@ -331,6 +332,82 @@ function ContentPage({
     }
   }
 
+  /**
+   * The generator's sections -> the curated editor's sections.
+   *
+   * <p>The two vocabularies overlap but are not identical: the generator speaks
+   * {@code {type, title, body}} using the RENDERER's block names, while the editor speaks
+   * {@code {type, variant, fields}}. Mapping here rather than changing either contract, because
+   * the generator's shape is also what the draft-comparison screen and the rewrite endpoint use.
+   *
+   * <p>A generated type with no curated equivalent becomes a Text section rather than being
+   * dropped: losing a paragraph the model wrote is worse than showing it in a plainer section
+   * than intended, and the brand can retype or delete it.
+   */
+  const sectionsFromVariant = (variant) => {
+    const generated = Array.isArray(variant?.sections) ? variant.sections : []
+    if (generated.length === 0) return []
+
+    const mapped = generated.map((s) => {
+      // Only `body` is copy. `s.title` is the draft list's display label and is deliberately
+      // not read here — see the hero case.
+      const body = String(s.body || '')
+      switch (s.type) {
+        case 'hero': {
+          // `title` is a generic LABEL ("Hero", "Offer") from the draft-comparison list, not copy.
+          // An earlier version used it as the headline and published "Hero" as an h1 on a real
+          // page. The model's actual words are always in `body`; the variant's own headline is the
+          // better short form when it has one.
+          const hero = blankSection('hero')
+          return {
+            ...hero,
+            fields: { ...hero.fields, headline: String(variant.headline || '').trim() || body, subheadline: variant.headline ? body : '' },
+          }
+        }
+        case 'couponBlock': {
+          // The code itself is rendered per creator by the server, so only the words around it
+          // carry over. `{{coupon.code}}` stays a token for the same reason.
+          const offer = blankSection('offer')
+          return {
+            ...offer,
+            fields: { ...offer.fields, headline: String(variant.offerText || '').trim(), supporting: body },
+          }
+        }
+        case 'productCta': {
+          // A button label is two or three words. The model's `body` here is a full sentence, so
+          // it becomes the headline and the LABEL comes from ctaText — which is the field the
+          // brief's "call to action" input feeds. Putting the sentence on the button produced a
+          // four-line block of white text on terracotta.
+          const signup = blankSection('signup')
+          const label = String(variant.ctaText || '').trim() || 'Shop now'
+          return {
+            ...signup,
+            fields: { ...signup.fields, headline: body || 'Ready when you are', ctaLabel: label },
+          }
+        }
+        case 'legal': {
+          const legal = blankSection('legal')
+          return { ...legal, fields: { ...legal.fields, body } }
+        }
+        case 'image':
+        case 'video': {
+          const media = blankSection('media')
+          return { ...media, fields: { ...media.fields, asset: s.mediaUrl || '', caption: body, altText: body } }
+        }
+        default: {
+          // No headline: `title` is a label, and inventing one from the body would put the first
+          // sentence on the page twice.
+          const text = blankSection('text')
+          return { ...text, fields: { ...text.fields, body } }
+        }
+      }
+    }).filter(Boolean)
+
+    // Every published page needs a disclosure; the generator does not always produce one.
+    if (!mapped.some((s) => s.type === 'legal')) mapped.push(blankSection('legal'))
+    return mapped
+  }
+
   const useGeneratedDraft = (variant) => {
     // BOTH representations are kept. The visual builder reads `document` and never looks at
     // `blocks`; the block editor is the reverse. Loading only one meant "Use this draft" appeared
@@ -339,6 +416,11 @@ function ContentPage({
     setBlocks(Array.isArray(variant.blocks) ? variant.blocks : [])
     setGeneratedDocument(variant.document || null)
     setGeneratedDraftId(variant.id || '')
+    // PR-39. The generator already returns TYPED sections; until now they were flattened into
+    // html on the way in and the typing was thrown away, which is exactly why `rewriteSection`
+    // had nothing to point at once a draft was open. Map them onto the curated section list so an
+    // AI draft opens in the section editor as sections rather than as an opaque document.
+    setSections(sectionsFromVariant(variant))
     // Stay in the visual builder, which is the default and where most people already are. The
     // block editor remains one click away and now holds the same draft.
     setEditorMode('visual')
