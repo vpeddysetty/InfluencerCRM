@@ -416,6 +416,28 @@ variable "log_retention_days" {
 # Compose deployment
 # ---------------------------------------------------------------------------
 
+variable "scheduled_publish_enabled" {
+  description = <<-EOT
+    Whether the sweep that publishes pages at their scheduled time actually runs (roadmap PR-35).
+
+    OFF by default in the application, like the expiry sweep and the outbox relay, because a job
+    that publishes customer pages the moment anyone starts the app — including from a laptop
+    pointed at a shared database — is a bad surprise. That default is right for a developer and
+    wrong for production: with it off, "Schedule publish" stores a time and nothing ever fires it,
+    so the button appears to work and the page never goes live.
+
+    Switched on here because this is the environment that owns the data. The sweep goes through
+    LandingStageService.changeStage, so it inherits the empty-page guard, the stage machine, the
+    audit row, the board sync and the hosting-window clock; it never writes status directly.
+
+    OP-17: plain @Scheduled with no ShedLock, so a second instance would double-publish. Harmless
+    relative to double-sent email — the second transition is a no-op once the stage is published —
+    but the same multi-instance prerequisite applies before the HA flag is flipped.
+  EOT
+  type        = bool
+  default     = false
+}
+
 variable "landing_editor" {
   description = <<-EOT
     Which page editor the app serves (roadmap PR-39): `builder` or `sections`.

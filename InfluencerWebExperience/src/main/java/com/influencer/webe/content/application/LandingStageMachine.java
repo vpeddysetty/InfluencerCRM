@@ -5,6 +5,9 @@ import org.springframework.stereotype.Component;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.ArrayDeque;
+import java.util.Deque;
+import java.util.LinkedList;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -86,6 +89,52 @@ public class LandingStageMachine {
      * had already moved would need compensating, and compensating a UI drag is far worse than
      * refusing it in the first place.
      */
+    /**
+     * The shortest legal sequence of stages from {@code from} to {@code to}, excluding {@code from}.
+     *
+     * <p>Exists so "publish now" can be a single click without the machine growing a
+     * {@code draft -> published} shortcut. A shortcut edge would be permanent and would apply to
+     * every caller, including the board — which would quietly make the review stages optional. A
+     * path walks the same edges everything else does, so the rules stay exactly as strict.
+     *
+     * <p>Breadth-first, so the result is genuinely the shortest and the traversal cannot loop on
+     * the cycles the table contains ({@code published <-> performance_tracking}, and the several
+     * ways back to {@code approved}).
+     *
+     * @return the stages to move through in order, or an empty list if {@code to} is unreachable
+     */
+    public List<String> shortestPathTo(String from, String to) {
+        String start = normalize(from);
+        String goal = normalize(to);
+        if (!isStage(start) || !isStage(goal) || start.equals(goal)) {
+            return List.of();
+        }
+
+        Map<String, String> cameFrom = new LinkedHashMap<>();
+        Deque<String> queue = new ArrayDeque<>();
+        queue.add(start);
+        cameFrom.put(start, null);
+
+        while (!queue.isEmpty()) {
+            String at = queue.removeFirst();
+            for (String next : allowedFrom(at)) {
+                if (cameFrom.containsKey(next)) {
+                    continue;
+                }
+                cameFrom.put(next, at);
+                if (next.equals(goal)) {
+                    LinkedList<String> path = new LinkedList<>();
+                    for (String step = goal; step != null && !step.equals(start); step = cameFrom.get(step)) {
+                        path.addFirst(step);
+                    }
+                    return List.copyOf(path);
+                }
+                queue.addLast(next);
+            }
+        }
+        return List.of();
+    }
+
     public boolean requiresPublishablePage(String to) {
         return PUBLISHED.equals(normalize(to));
     }

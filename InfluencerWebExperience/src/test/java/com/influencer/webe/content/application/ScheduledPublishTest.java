@@ -44,12 +44,20 @@ class ScheduledPublishTest {
             super(null, null, null, null, null);
         }
 
+        /**
+         * Intercepts at {@code publishNow}, which is what the sweep calls.
+         *
+         * <p>It used to override {@code changeStage}. That stopped recording anything the moment
+         * the scheduler moved to {@code publishNow} — the sweep still "worked" against the real
+         * method and the assertions saw nothing, which is exactly the kind of silent test drift
+         * worth pinning at the seam the caller actually uses.
+         */
         @Override
-        public JsonNode changeStage(UUID brandId, UUID templateId, String to, String source, String key) {
+        public JsonNode publishNow(UUID brandId, UUID templateId, String source, String key) {
             if (templateId.equals(failOn)) {
                 throw new IllegalStateException("transition refused");
             }
-            published.add(templateId + "|" + to + "|" + source + "|" + key);
+            published.add(templateId + "|published|" + source + "|" + key);
             return MAPPER.createObjectNode();
         }
 

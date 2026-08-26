@@ -13,6 +13,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.net.http.HttpClient;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -76,9 +78,18 @@ class PublishReadinessTest {
             return null;
         }
 
+        final List<String> stageWrites = new ArrayList<>();
+        final List<String> statusWrites = new ArrayList<>();
+
         /** Records the write instead of performing it; the transition log and card sync too. */
         @Override
         public JsonNode put(String path, JsonNode body) {
+            if (path != null && path.startsWith("/landing-templates/") && body.hasNonNull("stage")) {
+                stageWrites.add(body.get("stage").asText());
+                statusWrites.add(body.path("status").asText(""));
+                // Reflect the write back, so the next hop reads the stage this one just set.
+                ((ObjectNode) page).put("stage", body.get("stage").asText());
+            }
             return body;
         }
 
@@ -161,8 +172,12 @@ class PublishReadinessTest {
 
     /** A page whose only content is `sections`, as the new editor produces. */
     private ObjectNode sectionOnlyPage() {
+        return sectionOnlyPage("ready_to_publish");
+    }
+
+    private ObjectNode sectionOnlyPage(String stage) {
         ObjectNode p = page(BRAND);
-        p.put("stage", "ready_to_publish");
+        p.put("stage", stage);
         // Arrives as a JSON *string*, the way the DAO returns jsonb — the shape the check has to
         // cope with, and the one the equivalent document/blocks logic was careful about.
         p.put("sections", "[{\"type\":\"hero\",\"fields\":{\"headline\":\"New season\"}}]");
@@ -194,6 +209,59 @@ class PublishReadinessTest {
 
         assertThatThrownBy(() -> serviceFor(new StubDao(empty, 1))
                 .changeStage(BRAND, PAGE, "published", "builder", "k2"))
+                .hasMessageContaining("no content");
+    }
+
+    // ---- publish now -------------------------------------------------------
+
+    @Test
+    @DisplayName("a draft page publishes in one command, walking the stages it must pass")
+    void publishNowWalksTheStages() {
+        // The stage machine has no draft -> published edge on purpose. "Publish now" must not
+        // become a reason to add one, so it walks the shortest legal path instead.
+        StubDao dao = new StubDao(sectionOnlyPage("draft"), 1);
+
+        JsonNode out = serviceFor(dao).publishNow(BRAND, PAGE, "builder");
+
+        assertThat(out).isNotNull();
+        // Every hop is a real transition, so each one is audited rather than skipped.
+        assertThat(dao.stageWrites).contains("approved", "ready_to_publish", "published");
+    }
+
+    @Test
+    @DisplayName("publishing sets the status, not just the stage")
+    void publishNowSetsStatus() {
+        // A page in the Published column that still answers 404 is the bug this pins: the stage
+        // and the public status have to move together.
+        StubDao dao = new StubDao(sectionOnlyPage("draft"), 1);
+
+        serviceFor(dao).publishNow(BRAND, PAGE, "builder");
+
+        assertThat(dao.statusWrites).contains("published");
+    }
+
+    @Test
+    @DisplayName("publishing an already-published page is not an error")
+    void publishNowIsIdempotent() {
+        // A double-click is not a mistake worth a 409.
+        StubDao dao = new StubDao(sectionOnlyPage("published"), 1);
+
+        JsonNode out = serviceFor(dao).publishNow(BRAND, PAGE, "builder");
+
+        assertThat(out).isNotNull();
+        assertThat(dao.stageWrites).isEmpty();
+    }
+
+    @Test
+    @DisplayName("an empty page is still refused, however it is published")
+    void publishNowStillRefusesEmptyPages() {
+        ObjectNode empty = page(BRAND);
+        empty.put("stage", "draft");
+        empty.put("sections", "[]");
+        empty.put("blocks", "[]");
+        empty.putNull("document");
+
+        assertThatThrownBy(() -> serviceFor(new StubDao(empty, 1)).publishNow(BRAND, PAGE, "builder"))
                 .hasMessageContaining("no content");
     }
 

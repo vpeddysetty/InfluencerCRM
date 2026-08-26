@@ -49,6 +49,7 @@ function ContentPage({
   onDeletePageTemplate,
   onSchedulePublish,
   onCancelSchedule,
+  onPublishNow,
   can,
 }) {
   const [campaignId, setCampaignId] = useState('')
@@ -98,6 +99,7 @@ function ContentPage({
   const [generatedDraftId, setGeneratedDraftId] = useState('')
   const [scheduleAt, setScheduleAt] = useState('')
   const [scheduling, setScheduling] = useState(false)
+  const [publishing, setPublishing] = useState(false)
 
   const currentBrief = useMemo(
     () => briefs.find((b) => b.campaignId === campaignId) || null,
@@ -291,6 +293,36 @@ function ContentPage({
    * user's zone and `toISOString()` converts to the UTC instant the server stores. Sending the raw
    * string would schedule at the wrong hour for anyone not on UTC.
    */
+  /**
+   * Publish immediately.
+   *
+   * <p>Goes through POST /publish rather than setting the status select to "Published" and
+   * saving. Those are not the same operation: the select writes `status` only, leaving `stage`
+   * behind, so the page goes live while the board still shows it in Draft and the free-hosting
+   * clock never starts. The endpoint walks the stage machine, which is where all of that lives.
+   */
+  const publishNow = async () => {
+    if (!currentTemplate || typeof onPublishNow !== 'function') return
+    setPublishing(true)
+    setTemplateFeedback({ type: '', message: '' })
+    try {
+      await onPublishNow(currentTemplate.id)
+      await refreshTemplates()
+      setTemplateStatus('published')
+      setTemplateFeedback({
+        type: 'success',
+        message: 'Published. The page is live at the links below.',
+      })
+    } catch (error) {
+      setTemplateFeedback({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'Unable to publish.',
+      })
+    } finally {
+      setPublishing(false)
+    }
+  }
+
   const schedulePublish = async () => {
     if (!currentTemplate || !scheduleAt) return
     setScheduling(true)
@@ -1003,6 +1035,38 @@ function ContentPage({
           {/* Page-level, deliberately: a schedule applies to the page, not to whichever editor
               happens to be open. Only shown once the page exists — there is nothing to schedule
               until it has been saved and has a slug. */}
+          {/* Publish now. Deliberately its own control rather than the status select: setting
+              the select to Published writes `status` and leaves `stage` behind, which puts a live
+              page in the board's Draft column and never starts the hosting clock. */}
+          {currentTemplate && onPublishNow ? (
+            <div className="page-stack">
+              <MdsSectionRule />
+              <label className="auth-label">Publish</label>
+              {currentTemplate.status === 'published' ? (
+                <MdsNote>
+                  This page is <strong>live</strong>. Saving further edits updates it in place.
+                </MdsNote>
+              ) : (
+                <>
+                  <MdsNote>
+                    Makes the page live immediately at the links below. Save your edits first —
+                    publishing does not save unsaved changes.
+                  </MdsNote>
+                  <div className="row-actions">
+                    <button
+                      type="button"
+                      className="primary-btn"
+                      disabled={publishing || !can('content:write')}
+                      onClick={publishNow}
+                    >
+                      {publishing ? 'Publishing…' : 'Publish now'}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          ) : null}
+
           {currentTemplate && onSchedulePublish ? (
             <div className="page-stack">
               <MdsSectionRule />
@@ -1035,7 +1099,7 @@ function ContentPage({
                   />
                   <MdsNote>
                     Your local time. The page must have content, and the time must be in the
-                    future — publishing now is the button above.
+                    future — to publish immediately, use <strong>Publish now</strong> above.
                   </MdsNote>
                   <div className="row-actions">
                     <button

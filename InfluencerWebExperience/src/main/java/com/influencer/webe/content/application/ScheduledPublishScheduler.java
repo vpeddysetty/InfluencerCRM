@@ -16,7 +16,7 @@ import java.util.UUID;
 /**
  * Publishes pages whose scheduled time has arrived (roadmap PR-35, screen 6).
  *
- * <p><b>It goes through {@link LandingStageService#changeStage} rather than writing status.</b>
+ * <p><b>It goes through {@link LandingStageService#publishNow} rather than writing status.</b>
  * That path is where the empty-page guard, the stage machine, the transition audit row, the
  * workflow-board sync and the hosting-window clock all live. A scheduler that set
  * {@code status='published'} directly would publish blank pages, skip the audit trail, leave the
@@ -132,7 +132,13 @@ public class ScheduledPublishScheduler {
         // so a retry after a partial failure recognises the work as already done instead of
         // writing a second transition for the same scheduled publish.
         String key = templateId + ":scheduled:" + page.get("scheduledPublishAt").asText();
-        stages.changeStage(brandId, templateId, LandingStageMachine.PUBLISHED, SOURCE, key);
+        // publishNow, not changeStage(..., PUBLISHED): the stage machine has no direct
+        // draft -> published edge, so a page scheduled while still in `draft` — which is most of
+        // them, since scheduling is what someone does INSTEAD of walking the review stages — was
+        // refused 409 on every sweep, forever. It logged a warning nobody was reading and the page
+        // never went live. publishNow walks the shortest legal path, so each hop is still
+        // validated and audited.
+        stages.publishNow(brandId, templateId, SOURCE, key);
 
         // Cleared only AFTER the publish succeeds. Clearing first would lose the schedule if the
         // transition then failed, turning a retryable problem into a page that never publishes and

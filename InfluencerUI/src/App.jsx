@@ -101,6 +101,7 @@ import {
   deletePageTemplate,
   regenerateCampaignPageVariant,
   scheduleLandingPublish,
+  publishLandingNow,
   cancelLandingPublishSchedule,
   listLandingVersions,
   restoreLandingVersion,
@@ -1741,6 +1742,7 @@ function App() {
   const deletePageTemplateRecord = async (id) => deletePageTemplate(authToken, id)
   const regenerateCampaignPageVariantRecord = async (payload) => regenerateCampaignPageVariant(authToken, payload)
   const scheduleLandingPublishRecord = async (id, publishAt) => scheduleLandingPublish(authToken, id, publishAt)
+  const publishLandingNowRecord = async (id) => publishLandingNow(authToken, id)
   const cancelLandingPublishScheduleRecord = async (id) => cancelLandingPublishSchedule(authToken, id)
   const loadLandingVersionsRecord = async (campaignId) => listLandingVersions(authToken, campaignId)
   const restoreLandingVersionRecord = async (campaignId, versionNo) =>
@@ -2563,6 +2565,7 @@ function App() {
                   onDeletePageTemplate={deletePageTemplateRecord}
                   onSchedulePublish={scheduleLandingPublishRecord}
                   onCancelSchedule={cancelLandingPublishScheduleRecord}
+                  onPublishNow={publishLandingNowRecord}
                   can={(permission) => permissions.includes(permission)}
                 />
               }

@@ -226,6 +226,9 @@ services:
       WEBE_PAGE_GENERATION_PROVIDER: ${page_generation_provider}
       # PR-39. `builder` (GrapesJS) or `sections` (curated section editor).
       WEBE_LANDING_EDITOR: ${landing_editor}
+      # PR-35. Without this the scheduled-publish sweep never runs and a scheduled page
+      # silently never goes live.
+      WEBE_SCHEDULED_PUBLISH_ENABLED: ${scheduled_publish_enabled}
       WEBE_PAGE_GENERATION_API_KEY: $${WEBE_PAGE_GENERATION_API_KEY}
       WEBE_CONSENT_EVIDENCE_BUCKET: ${consent_evidence_bucket}
       WEBE_CONSENT_EVIDENCE_REGION: ${region}

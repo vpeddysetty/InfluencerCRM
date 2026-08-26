@@ -126,6 +126,21 @@ public class LandingStageController {
     }
 
     /**
+     * Publish this page now.
+     *
+     * <p>Separate from {@code PUT /stage} because the stage machine has no {@code draft ->
+     * published} edge and should not grow one: adding a shortcut would make the review stages
+     * optional for every caller, including the board. This walks the shortest legal path instead,
+     * so each hop is validated, audited and synced exactly as a drag would be.
+     */
+    @PostMapping("/api/landing-pages/{id}/publish")
+    public JsonNode publishNow(@RequestHeader(value = "Authorization", required = false) String authorization,
+                               @PathVariable UUID id) {
+        UUID brandId = requestUserResolver.requirePermissionForBrand(authorization, Permission.CONTENT_WRITE);
+        return stageService.publishNow(brandId, id, "builder");
+    }
+
+    /**
      * What the brand should know before publishing (PR-39).
      *
      * <p>Read by the publish confirmation so the warning is shown at the moment of the decision.

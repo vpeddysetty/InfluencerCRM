@@ -14,6 +14,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.util.LinkedHashMap;
 import java.util.Locale;
+import java.util.List;
 import java.util.Map;
 import java.time.Instant;
 import java.util.UUID;
@@ -171,6 +172,63 @@ public class LandingStageService {
      * at 9am" typed after 9am is far more likely to be a wrong date than a request to publish
      * immediately — and the immediate path already exists.
      */
+    /**
+     * Publish a page immediately, walking whatever stages stand between it and {@code published}.
+     *
+     * <p><b>Why this exists rather than a plain {@code changeStage(..., "published")}.</b> The
+     * stage machine deliberately has no {@code draft -> published} edge: the eight-stage lifecycle
+     * is a review workflow, and letting anything jump it would make review optional by accident.
+     * But "publish this now" is a thing a brand owner genuinely wants to do on a page they just
+     * wrote, and telling them to click through three intermediate stages first is ceremony that
+     * teaches nothing.
+     *
+     * <p>So this walks the SHORTEST legal path instead of bypassing the machine. Every hop is a
+     * real transition: each one is validated, audited and synced to the board exactly as if it had
+     * been dragged there. The difference from a bypass is that the audit trail shows how the page
+     * reached {@code published}, and the empty-page guard still runs at the final hop.
+     *
+     * <p><b>Idempotent.</b> A page already published is returned unchanged rather than erroring —
+     * a double-click on "Publish now" is not a mistake worth a 409.
+     */
+    public JsonNode publishNow(UUID brandId, UUID templateId, String source) {
+        return publishNow(brandId, templateId, source, null);
+    }
+
+    /**
+     * As above, with a caller-supplied idempotency prefix.
+     *
+     * <p>The scheduler needs this: its key ties the transition to the SCHEDULED INSTANT rather
+     * than to the run, so a sweep retried after a partial failure recognises the work as already
+     * done instead of writing a second set of transitions for the same scheduled publish. A random
+     * per-run key would lose that.
+     */
+    public JsonNode publishNow(UUID brandId, UUID templateId, String source, String idempotencyPrefix) {
+        JsonNode template = requireOwned(brandId, templateId);
+        String current = normalize(template.path("stage").asText(LandingStageMachine.DRAFT));
+        if (LandingStageMachine.PUBLISHED.equals(current)) {
+            return shape.landingTemplate(template);
+        }
+
+        List<String> path = machine.shortestPathTo(current, LandingStageMachine.PUBLISHED);
+        if (path.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "This page cannot be published from '" + current + "'.");
+        }
+
+        // A shared key per hop, derived from the run, so a retry of the whole command is absorbed
+        // rather than replayed as a second set of transitions through the audit log.
+        String prefix = idempotencyPrefix == null || idempotencyPrefix.isBlank()
+                ? templateId + ":publish-now:" + UUID.randomUUID()
+                : idempotencyPrefix;
+        JsonNode result = null;
+        for (String next : path) {
+            // One key PER HOP: the hops are distinct transitions, and sharing a single key across
+            // them would make the second and third look like retries of the first and be dropped.
+            result = changeStage(brandId, templateId, next, source, prefix + ":" + next);
+        }
+        return result;
+    }
+
     public JsonNode schedulePublish(UUID brandId, UUID templateId, Instant at) {
         if (at == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "A publish time is required");

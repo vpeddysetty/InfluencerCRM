@@ -76,6 +76,17 @@ export async function regenerateCampaignPageVariant(token, payload) {
 // Schedule / cancel a timed publish. `publishAt` is an ISO-8601 instant in UTC; the server
 // refuses a past time rather than publishing immediately, since "9am" typed after 9am is far more
 // likely a wrong date than a request to go live now.
+/**
+ * Publish a page immediately (PR-35 / PR-39).
+ *
+ * <p>Not the same as saving with status "published": that writes the status column and leaves the
+ * stage behind, so the page goes live while the board still shows Draft and the hosting clock
+ * never starts. This walks the stage machine server-side.
+ */
+export async function publishLandingNow(token, templateId) {
+  return request(`/api/landing-pages/${encodeURIComponent(templateId)}/publish`, { method: 'POST', token })
+}
+
 export async function scheduleLandingPublish(token, templateId, publishAt) {
   return request(`/api/landing-pages/${encodeURIComponent(templateId)}/schedule`, {
     method: 'PUT', token, body: { publishAt },
