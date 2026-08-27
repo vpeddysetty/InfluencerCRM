@@ -193,7 +193,12 @@ public class SecurityConfig {
                         .filter(origin -> !origin.isEmpty())
                         .toList());
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Brand-Id"));
+        // X-Creator-Token added for OP-18. The creator portal authenticates with it instead of a
+        // bearer, and it will be served from its own origin, so without it here every creator
+        // request fails at the preflight — as a CORS error in the browser console, with nothing
+        // in the server logs at all, which is the most misleading way for this to break.
+        configuration.setAllowedHeaders(
+                List.of("Authorization", "Content-Type", "X-Brand-Id", "X-Creator-Token"));
         configuration.setAllowCredentials(true);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
