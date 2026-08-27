@@ -107,8 +107,9 @@ signup.
 |---|---|---|---|
 | `PR-04` | Stripe live keys | you | Code is done. Test-mode catalogue built 2026-08-21 (`TejDux Pro`/`TejDux Agency`, 4 price ids); **live** keys still need applying for, and have a lead time |
 | `OP-06` | SES domain verification + sandbox exit | you | **Blocks every email feature and both agents.** See `docs/ses-setup.md` |
-| `PR-27b` | Meta app review (Instagram) | Meta | ~2 days. Deliberately **not** on the critical path |
+| `PR-27b` | Meta app review (Instagram) | Meta | ~2 days. Deliberately **not** on the critical path. **Request the full permission set — including `instagram_content_publish` — in the *initial* submission**: the dossier's own guidance is that a second review round later costs another 2–4 weeks, and reviewers do not object to a coherent product asking for a coherent set. Open items are a category change and business verification |
 | `PR-10b` | Shopify Partner app | you | Only needed when `PR-10` starts |
+| `PR-27c` | **TikTok sandbox registration** | you | Added 2026-08-27. Arrives in hours, not weeks. Half a day to register and determine **empirically** which endpoints are reachable unaudited: `direct_post` (public) needs audit, but **`share/upload` delivers the asset and caption into the creator's drafts**, where they tap Post. That is not the same as useless SELF_ONLY posting — it removes the two worst mobile steps (download 8MB on mobile data, re-upload). Highest-value seam in the social half, and all three candidate designs collapsed it into a binary |
 
 ### 2.4 Claims retired by this document
 
@@ -188,9 +189,11 @@ Sequenced by *what blocks taking money, safely* — not by size, not by document
 - **SES is worse than assumed:** sandbox *and* zero verified identities, so it would fail every send.
   Also no SPF record, while Google Workspace owns the MX. See `docs/ses-setup.md`.
 
-### Stage 1 — Take money (~10d)
+### Stage 1 — Take money (~10d) + the creator handoff (~25d, see §10.4 before committing)
 
 *Gate: can a stranger pay us?*
+
+`OP-18` and `PR-40`..`PR-44` are the creator-handoff plan, detailed in §10. They are listed here because `OP-18` repairs defects that are live in production **now** and should not wait behind a stage boundary. The rest of that block is sequenced but **not yet committed** — §10.4 records a real argument for delivering the same user-visible outcome in ~6 days instead of ~25, and that decision is open.
 
 | ID | Item | Size | Note |
 |---|---|---|---|
@@ -201,6 +204,12 @@ Sequenced by *what blocks taking money, safely* — not by size, not by document
 | `PR-34` | Apollo enrichment + lead-to-workspace workflow | 3 | Commercial enablement: sync Apollo accounts/contacts into Tejdux as brand or agency records, assign tier + owner, create onboarding tasks and first campaign brief. Apollo is the source of qualified leads, not the creator database or source of truth; keep it out of the operational creator workflow. |
 | ~~`OP-11`~~ | Stripe Tax — **done 2026-08-21 (test mode)**. Head office set, `txcd_10103001` on both products, `automatic_tax` + `tax_id_collection` on checkout. **Zero registrations by choice**: no nexus at zero revenue, so it computes $0 and collects nothing until one is added. UK/EU deferred — see Decision 8 | 0 | Was: VAT is owed from the first EU/UK sale; retrofitting onto issued invoices is painful |
 | `PR-02` | **Activation** — guided first run, empty states, welcome email, demo seed | 7 | The highest-value product work remaining. Against a free incumbent, activation *is* the product |
+| `OP-18` | **Creator-collaboration foundation repair** — five live defects in the already-shipped collaboration path, four verified directly against the code. (a) `saveAsCollaborator` handles only `document`/`blocks`, **not `sections`** — since `PR-39` switched production to the section editor, a creator's edit returns 200 and is silently discarded. (b) The same method drops `scheduledPublishAt`/`hostingExpiresAt`/`firstPublishedAt`; the DAO comment at `LandingService.java:85` states the rule — *"every BFF caller writing this row restates it"* — and `PageCollaborationService` is a BFF caller that does not, so **one creator save silently cancels the brand's scheduled launch**. Extract one shared carry-forward helper, since this has now been got wrong twice, and fix `changeStage` the same way. (c) `decide()` loads the claim by `linkId` alone with no brand comparison; the BFF checks `CREATOR_WRITE` but never that the link is the caller's, and `linkId` comes from the URL — so **any user with `creator:write` in any brand confirms another brand's pending creator claim by guessing a UUID**. Check `brandId` at **both** BFF and DAO. (d) `pagesForCreator`/`requireEditRights` read `brandId` from the grant row and never compare it to the fetched page's, so a malformed grant is cross-brand read+write. (e) No `@Version` on `LandingTemplate` — concurrent brand and creator edits overwrite unrecoverably; add it with a 409 carrying both versions, and make `snapshotVersion` capture `before`, not `saved`. Also: `X-Creator-Token` into `setAllowedHeaders`, and symmetric status on backward stage transitions. **These are the first unit tests either service has had.** **Design:** `docs/Creator-Handoff-Design.md` §1 | 3 | **Two of these are live cross-tenant defects and one is silent data loss, all in production today**, independent of whether the creator portal is ever built. This is the one row worth doing regardless of how §10.4 is resolved — it fixes shipped bugs, not speculative ones. Ordered first because every later row writes through the code it repairs |
+| `PR-40` | **Creator auth filter + the `turn` axis** — `CreatorTokenAuthenticationFilter`, and `CREATOR_PORTAL_PATHS` moves from `permitAll()` to `authenticated()`. Today that matcher is `permitAll()` with *all* authentication hand-rolled in controller bodies, and this plan adds six to eight endpoints to that surface: one forgotten `requireCreator(token)` is a fully unauthenticated endpoint serving unpublished pages. The filter makes a forgotten check **fail closed**. `V44` adds `turn` (nullable `brand`&#124;`creator`), `turn_changed_at`, a `page_handoffs` audit table, and `creator_portal_sessions` — the session map is a `ConcurrentHashMap` today and an ASG roll is the live step of every deploy, so it must be a table before the first real creator uses it. `HandoffMachine` shaped after `LandingStageMachine`; `assertCreatorStageTransition` as one central allowlist defaulting to deny with `PUBLISHED` unreachable unconditionally, rather than restated per endpoint. Idempotency keys are per-occurrence, **not** `templateId:from->to`, because work legitimately loops twice | 5 | The spine. **Stage and turn are orthogonal** — stage answers *how far along*, turn answers *whose move*; a page sits at `content_needed` while the turn bounces three times. Provable end-to-end by `tests/e2e_handoff.sh` before any UI exists. The `permitAll` → `authenticated` flip is the single highest-leverage security change in the plan |
+| `PR-41` | **Tokenised invite + the first creator email** — `creator_invites` with the token SHA-256-hashed at rest, single-use, 7-day expiry, ≥128-bit entropy and rate-limited redemption, following `MemberInvitationService` exactly. Redemption creates the identity and the confirmed link atomically. An expired link lands on "ask Acme for a new one", not a 404. Adds `findById`→email to `DaoCreatorIdentityClient` projecting **only** id/email/displayName, because `GET /creator-identities/{id}` currently returns the whole entity **including `passwordHash`** | 4 | **This is what breaks the bootstrap circularity**: today the only route to a `confirmed` creator link is an out-of-band UUID exchange, which is why the collaboration backend has been dark since Phase G. Gated on `OP-06` — SES is in sandbox with zero verified identities, so every email in this plan fails silently until that clears |
+| `PR-42` | **Brand-side collaborator panel + handoff button** — invite/list/revoke, the pending-claims queue (brand-scoped after `OP-18`c), a "Waiting on you" filter driven by `turn`, and "Take it back". One button, one endpoint: `POST /api/landing-pages/{id}/handoff` = `invite(rights='edit')` + `changeStage(creator_assigned)` + set turn. Built in **`InfluencerContentUI`**, not `InfluencerUI/src/pages/` — production serves the remote. Add to `contentRemoteCopies.test.mjs`. Restrict the invite UI to `rights: 'edit'` for v1: `'comment'` is accepted by the schema and **has no possible client**, and shipping a grant nothing can honour is worse than recording the gap | 4 | Gives brands the feature whose backend already exists. **With `OP-18` this is a demoable product in 7 days** with no creator-facing code — see §10.4. The reverse edges `CREATOR_ASSIGNED → APPROVED` and `CONTENT_NEEDED → CREATOR_ASSIGNED` already exist in `LandingStageMachine` at lines 53-54 and nobody wires them; wiring them is free |
+| `PR-43` | **Creator portal — invite screen and page list** — a new Vite project `InfluencerCreatorPortalUI/` on its own CloudFront distribution at `creators.tejdux.com`, with the URL coming from a **terraform output**, not `.env.production`, which is generated and carries a "Do not edit" header. Not a route in `InfluencerUI`: the shell's `App.jsx` assumes an operator bearer token, an `accountId` and a brand switcher, and each would grow an "unless creator" branch. It talks to the **BFF directly, not through the DPS** — adding a `CREATOR_PORTAL` constant to `AppRegistry` is not merely insufficient but structurally wrong, because `scope()` intersects against `account_role` permissions a creator provably lacks and returns empty for every creator, `UiSession` mandates `userId`/`accountId`/`brandId`/`role`, and `ApiProxyController` attaches `session.accessToken()` + `X-Brand-Id` where a creator needs `X-Creator-Token`. The cost — the token lives in JS rather than an httpOnly cookie — is a documented trade, not an oversight. `/invite/{token}` shows a **redacted teaser only** (brand, campaign, one line), never the rendered page: a GET that renders stored unpublished content is fetched automatically by email scanners and link unfurlers, so one forwarded invite would leak an unreleased campaign. Acceptance is a POST. Rate-limit `/auth/login` **before** the BCrypt call. Access TTL ≤24h with a refresh token for the 30-day feel | 4 | First increment a real creator can touch. **Consider deferring** — §10.4 argues a tokenised per-page magic link delivers the literal ask without a portal, and the trigger to build this row is a real creator asking "where do I log in to see all my work?" |
+| `PR-44` | **Creator editor + the return-leg emails** — mounts `SectionEditor.jsx` **unchanged** with creator-scoped callbacks; it is verified purely presentational (its only import is `../shell/sectionTypes`, with zero fetch, session or `brandId`). Pass `savedTemplates={[]}` and **omit `onSaveAsTemplate`**, since the gallery is metered against the brand's `PlanPolicy.Resource.SAVED_TEMPLATE` quota. New creator preview and rewrite endpoints; `/hand-back` moves **turn only, not stage** — the creator asserts done, the brand decides `ready_to_publish`. Revocation UX: `{"code":"access_revoked"}` plus Download-your-draft, snapshotting the draft on revoke so the brand keeps the work. `CreatorSubmittedEmail`; **`CreatorPublishNotificationEmail` — the acknowledgement asked for — keyed on `first_published_at`, not stage arrival**, or publish→unpublish→republish re-sends it; plus a retraction email if a page a creator was emailed about is unpublished. Abandonment sweep on `turn_changed_at`: creator reminder day 3, brand nudge day 7. **Extract `@influencer/ui`** — a third copy of `SectionEditor` is where duplication stops being tolerable, and CLAUDE.md already names this as the intended repair | 6 | The core of the ask. **Ghosting is the modal outcome in real creator marketing** and all three candidate designs assumed forward motion, so the abandonment sweep, the retraction email and the revocation UX are what make this survive contact with reality. Needs `OP-06` |
 
 ### Stage 2 — Production environment (~9d)
 
@@ -228,12 +237,13 @@ Sequenced by *what blocks taking money, safely* — not by size, not by document
 | Instagram/TikTok adapter bodies | M6.4 | 6 | Meta approval |
 | Custom domains / per-brand subdomains | M7 | 20 | `domain-bind-clicked` shows demand — design in §9.2 |
 | Product-analytics pipeline | M0.2 ext. | 1+ | When there are retained users to measure |
-| Social publishing | LPB-F | — | Declined in all four predecessors |
+| Social publishing **via platform API** (`PR-46`) | LPB-F | 6+ | **Decline reversed 2026-08-27** — see §10.3. `PR-27b` (Meta review, ~2d, dossier in `docs/platform-app-registration.md`) makes this reachable, where the predecessors assumed it was not. Still deferred: it needs `PR-45` first, and Instagram's `content_publish` screencast requires a working publish flow to record, which does not exist. Trigger: `PR-45` shipped **and** Meta approval granted |
+| Per-brand publishing to the **brand's own** handle | — | 8+ | Not the small follow-on it looks like: the current integration reads via `business_discovery` from *our own* single connected account. Publishing to a customer's handle needs per-brand Business Login with `config_id` (**not** `scope` — the Business app ignores it, learned the slow way per the dossier), a per-tenant token store, refresh, and a Page-selection screen. None exists |
 
 **U2 is the clearest defer in the backlog:** a quarter of the remaining product budget on scale work
 for zero users. Nobody has enough rows to page.
 
-**Critical path to first paying subscriber: ~35–40 dev-days.**
+**Critical path to first paying subscriber: ~35–40 dev-days.** This figure **excludes** the creator handoff block (`PR-40`..`PR-44`, ~25d) added 2026-08-27, which is scheduled in Stage 1 but is not on the path to first payment — §10.4 records why, and holds that decision open. `OP-18` (3d) *is* included: it repairs defects that are live in production now.
 
 ---
 
@@ -281,6 +291,21 @@ for zero users. Nobody has enough rows to page.
    there yet. Registering a jurisdiction in Stripe starts collection with **no code change**, so
    this is reversible the day the obligation is real. The trigger to revisit is the first EU/UK
    inbound lead, not a date.
+
+9. **No LLM prompt caching, and the reason is a measurement, not a preference.** Decided 2026-08-27.
+   The cacheable prefix of the page generator was measured at **~437 tokens** (system prompt ~163 +
+   tool schema ~274) against `claude-opus-5`'s **512-token minimum**. Below that floor the API accepts
+   `cache_control`, caches nothing, and reports `cache_read_input_tokens: 0` **with no error** — so
+   adding it today would be code that looks like an optimisation and provably is not. Volume does not
+   change this: traffic grows the *number* of requests, not the size of the prefix. Only content growth
+   crosses the floor, and the per-actor voice prompts in §10.3 would (437 → ~700). Even then the saving
+   at present volume is **under a dollar a month**, while output — billed at 5× input and never
+   cacheable — dominates. **The trigger to revisit is both** a materially larger prefix (a brand style
+   guide or few-shot examples, not just the voice prompts) **and** generation volume worth the wiring.
+   Carry forward one trap for whoever does: the tool schema is byte-stable today only *by accident*
+   (Jackson `ObjectNode` preserves insertion order; the fields are added unconditionally), so any future
+   conditional field would silently kill every cache hit with no error — that needs an explicit test on
+   the day caching goes in.
 
 ---
 
@@ -451,6 +476,169 @@ arriving does not mean a sale gets attributed.
 
 ---
 
+## 10. The creator handoff (added 2026-08-27)
+
+Scheduled as `OP-18` and `PR-40`..`PR-44` in Stage 1, with `PR-45`/`PR-46` below. Full design and the
+evidence for every claim: **`docs/Creator-Handoff-Design.md`**. Creator UI: `docs/Creator-Portal-UI-Design.md`.
+Prompt design: `docs/Creator-Handoff-AI-Per-Actor.md`.
+
+**The ask:** a brand owner or marketer initiates sharing a page with a creator; both collaborate on
+authoring it using their own logins; the brand publishes; the creator is acknowledged by email and can
+then publish it to their own handle.
+
+### 10.1 The shape — this is not a new subsystem
+
+The collaboration engine, the stage machine, the AI ports and the email transport all already exist.
+`CreatorIdentity` even carries a `passwordHash`, so creator login exists at the data layer. What is
+missing is a creator-facing UI, an invitation with a token, and **one nullable column**.
+
+Two orthogonal axes, and keeping them separate is the design:
+
+- **Stage** (existing, 8 values in `LandingStageMachine`) — *how far along is this?*
+- **`turn`** (new, nullable `brand`\|`creator`) — *whose move is it?*
+
+They change for different reasons. A page sits at `content_needed` while the turn bounces three times.
+Collapsing them into one column is the obvious-looking simplification that breaks the moment a creator
+hands back work the brand then hands forward again.
+
+**One rule, to be written as a comment where it can be re-litigated:** the collaborator row is
+authoritative for *is a creator involved*; the stage is display. `revoke()` moves the stage back to
+`approved` when it removes the last active grant. A single command path owns both columns — never a
+direct column write.
+
+### 10.2 The lifecycle
+
+```
+                        turn=brand
+  draft ──► review ──► approved
+                          │
+                          │  ◄─── THE HANDOFF (one button, one endpoint)
+                          │       POST /api/landing-pages/{id}/handoff
+                          │       = invite(rights=edit) + changeStage(creator_assigned) + turn=creator
+                          ▼
+                  creator_assigned ──────────────► content_needed
+                        turn=creator                  turn=creator
+                          │                               │
+                          │  "Take it back"               │  "Send back to Acme"
+                          │  (existing reverse edge)      │  POST /creator-portal/pages/{id}/hand-back
+                          ▼                               ▼
+                      approved                      content_needed, turn=brand
+                                                          │
+                                                          │  brand reviews, accepts
+                                                          ▼
+                                                   ready_to_publish
+                                                     turn=brand
+                                                          │
+                                                          │  ONLY content:publish
+                                                          ▼
+                                                      published ──► performance_tracking
+                                                     turn=null          turn=null
+```
+
+**The four actors.** *Brand owner* (`OWNER`, account-scoped) authors, invites, and is the only actor who
+publishes. *Agency owner* is structurally identical — the multi-brand case is already handled by
+`AccountRole.impliesAllBrands()`, so **no new code**. *Marketer* (`MARKETER`, brand-scoped) does the
+day-to-day authoring and initiates the handoff, but holds `CONTENT_WRITE`/`CREATOR_WRITE` and **not**
+`content:publish`, so they can hand off and hand back but cannot publish — the existing separation, kept.
+*Creator* is **not a role at all**: they authenticate through `CreatorPortalService` with `X-Creator-Token`
+and deliberately hold no `accountId`, no `brandId` and no `account_role`.
+
+**What a creator cannot do, and why it is structural rather than checked:** `saveAsCollaborator` reads
+`status`/`stage` off the stored row, and `ck_collaborators_rights` has no `publish` value — the constraint
+*is* the policy.
+
+**The unhappy paths, which all three candidate designs omitted.** Ghosting is the *modal* outcome in real
+creator marketing, so `PR-44` includes an abandonment sweep on `turn_changed_at` (creator reminder day 3,
+brand nudge day 7), a retraction email when a page a creator was emailed about is unpublished, and a
+revocation experience that hands the creator their draft rather than a dead end.
+
+### 10.3 AI, and what is deliberately excluded
+
+**No new AI capability is needed.** Everything reuses the two shipped ports, `PageGenerationPort.generate`
+and `rewriteSection`. The highest-value new use is the creator's **"rewrite in my voice"** per section —
+framed as helping *them* sound like themselves, not helping the brand. Creators are not copywriters, and
+this is what makes co-authoring work instead of producing a blank box they abandon.
+
+Two invariants worth writing into `sectionTypes.js`, because they are the obvious thing a future change
+breaks: **AI never crosses the curated-editor line** (it returns typed sections validated against
+`SECTION_TYPES` and cannot emit a colour, font, size or position, because those fields do not exist), and
+**AI never changes the turn or the stage** (generation is a content operation; a model does not decide a
+page is ready).
+
+**Prompt caching is explicitly NOT in this plan (decided 2026-08-27).** The cacheable prefix was measured,
+not estimated: system prompt ~163 tokens + tool schema ~274 = **~437, against `claude-opus-5`'s 512-token
+minimum**. Caching today is a silent no-op — the API accepts `cache_control`, caches nothing, and
+`cache_read_input_tokens` stays 0 forever. Adding the per-actor voice prompts would take the prefix to
+~700 and make it engage, but at present volume the saving is **under a dollar a month**, and output — 5×
+input, never cacheable — dominates the bill regardless. Revisit only if generation volume and prompt size
+both grow. One finding to carry forward if it is ever revisited: the tool schema *is* byte-stable today
+(Jackson `ObjectNode` preserves insertion order and the fields are added unconditionally) but **safe by
+accident, not by intent** — any future conditional field would silently kill every cache hit with no error,
+so that needs an explicit test.
+
+**On `regenerateVariant`**, since it looks like a cost lever and is not: it generates three drafts and
+discards two, deliberately — the docstring explains that a generator whose one draft collides with a seen
+headline would otherwise have nothing left to offer. The genuinely cheap path is `rewriteSection`
+(`max_tokens: 2000`), which is already correctly scoped and is what the per-section work uses.
+
+**Social publishing** is `PR-45`/`PR-46`, and the four-times-made decline is now partially reversed —
+see Stage 4. Three hard prerequisites the candidate designs treated as details:
+
+1. **There is no `S3AssetStorage` class in the repo.** `FilesystemAssetStorage` is `matchIfMissing=true`
+   and `assets.provider` is set nowhere, so production serves assets off one EC2 box's local disk — the
+   adapter's own header says "not intended for production." Meta's Content Publishing API **fetches your
+   asset URL server-side**, so object storage is a *precondition of the API path*, not share-kit polish.
+2. **There is no image resizing anywhere** — zero hits for `Graphics2D`/`getScaledInstance`; `AssetService`
+   uses `ImageIO` only to measure. "Per-platform aspect ratio" is unwritten code, not an existing capability.
+3. **Instagram captions are not clickable**, so the share kit's central artifact — a tracked URL — is inert
+   plain text on the dominant platform. Lead with **the coupon code** (already the attribution primitive,
+   and it survives being read off a screen). Also verify `/s/{slug}/{creator}` returns 200 before showing
+   it: that route **404s when no coupon matches**, so a creator on a coupon-less page would get a dead link.
+
+**And the credential trap:** the Instagram Page token **expires every 60 days with nothing refreshing it**
+(`secrets.tf:230`) and `OP-02`, the alarm for it, is unshipped. Worse,
+`SocialPlatformRegistry.find()` returns empty on `!isConfigured()` and falls through to **fabricated metrics
+by design** — correct for read-only vetting, and a *liar* the moment a publish path shares the credential.
+**Rule: a failed publish must surface as a failure; only a failed read may degrade to simulation.** Model
+the port with three outcomes, not two — `posted`, `staged_for_user_confirmation` (TikTok inbox / IG draft),
+`manual` — because a binary real-or-manual result forecloses the inbox path that is reachable *now*.
+
+| ID | Item | Size | Status |
+|---|---|---|---|
+| `PR-45` | **S3 asset storage, then the Share Kit.** `S3AssetStorage` + flip `assets.provider` (a precondition of any future API path, per §10.3). `SocialPublishPort` with three outcomes and a `manual` default. Per-platform AI-drafted captions from the page's own sections — the best AI input in the product, because it is already structured and already written — correctly-sized assets, the tracked link, **non-removable `#ad` disclosure** (an FTC obligation, and `Brief` already carries disclosure as a first-class field with the reasoning encoded, so reuse it rather than reinventing), a QR for desktop-to-phone, `navigator.share()` on mobile, and "I posted this" closing the loop back to the brand. **No platform adapter.** | 6 | Deferred with `PR-43`/`PR-44` — the honest answer to "creator publishes to their handle", and genuinely good rather than a consolation prize |
+| `PR-46` | **Platform API publishing** — the adapter bodies behind `SocialPublishPort`. | 6+ | Stage 4. Gated on `PR-45` **and** `PR-27b`/`PR-27c` |
+
+### 10.4 The honest argument against this plan — an open decision
+
+**This is wrong if the bottleneck is demand, not workflow.** The project is pre-revenue with zero
+subscribers. `PR-40`..`PR-44` spends ~25 days building a *two-sided* collaboration product, and two-sided
+products have a two-sided cold-start problem: creator-side UX for creators who do not exist yet, for brands
+who are not paying yet. §2.1 of this document says the remaining gap is **commercial, not technical**, and
+`PR-02` (activation) is named there as the highest-value product work remaining. Every day here is a day
+not spent on that.
+
+**It is also wrong if the real ask is a demo.** `OP-18` + `PR-42` alone (**7 days**) give a working
+brand-side collaborator panel over a backend that already exists, and the creator half can be narrated.
+
+**The cheaper alternative that delivers the same literal ask — roughly 6 days:**
+
+1. **`OP-18` regardless.** Three days.
+2. **Skip the portal.** Send the creator a **tokenised magic link to a single-page editor** — no account,
+   no password, no session table, no eighth CloudFront distribution. The token *is* the auth, scoped to one
+   page, expiring in 7 days. Mount `SectionEditor` on a route inside the existing `InfluencerContentUI`.
+   Three days.
+3. **One email at publish.** Half a day, once `OP-06` clears.
+
+That buys the handoff, the co-authoring and the acknowledgement for a fifth of the cost. What is lost:
+creators cannot see history across brands, cannot manage a profile, and get a new link per page.
+**If a real creator ever asks "where do I log in to see all my work?", that is the trigger for `PR-43`.**
+Until someone asks, the portal is speculative.
+
+**The one thing not to cut either way is `OP-18`.** Everything else here is a judgement call about where
+the product is. Those five defects are wrong today, in production, in code that is already shipped.
+
+---
+
 ## Appendix A — Old → new ID crosswalk
 
 | Old | New | Item |
@@ -482,7 +670,7 @@ arriving does not mean a sale gets attributed.
 | U3/U5/U6/U7 | `PR-14` | UI depth (deferred) |
 | U4 | `PR-26` | Metrics provenance |
 | LPB A–E, G, H | `PR-36` | Landing-page builder |
-| LPB F | `PR-15` | Social publishing (declined) |
+| LPB F | `PR-15` | Social publishing (declined) — **superseded 2026-08-27** by `PR-45` (share kit) and `PR-46` (platform API), kept under distinct IDs so the declined thing stays visibly declined |
 | DDD 0–6 | `PR-37` | Architecture migration (complete) |
 | GAPS Tier 1 #1/#2 | `PR-20` / `IN-02` | Billing; deploy |
 | EXEC §1 "the tax" | `PR-16` | Duplication cleanup (deferred) |
