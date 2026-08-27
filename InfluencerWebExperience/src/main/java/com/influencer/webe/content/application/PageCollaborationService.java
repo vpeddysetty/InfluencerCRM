@@ -180,6 +180,21 @@ public class PageCollaborationService {
                 // Leave blocks alone rather than failing the save.
             }
         }
+        // PR-39. Without this a collaborator's save was accepted and then had no effect: the
+        // section editor is what production serves, so `sections` is the ONLY column a creator
+        // actually edits, and it was the one column this method did not forward. The DAO
+        // null-guards the field, so the edit was not destroyed — it was silently ignored, which
+        // is worse to diagnose than an error, because the save returned 200 and the page simply
+        // kept its old content.
+        JsonNode sections = payload.get("sections");
+        if (sections != null && sections.isArray()) {
+            try {
+                body.put("sections", shape.objectMapper().writeValueAsString(sections));
+            } catch (Exception ignored) {
+                // Leave sections alone rather than failing the save, matching `blocks` above.
+            }
+        }
+        LandingTemplateWrites.carryForwardScheduledPublish(page, body);
 
         JsonNode saved = dao.put("/landing-templates/" + templateId, body);
         snapshotVersion(page, saved, grant);

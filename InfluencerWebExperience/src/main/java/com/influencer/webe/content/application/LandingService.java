@@ -78,13 +78,10 @@ public class LandingService {
         // writing null, which is what lets a builder-era save leave a section page's column
         // alone instead of blanking it.
         stringifyJsonb(payload, body, "blocks", "theme", "document", "sections");
-        // A pending scheduled publish must survive an ordinary save. The DAO's PUT replaces the
-        // row and does not null-guard this column (clearing it is how the scheduler consumes a
-        // fired publish), so omitting it here would let any builder edit silently cancel a launch
-        // the user had scheduled — with no error and nothing on screen to notice.
-        if (existing != null && existing.hasNonNull("scheduledPublishAt")) {
-            body.put("scheduledPublishAt", existing.get("scheduledPublishAt").asText());
-        }
+        // A pending scheduled publish must survive an ordinary save. See LandingTemplateWrites for
+        // why the DAO cannot guard this column itself, and for the two other writers that failed
+        // this obligation until OP-18.
+        LandingTemplateWrites.carryForwardScheduledPublish(existing, body);
         String stage = textOr(payload, "stage", existing != null ? textOr(existing, "stage", "draft") : "draft");
         requireValidStage(stage);
         body.put("stage", stage);

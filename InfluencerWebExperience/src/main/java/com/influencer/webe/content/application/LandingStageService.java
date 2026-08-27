@@ -135,6 +135,12 @@ public class LandingStageService {
         // would mean a page in the Published column that returns 404 to visitors.
         body.put("status", LandingStageMachine.PUBLISHED.equals(target)
                 ? "published" : template.path("status").asText("draft"));
+        // OP-18. A stage change is a partial write like any other, and this one is reachable by
+        // dragging a Kanban card — so without this line, moving a card between columns cancelled
+        // a scheduled publish. The content columns need no such restatement: the DAO null-guards
+        // `document`, `blocks`, `theme` and `sections`, and only this one is deliberately
+        // unguarded. See LandingTemplateWrites.
+        LandingTemplateWrites.carryForwardScheduledPublish(template, body);
         JsonNode updated = dao.put("/landing-templates/" + templateId, body);
 
         metrics.stageTransition("accepted");
