@@ -130,6 +130,14 @@ public class PageCollaborationService {
             if (page == null) {
                 continue;
             }
+            // OP-18. The confirmed-link check above validated the creator against the brand named
+            // on the GRANT, and this compares that brand to the one on the PAGE. Without it the
+            // grant is self-certifying: a row whose brandId disagreed with its landingTemplateId
+            // would pass a link check against a brand the creator legitimately works with, and
+            // then hand back a page belonging to a brand they do not.
+            if (!brandId.toString().equals(page.path("brandId").asText(""))) {
+                continue;
+            }
             ObjectNode entry = shape.objectMapper().createObjectNode();
             entry.set("page", shape.landingTemplate(page));
             entry.put("rights", grant.path("rights").asText("edit"));
@@ -152,6 +160,11 @@ public class PageCollaborationService {
         if (page == null) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Landing page not found");
         }
+        // OP-18. requireEditRights validated the creator against the brand on the GRANT; this is
+        // the other half — that the grant's brand is also the page's. The check cannot live inside
+        // requireEditRights because that method does not fetch the page, and making it do so would
+        // read the row twice on every save. See requireEditRights for the full reasoning.
+        requireGrantMatchesPage(grant, page);
 
         ObjectNode body = shape.objectMapper().createObjectNode();
         // Identity fields come from the STORED page, never from the caller.
@@ -208,6 +221,18 @@ public class PageCollaborationService {
      *
      * <p>404 rather than 403 throughout: a creator poking at page ids should not be able to
      * learn which ones exist.
+     *
+     * <p><b>This answers half the question, and the caller must answer the other half.</b> The
+     * confirmed-link check below validates the creator against the brand named on the GRANT ROW.
+     * It does not — and from here cannot — check that the grant's brand is the same as the brand
+     * that owns the page, because this method deliberately does not fetch the page. So a grant row
+     * whose {@code brandId} disagreed with its {@code landingTemplateId} would be self-certifying:
+     * it would pass a link check against a brand the creator genuinely works with, and authorise a
+     * page belonging to a brand they do not.
+     *
+     * <p>Callers that hold the page must therefore pass both to {@link #requireGrantMatchesPage}.
+     * Splitting it this way rather than fetching the page here keeps the read out of the paths
+     * that only need the rights, and it is why the obligation is written down rather than implied.
      */
     public JsonNode requireEditRights(UUID creatorIdentityId, UUID templateId) {
         Map<String, String> q = new LinkedHashMap<>();
@@ -228,6 +253,20 @@ public class PageCollaborationService {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Landing page not found");
         }
         return grant;
+    }
+
+    /**
+     * The grant's brand must be the page's brand (OP-18).
+     *
+     * <p>The pairing of a grant with a page is only trustworthy if both name the same brand. A
+     * mismatch means the grant is describing a relationship that does not apply to this page, and
+     * the only safe reading of that is no access — never "the grant says so, therefore yes".
+     */
+    private void requireGrantMatchesPage(JsonNode grant, JsonNode page) {
+        String grantBrand = grant.path("brandId").asText("");
+        if (grantBrand.isEmpty() || !grantBrand.equals(page.path("brandId").asText(""))) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Landing page not found");
+        }
     }
 
     private boolean hasConfirmedLink(UUID brandId, UUID creatorIdentityId) {

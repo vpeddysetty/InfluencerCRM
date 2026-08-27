@@ -9,6 +9,7 @@ import com.influencer.webe.shared.infrastructure.DaoGatewayClient;
 import com.influencer.webe.shared.infrastructure.DaoHttpClientFactory;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.net.http.HttpClient;
 import java.time.Instant;
@@ -19,6 +20,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -181,6 +183,52 @@ class PageCollaborationSaveTest {
         assertEquals("draft", sent.get("status").asText(), "a collaborator cannot publish");
         assertEquals("draft", sent.get("stage").asText(), "a collaborator cannot move the stage");
         assertEquals("winter-trail", sent.get("publicSlug").asText(), "the slug comes from the stored page");
+    }
+
+    @Test
+    @DisplayName("a grant naming a different brand than the page grants nothing")
+    void mismatchedGrantIsRefused() {
+        // The grant row was self-certifying. requireEditRights validates the creator against the
+        // brand named on the GRANT, so a row whose brandId disagreed with its landingTemplateId
+        // passed a link check against a brand the creator genuinely works with, and then
+        // authorised a page belonging to a brand they do not. Both halves have to agree.
+        UUID creator = UUID.randomUUID();
+        UUID template = UUID.randomUUID();
+        ObjectNode page = storedPage(template, null);
+
+        // The creator legitimately works with the brand on the grant — the link check passes.
+        // The page belongs to someone else entirely.
+        ObjectNode otherBrandPage = page.deepCopy();
+        otherBrandPage.put("brandId", UUID.randomUUID().toString());
+        RecordingDao dao = new RecordingDao(otherBrandPage, grantFor(creator, template, page),
+                confirmedLink(page));
+
+        ObjectNode payload = MAPPER.createObjectNode();
+        payload.putArray("sections").addObject().put("type", "hero");
+
+        assertThrows(ResponseStatusException.class,
+                () -> service(dao).saveAsCollaborator(creator, template, payload),
+                "a grant must not authorise a page belonging to another brand");
+        assertTrue(dao.puts.isEmpty(), "nothing may be written when the brands disagree");
+    }
+
+    @Test
+    @DisplayName("the page list drops entries whose grant names another brand")
+    void mismatchedGrantIsNotListed() {
+        // The read-side counterpart. Listing is the more dangerous of the two: a save at least
+        // requires the creator to act, while a bad grant row would surface another brand's
+        // unpublished page in the portal unprompted.
+        UUID creator = UUID.randomUUID();
+        UUID template = UUID.randomUUID();
+        ObjectNode page = storedPage(template, null);
+        ObjectNode otherBrandPage = page.deepCopy();
+        otherBrandPage.put("brandId", UUID.randomUUID().toString());
+        RecordingDao dao = new RecordingDao(otherBrandPage, grantFor(creator, template, page),
+                confirmedLink(page));
+
+        JsonNode listed = service(dao).pagesForCreator(creator);
+
+        assertEquals(0, listed.size(), "a page whose brand disagrees with the grant is not theirs");
     }
 
     // ---- fixtures ------------------------------------------------------
