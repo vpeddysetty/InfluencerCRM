@@ -182,6 +182,55 @@ class CampaignPageEditingTest {
         assertTrue(response.hasNonNull("detail"));
     }
 
+    @Test
+    @DisplayName("regenerate asks the generator for one draft, not three")
+    void regenerateAsksForOneDraft() {
+        // The assertion is the REQUESTED count, not the returned one, because that is what costs
+        // money: output tokens are billed several times the input rate and cannot be cached, so
+        // asking for three drafts to show one triples the cost of the operation. Regenerate used
+        // to do exactly that deliberately, to keep a spare when a draft collided with a headline
+        // already on screen. The collision path is still covered by the two tests above, which
+        // pass without pre-buying drafts — so this pins the cheaper behaviour against a
+        // well-meaning revert.
+        List<Integer> requested = new java.util.ArrayList<>();
+        CampaignPageGenerationService service = serviceWith(
+                stub("stub", (b, n) -> {
+                    requested.add(n);
+                    return Result.of(List.of(usable("variant_a", "Built for the long way round")), "stub");
+                }));
+
+        ObjectNode payload = MAPPER.createObjectNode();
+        payload.put("goal", "Launch the winter trail collection");
+
+        service.regenerateVariant(payload);
+
+        assertEquals(List.of(1), requested, "regenerate must ask for exactly one draft");
+    }
+
+    @Test
+    @DisplayName("first generation still asks for three, so the user has drafts to compare")
+    void generateStillAsksForThreeDrafts() {
+        // The counterpart to the test above, and the reason the two counts are separate constants:
+        // comparing drafts side by side IS the feature on first generation, so cutting that to one
+        // would save tokens by deleting the thing the screen exists to do.
+        List<Integer> requested = new java.util.ArrayList<>();
+        CampaignPageGenerationService service = serviceWith(
+                stub("stub", (b, n) -> {
+                    requested.add(n);
+                    return Result.of(List.of(
+                            usable("variant_a", "Your trail, upgraded"),
+                            usable("variant_b", "Built for the long way round"),
+                            usable("variant_c", "Winter, handled")), "stub");
+                }));
+
+        ObjectNode payload = MAPPER.createObjectNode();
+        payload.put("goal", "Launch the winter trail collection");
+
+        service.generate(payload);
+
+        assertEquals(List.of(3), requested, "first generation must still offer a choice");
+    }
+
     // ---- helpers -------------------------------------------------------
 
     private Variant usable(String id, String headline) {

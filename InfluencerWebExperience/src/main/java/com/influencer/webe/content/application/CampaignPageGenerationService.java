@@ -42,6 +42,25 @@ public class CampaignPageGenerationService {
     private static final int VARIANT_COUNT = 3;
 
     /**
+     * Regenerating asks for ONE draft, not the full {@link #VARIANT_COUNT}.
+     *
+     * <p>This deliberately reverses an earlier decision, and the reason it was reversed matters more
+     * than the number. Regenerate used to ask for three and discard two, so that a draft colliding
+     * with a headline already on screen still left something to offer. That bought retry headroom at
+     * three times the output cost of the operation it serves — and output is the expensive half of a
+     * generation, billed several times the input rate and impossible to cache. A user pressing
+     * "regenerate" wants one replacement card; paying for three to show one is the single largest
+     * avoidable cost in the feature.
+     *
+     * <p>The collision case it protected against is still handled, just not by pre-buying drafts:
+     * {@code regenerateVariant} already falls back to the template generator when everything it got
+     * back was already seen, and answers 200-with-no-variants when even that repeats itself. A
+     * deterministic generator asked twice for one draft returns the same draft either way — asking
+     * for three of them never fixed that, it only made it cost more to discover.
+     */
+    private static final int REGENERATE_VARIANT_COUNT = 1;
+
+    /**
      * Every draft must be able to render a hero and an action.
      *
      * <p>Deliberately short. A longer required set would reject drafts that are merely sparse — a
@@ -82,7 +101,7 @@ public class CampaignPageGenerationService {
         Brief brief = readBrief(payload);
 
         PageGenerationPort preferred = generators.active();
-        Result result = safely(preferred, brief);
+        Result result = safely(preferred, brief, VARIANT_COUNT);
         List<Variant> variants = validate(result.variants());
 
         String generator = result.generator();
@@ -97,7 +116,7 @@ public class CampaignPageGenerationService {
                 // permanent fallback is how "the AI feature stopped working" goes unnoticed.
                 log.info("Page generation fell back to the template generator: {}",
                         detail == null ? "no usable variants" : detail);
-                Result substitute = safely(template, brief);
+                Result substitute = safely(template, brief, VARIANT_COUNT);
                 variants = validate(substitute.variants());
                 generator = substitute.generator();
             }
@@ -209,7 +228,7 @@ public class CampaignPageGenerationService {
         }
 
         PageGenerationPort preferred = generators.active();
-        Result result = safely(preferred, brief);
+        Result result = safely(preferred, brief, REGENERATE_VARIANT_COUNT);
         List<Variant> fresh = unseen(validate(result.variants()), seen);
         String generator = result.generator();
         boolean fallback = result.fallback();
@@ -218,7 +237,7 @@ public class CampaignPageGenerationService {
         if (fresh.isEmpty()) {
             PageGenerationPort template = generators.fallback();
             if (!template.key().equals(preferred.key())) {
-                Result substitute = safely(template, brief);
+                Result substitute = safely(template, brief, REGENERATE_VARIANT_COUNT);
                 fresh = unseen(validate(substitute.variants()), seen);
                 generator = substitute.generator();
             }
@@ -374,9 +393,9 @@ public class CampaignPageGenerationService {
      * <p>This keeps the port's contract from being load-bearing on correctness: a generator that
      * breaks its promise degrades to the fallback exactly like one that returns nothing.
      */
-    private Result safely(PageGenerationPort generator, Brief brief) {
+    private Result safely(PageGenerationPort generator, Brief brief, int variantCount) {
         try {
-            Result result = generator.generate(brief, VARIANT_COUNT);
+            Result result = generator.generate(brief, variantCount);
             return result == null ? Result.unavailable(generator.key(), "generator returned nothing") : result;
         } catch (RuntimeException e) {
             log.warn("Page generator {} threw instead of reporting unavailability", generator.key(), e);
