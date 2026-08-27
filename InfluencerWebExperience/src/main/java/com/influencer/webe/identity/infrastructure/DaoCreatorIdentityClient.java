@@ -67,8 +67,19 @@ public class DaoCreatorIdentityClient {
                 Map.of("brandId", brandId.toString()));
     }
 
-    public JsonNode decide(UUID linkId, String status, UUID decidedByUserId) {
-        ObjectNode body = JsonNodeFactory.instance.objectNode().put("status", status);
+    /**
+     * Approve or refuse a pending claim.
+     *
+     * @param brandId the caller's brand, from the verified token. Sent so the DAO can refuse a link
+     *                belonging to another brand — see OP-18. It is deliberately a required argument
+     *                rather than an optional one: the whole defect was that this call could be made
+     *                without saying whose claim it was, and an overload without it would let the
+     *                unscoped version come back.
+     */
+    public JsonNode decide(UUID linkId, UUID brandId, String status, UUID decidedByUserId) {
+        ObjectNode body = JsonNodeFactory.instance.objectNode()
+                .put("status", status)
+                .put("brandId", brandId.toString());
         if (decidedByUserId != null) {
             body.put("decidedByUserId", decidedByUserId.toString());
         }

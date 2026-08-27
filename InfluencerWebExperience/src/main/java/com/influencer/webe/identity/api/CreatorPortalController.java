@@ -137,13 +137,23 @@ public class CreatorPortalController {
     public JsonNode decide(@RequestHeader(value = "Authorization", required = false) String authorization,
                            @PathVariable UUID linkId,
                            @PathVariable String decision) {
+        // OP-18. `requirePermissionForBrand`, not `requirePermission`: the latter answers "may this
+        // caller write creators?" and nothing about WHOSE. `linkId` arrives from the URL, so with
+        // only the permission check any authenticated user holding `creator:write` in any brand
+        // could confirm another brand's pending claim by guessing a UUID — granting a stranger's
+        // creator access to that brand's negotiated terms. The brand is now taken from the verified
+        // token and passed down, and the DAO refuses a link belonging to anyone else.
+        //
+        // The sibling endpoint above already did this correctly, which is what makes the omission
+        // easy to miss on review: the two read one line apart and only one of them was scoped.
+        UUID brandId = requestUserResolver.requirePermissionForBrand(authorization, Permission.CREATOR_WRITE);
         TenantContext context = requestUserResolver.requirePermission(authorization, Permission.CREATOR_WRITE);
         String status = switch (decision) {
             case "approve" -> "confirmed";
             case "reject" -> "rejected";
             default -> throw new IllegalArgumentException("decision must be approve or reject");
         };
-        return creatorIdentityClient.decide(linkId, status, context.userId());
+        return creatorIdentityClient.decide(linkId, brandId, status, context.userId());
     }
 
     /**

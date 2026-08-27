@@ -123,6 +123,21 @@ public class CreatorIdentityController {
         return linkRepository.findByBrandIdAndStatus(brandId, "claimed");
     }
 
+    /**
+     * Approve or refuse a pending claim.
+     *
+     * <p><b>The brand is checked here as well as in the BFF</b> (OP-18). The DAO generally trusts
+     * the BFF for tenancy, and that convention is why this was missed: the link was loaded by
+     * {@code linkId} alone, so the endpoint would confirm any link anyone named. Combined with a
+     * BFF that checked only that the caller held {@code creator:write} — not that the link was
+     * theirs — a user in any brand could confirm another brand's pending claim by guessing a UUID,
+     * granting that creator access to the victim brand's negotiated terms.
+     *
+     * <p>The BFF fix alone would close it. This check is kept because the cost is one comparison
+     * against a row already in hand, and because the failure it guards is silent: a confirmed link
+     * looks identical however it was created, so nothing downstream would ever reveal that this
+     * one was granted by the wrong brand.
+     */
     @PostMapping("/links/{linkId}/decision")
     @Transactional
     public CreatorIdentityLink decide(@PathVariable UUID linkId, @RequestBody LinkDecision decision) {
@@ -131,6 +146,11 @@ public class CreatorIdentityController {
         if (!"confirmed".equals(decision.status()) && !"rejected".equals(decision.status())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "status must be confirmed or rejected");
         }
+        // 404, not 403: a caller probing link ids must not learn which ones exist, which is the
+        // same reasoning the page-collaboration paths use for their ownership checks.
+        if (decision.brandId() == null || !decision.brandId().equals(link.getBrandId())) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Link not found");
+        }
         link.setStatus(decision.status());
         link.setConfirmedByUserId(decision.decidedByUserId());
         link.setConfirmedAt(Instant.now());
@@ -138,6 +158,11 @@ public class CreatorIdentityController {
         return linkRepository.save(link);
     }
 
-    public record LinkDecision(String status, UUID decidedByUserId) {
+    /**
+     * @param brandId the deciding brand. Required — a null is refused rather than waved through,
+     *                so an old caller that has not been updated fails loudly instead of silently
+     *                keeping the unscoped behaviour this field exists to remove.
+     */
+    public record LinkDecision(String status, UUID decidedByUserId, UUID brandId) {
     }
 }
