@@ -2,6 +2,7 @@ package com.influencer.webe.identity.application;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.influencer.webe.identity.infrastructure.DaoCreatorIdentityClient;
+import com.influencer.webe.shared.application.CreatorSessionVerifier;
 import com.influencer.webe.shared.infrastructure.DaoGatewayClient;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -34,7 +35,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * effect immediately rather than at token expiry.
  */
 @Service
-public class CreatorPortalService {
+public class CreatorPortalService implements CreatorSessionVerifier {
 
     private static final Duration SESSION_TTL = Duration.ofHours(12);
 
@@ -100,6 +101,18 @@ public class CreatorPortalService {
         if (token != null) {
             sessions.remove(token);
         }
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Delegates to {@link #resolve}, publishing only the creator identity. The filter in
+     * {@code security} needs to know who is calling and nothing else — keeping the token and the
+     * rest of the session inside this context is the point of the narrower port.
+     */
+    @Override
+    public Optional<UUID> verifyCreatorToken(String token) {
+        return resolve(token).map(CreatorSession::creatorIdentityId);
     }
 
     /**

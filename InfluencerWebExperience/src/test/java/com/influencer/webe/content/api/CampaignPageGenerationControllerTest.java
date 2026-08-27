@@ -66,14 +66,17 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         // protected BY is SecurityConfig's `anyRequest().authenticated()`, which belongs to that
         // class's own coverage rather than to a test of one controller.
         //
-        // The two filters below are the complete set of @Component servlet filters in the BFF. If
-        // a third is ever added this test fails at context load with "No qualifying bean" naming
+        // The filters below are the complete set of @Component servlet filters in the BFF. If
+        // another is ever added this test fails at context load with "No qualifying bean" naming
         // that filter's dependency — add it here; the failure is not about this endpoint.
+        // (CreatorTokenAuthenticationFilter was added by PR-40 and did exactly that, which is the
+        // note above working as intended.)
         excludeFilters = @ComponentScan.Filter(
                 type = FilterType.ASSIGNABLE_TYPE,
                 classes = {
                         com.influencer.webe.security.SecurityConfig.class,
                         com.influencer.webe.security.JwtAuthenticationFilter.class,
+                        com.influencer.webe.security.CreatorTokenAuthenticationFilter.class,
                         com.influencer.webe.shared.workload.CallerIdentityFilter.class,
                 }))
 @AutoConfigureMockMvc(addFilters = false)

@@ -103,10 +103,20 @@ public class SecurityConfig {
     /**
      * Creator-portal routes authenticated by {@code X-Creator-Token} rather than the operator JWT.
      *
-     * <p>Permitted by this filter chain and then checked inside the controller, which resolves the
-     * portal session itself. The alternative — teaching {@code JwtAuthenticationFilter} about a
-     * second credential type — would put creator rules inside the operator auth path, which is
-     * precisely where they must not be.
+     * <p><b>These require authentication (PR-40).</b> They used to be {@code permitAll()} here and
+     * checked inside each controller instead, which worked only for as long as every author
+     * remembered to write the check — and a forgotten one is not a wrong answer, it is an
+     * unauthenticated endpoint serving unpublished pages, indistinguishable from a correct handler
+     * on review. {@link CreatorTokenAuthenticationFilter} now resolves the header, so a handler
+     * that forgets its check <b>fails closed</b> rather than open.
+     *
+     * <p>The controller checks stay: this chain answers "is this a creator at all", and the
+     * controllers answer "is it THIS creator's page", which is a question no filter can answer.
+     *
+     * <p>Signup, login and logout are deliberately NOT in this list — they are the paths that
+     * mint the credential, so requiring it would make the portal unreachable. They sit in
+     * {@code PUBLIC_POST_PATHS} above, enumerated individually rather than as a wildcard for the
+     * reason given there.
      */
     private static final String[] CREATOR_PORTAL_PATHS = {
             "/api/creator-portal/me",
@@ -144,7 +154,10 @@ public class SecurityConfig {
     }
 
     @Bean
-    public SecurityFilterChain filterChain(HttpSecurity http, JwtAuthenticationFilter jwtAuthenticationFilter) throws Exception {
+    public SecurityFilterChain filterChain(HttpSecurity http,
+                                           JwtAuthenticationFilter jwtAuthenticationFilter,
+                                           CreatorTokenAuthenticationFilter creatorTokenAuthenticationFilter)
+            throws Exception {
         http
                 // Stateless bearer-token API: there is no session or login form for CSRF to protect.
                 .csrf(AbstractHttpConfigurer::disable)
@@ -160,11 +173,17 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, PUBLIC_GET_PATHS).permitAll()
                         .requestMatchers(HttpMethod.POST, PUBLIC_POST_PATHS).permitAll()
                         .requestMatchers(PUBLIC_OAUTH_PATHS).permitAll()
-                        // Authenticated by the controller against the creator session store, not
-                        // by this chain — see CREATOR_PORTAL_PATHS.
-                        .requestMatchers(CREATOR_PORTAL_PATHS).permitAll()
+                        // PR-40: authenticated, not permitAll. CreatorTokenAuthenticationFilter
+                        // resolves X-Creator-Token into an authentication, so a creator handler
+                        // that forgets its own check is refused here instead of serving data.
+                        .requestMatchers(CREATOR_PORTAL_PATHS).authenticated()
                         .anyRequest().authenticated())
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+                // AFTER the operator filter: it establishes the richer credential, and the creator
+                // filter deliberately declines to overwrite an existing authentication. Ordering
+                // them the other way round would let a request carrying both be resolved as a
+                // creator, which is a downgrade the operator paths would then refuse confusingly.
+                .addFilterAfter(creatorTokenAuthenticationFilter, JwtAuthenticationFilter.class)
                 .exceptionHandling(handling -> handling
                         .authenticationEntryPoint(new JsonAuthenticationEntryPoint())
                         .accessDeniedHandler(new JsonAccessDeniedHandler()));
