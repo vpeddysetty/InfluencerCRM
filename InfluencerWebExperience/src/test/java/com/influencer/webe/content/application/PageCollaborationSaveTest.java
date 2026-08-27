@@ -43,6 +43,7 @@ class PageCollaborationSaveTest {
     private static class RecordingDao extends DaoGatewayClient {
 
         final List<ObjectNode> puts = new ArrayList<>();
+        final List<ObjectNode> posts = new ArrayList<>();
         private final JsonNode page;
         private final JsonNode grants;
         private final JsonNode links;
@@ -84,6 +85,7 @@ class PageCollaborationSaveTest {
 
         @Override
         public JsonNode post(String path, JsonNode body) {
+            posts.add((ObjectNode) body);
             return MAPPER.createObjectNode();
         }
     }
@@ -229,6 +231,35 @@ class PageCollaborationSaveTest {
         JsonNode listed = service(dao).pagesForCreator(creator);
 
         assertEquals(0, listed.size(), "a page whose brand disagrees with the grant is not theirs");
+    }
+
+    @Test
+    @DisplayName("the version snapshot holds what was overwritten, not what replaced it")
+    void snapshotCapturesThePreviousContent() {
+        // This reads as an off-by-one and is not: a history made of what is already current
+        // recovers nothing. The row a collaborator needs back is precisely the one their save
+        // replaced, so snapshotting the POST-save content left every overwrite unrecoverable
+        // while the feature looked present — a version list that filled up, every entry a
+        // duplicate of the live page. `before` was already being passed in and ignored.
+        UUID creator = UUID.randomUUID();
+        UUID template = UUID.randomUUID();
+        ObjectNode page = storedPage(template, null);
+        page.put("sections", "[{\"type\":\"hero\",\"headline\":\"The brand's original\"}]");
+        RecordingDao dao = new RecordingDao(page, grantFor(creator, template, page), confirmedLink(page));
+
+        ObjectNode payload = MAPPER.createObjectNode();
+        payload.putArray("sections").addObject()
+                .put("type", "hero")
+                .put("headline", "The creator's replacement");
+
+        service(dao).saveAsCollaborator(creator, template, payload);
+
+        assertEquals(1, dao.posts.size(), "a save must write one version row");
+        String snapshot = dao.posts.get(0).path("sections").asText("");
+        assertTrue(snapshot.contains("The brand's original"),
+                "the snapshot must hold the content that was overwritten");
+        assertFalse(snapshot.contains("The creator's replacement"),
+                "snapshotting the new content recovers nothing");
     }
 
     // ---- fixtures ------------------------------------------------------

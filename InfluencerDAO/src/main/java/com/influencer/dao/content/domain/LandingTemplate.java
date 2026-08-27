@@ -107,6 +107,27 @@ public class LandingTemplate {
     @Column(name = "updated_at")
     private Instant updatedAt;
 
+    /**
+     * Optimistic-lock counter (OP-18, {@code V44}).
+     *
+     * <p>This is the one row in the system with two editors by design: a brand and an invited
+     * creator can hold the same page open at once, which is the entire point of the collaboration
+     * feature. Without this, the second save wins completely and the first person's work is gone
+     * with no error and nothing on screen to notice. The snapshot in {@code
+     * landing_template_versions} makes that loss recoverable, but only if somebody realises it
+     * happened — this makes it not happen.
+     *
+     * <p>No setter, deliberately. Hibernate manages the value through the field, and a public
+     * setter would let a caller send its own number and defeat the check it exists to perform.
+     */
+    @Version
+    @Column(name = "version", nullable = false)
+    private Long version;
+
+    public Long getVersion() {
+        return version;
+    }
+
     @PrePersist
     public void prePersist() {
         if (id == null) {

@@ -208,6 +208,14 @@ public class PageCollaborationService {
             }
         }
         LandingTemplateWrites.carryForwardScheduledPublish(page, body);
+        // OP-18. The version the CALLER claims to have been editing, not the one just read above:
+        // sending the freshly-read value would compare the row against itself and agree every
+        // time, which is a conflict check that can never fire. Absent when the client sends none,
+        // and the DAO then allows the write — see requireCurrentVersion for why that is the trade.
+        JsonNode claimedVersion = payload.get("version");
+        if (claimedVersion != null && claimedVersion.isNumber()) {
+            body.put("version", claimedVersion.asLong());
+        }
 
         JsonNode saved = dao.put("/landing-templates/" + templateId, body);
         snapshotVersion(page, saved, grant);
@@ -318,16 +326,29 @@ public class PageCollaborationService {
      *
      * <p>This is what makes co-editing safe without a CRDT: an overwrite by either side is
      * recoverable, which is the whole argument for deferring simultaneous editing (G.6).
+     *
+     * <p><b>The snapshot is of {@code before}, not {@code saved}</b> (OP-18). It used to copy the
+     * post-save content, which reads as an ordinary off-by-one and is not: a history made of
+     * what is already current recovers nothing. The row a collaborator needs back is precisely
+     * the one their save replaced, so writing the new content into history left the overwrite
+     * unrecoverable while the feature looked present — a version list filled up, every entry a
+     * duplicate of the live page. {@code before} was already being passed in and ignored.
+     *
+     * <p>{@code sections} is versioned alongside the older shapes for the same reason it had to be
+     * forwarded on save: since PR-39 it is the column a creator actually edits, so a history
+     * without it protects only the parts nobody is changing.
      */
     private void snapshotVersion(JsonNode before, JsonNode saved, JsonNode grant) {
         try {
             ObjectNode version = shape.objectMapper().createObjectNode();
+            // Identity still comes from `saved` — it is the same row either way, and `saved` is
+            // guaranteed non-null here whereas a caller could in principle pass a null `before`.
             version.put("landingTemplateId", saved.get("id").asText());
             version.put("brandId", saved.get("brandId").asText());
-            version.put("name", saved.path("name").asText("Landing page"));
-            version.put("stage", saved.path("stage").asText("draft"));
-            for (String field : new String[]{"document", "blocks", "theme"}) {
-                JsonNode node = saved.get(field);
+            version.put("name", before.path("name").asText("Landing page"));
+            version.put("stage", before.path("stage").asText("draft"));
+            for (String field : new String[]{"document", "blocks", "theme", "sections"}) {
+                JsonNode node = before.get(field);
                 if (node != null && !node.isNull()) {
                     version.put(field, node.isTextual() ? node.asText()
                             : shape.objectMapper().writeValueAsString(node));

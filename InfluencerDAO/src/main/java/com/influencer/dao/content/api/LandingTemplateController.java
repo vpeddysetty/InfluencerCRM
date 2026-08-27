@@ -3,6 +3,7 @@ package com.influencer.dao.content.api;
 import com.influencer.dao.content.domain.LandingTemplate;
 import com.influencer.dao.content.infrastructure.LandingTemplateRepository;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -52,6 +53,9 @@ public class LandingTemplateController {
     public LandingTemplate update(@PathVariable UUID id, @RequestBody LandingTemplate template) {
         LandingTemplate existing = repository.findById(id)
                 .orElseThrow(() -> new RuntimeException("LandingTemplate not found"));
+        // Before anything is mutated: a refusal must leave the entity untouched, and a managed
+        // entity mutated inside a transaction is flushed whether or not it is explicitly saved.
+        requireCurrentVersion(template, existing);
         existing.setBrandId(template.getBrandId());
         existing.setCampaignId(template.getCampaignId());
         existing.setPublicSlug(template.getPublicSlug());
@@ -97,6 +101,38 @@ public class LandingTemplateController {
         // un-schedule a publish the user set.
         existing.setScheduledPublishAt(template.getScheduledPublishAt());
         return repository.save(existing);
+    }
+
+    /**
+     * Refuse a write built on a stale read (OP-18).
+     *
+     * <p><b>Why this is an explicit comparison and not left to Hibernate.</b> This endpoint loads
+     * the row and mutates the managed entity, so by the time it saves, the {@code @Version} it
+     * holds is the CURRENT one — Hibernate would compare it against itself and always agree. The
+     * annotation still earns its place: it guards the narrow window between this read and this
+     * write, and it makes the column self-maintaining. But the collision that actually matters
+     * here is a human one, minutes wide — a brand and a creator who both loaded the page before
+     * either saved — and only the client's own claim about what it read can detect that.
+     *
+     * <p><b>A caller that sends no version is allowed through.</b> That is deliberate and it is a
+     * trade: it keeps every existing writer working — the hosting sweep, the scheduled-publish
+     * sweep, stage changes from the board — none of which read-then-write on a human timescale and
+     * none of which would gain anything from a conflict they cannot resolve. The cost is that
+     * concurrency protection is opt-in per caller, so the editors have to send it to get it.
+     */
+    private void requireCurrentVersion(LandingTemplate incoming, LandingTemplate existing) {
+        Long claimed = incoming.getVersion();
+        if (claimed == null) {
+            return;
+        }
+        Long current = existing.getVersion();
+        if (current != null && !claimed.equals(current)) {
+            // 409, with BOTH numbers: the caller can then say something truthful rather than just
+            // refusing — what it believed it was editing, and what is actually stored.
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "This page was changed by someone else while you were editing it. "
+                            + "Your version: " + claimed + ", current version: " + current);
+        }
     }
 
     private static String firstNonNull(String... values) {
