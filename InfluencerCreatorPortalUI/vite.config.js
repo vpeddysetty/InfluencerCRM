@@ -1,4 +1,5 @@
 import { defineConfig } from 'vite'
+import { fileURLToPath, URL } from 'node:url'
 import react from '@vitejs/plugin-react'
 
 /**
@@ -20,6 +21,19 @@ import react from '@vitejs/plugin-react'
  * documented trade, not an oversight — see docs/Creator-Handoff-Design.md §4.
  */
 export default defineConfig({
+  // `@influencer/ui` is a source directory, not an npm package (packages/ui). Aliased rather than
+  // installed because deploy-ui.sh runs `npm ci` per project, and a file: dependency makes that
+  // fail unless every lockfile is regenerated in lockstep. Vite compiles these sources as part of
+  // this project's own build, exactly as it compiled the copy that used to live here.
+  resolve: {
+    // packages/ui lives OUTSIDE this project root, so Rolldown looks for `react` in a node_modules
+    // beside those sources and finds none. dedupe pins the resolution to this project's copy --
+    // which is also what federation needs, since two Reacts in one page break hooks.
+    dedupe: ['react', 'react-dom'],
+    alias: {
+      '@influencer/ui': fileURLToPath(new URL('../packages/ui/src', import.meta.url)),
+    },
+  },
   plugins: [react()],
   server: { port: 5180, strictPort: true },
   build: { outDir: 'dist', sourcemap: false },

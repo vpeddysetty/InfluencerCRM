@@ -1,0 +1,10 @@
+{
+  "name": "@influencer/ui",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "//": "Not installed as a dependency -- consumed by Vite alias, see README. This manifest exists so the module's own tests can be run: `npm test --prefix packages/ui`.",
+  "scripts": {
+    "test": "node --test src/**/*.test.mjs"
+  }
+}

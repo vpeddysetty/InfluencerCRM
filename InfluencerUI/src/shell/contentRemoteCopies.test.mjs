@@ -95,25 +95,6 @@ test('both API clients expose campaign-page generation against the same endpoint
   }
 })
 
-test('the content remote carries the same section editor', () => {
-  // PR-39. The editor is where the "cannot look wrong" rules live — which fields exist, what
-  // reordering does, what a template switch discards. A drift here is not cosmetic: the two
-  // copies would offer different editing behaviour, and only the remote's is served in production.
-  //
-  // Compared BELOW the header comment, like remoteCopies.test.mjs does: each copy's header
-  // explains its own side of the duplication, so those legitimately differ. Everything after
-  // must match, modulo the one import path the remote cannot express.
-  const body = (path) => {
-    const text = read(path)
-    return text.slice(text.indexOf('*/') + 2).trim()
-  }
-  assert.equal(
-    body(resolve(SHELL, 'components/SectionEditor.jsx')).replace("from '../shell/sectionTypes'", "from '../sectionTypes.js'"),
-    body(resolve(REMOTE, 'components/SectionEditor.jsx')),
-    'InfluencerContentUI/src/components/SectionEditor.jsx has drifted — copy the change across',
-  )
-})
-
 test('both API clients call the same section-editor endpoints', () => {
   // Same reasoning as the generation endpoint below: the api/content.js pair is a deliberate fork,
   // so only the paths are pinned. A remote calling an endpoint the BFF does not serve fails in
@@ -153,27 +134,23 @@ test('both API clients call the same collaboration and invitation endpoints', ()
 })
 
 test('the remote copies actually import what they use', () => {
-  // Found the hard way (PR-44): the remote's SectionEditor.jsx had lost its ENTIRE import block
+  // Found the hard way (OP-19): the remote's SectionEditor.jsx had lost its ENTIRE import block
   // while still referencing useState, useEffect and SECTION_TYPES. Vite built it without a word --
-  // bundlers do not resolve undefined globals -- so it would have been a blank screen the first
-  // time a creator opened the editor, in production only, since VITE_USE_REMOTES=true means the
-  // remote is the copy that gets served.
+  // bundlers do not resolve undefined globals -- so the section editor was blank in production for
+  // every brand from 2026-08-25, while working perfectly in local dev, because VITE_USE_REMOTES
+  // means only production loads the remote's copy.
   //
-  // The comparison above could not catch it: it deliberately starts BELOW the header comment so
-  // each copy can explain its own side of the duplication, and the imports sit above that.
+  // SectionEditor itself is no longer duplicated (packages/ui), which is the real fix. This still
+  // guards the components that ARE still copied, because the failure mode is a property of copying
+  // rather than of that one file.
   const files = [
-    'components/SectionEditor.jsx',
     'components/CollaboratorPanel.jsx',
     'components/CampaignPageGenerator.jsx',
   ]
   for (const file of files) {
     const text = read(resolve(REMOTE, file))
-    if (/\buseState\b|\buseEffect\b|\buseMemo\b|\buseRef\b|\buseCallback\b/.test(text)) {
+    if (/useState|useEffect|useMemo|useRef|useCallback/.test(text)) {
       assert.match(text, /^import .*from 'react'/m, `${file} uses hooks but does not import them`)
-    }
-    if (/\bSECTION_TYPES\b|\bblankSection\b|\bsectionIssues\b/.test(text)) {
-      assert.match(text, /^import \{[\s\S]*?\} from '\.\.\/sectionTypes/m,
-        `${file} uses sectionTypes but does not import it`)
     }
   }
 })

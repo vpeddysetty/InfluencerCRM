@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 
@@ -49,13 +49,20 @@ test('the creators remote carries the same provenance vocabulary', () => {
   )
 })
 
-test('the content remote carries the same section vocabulary', () => {
-  // PR-39. The stakes here are higher than for the two above: this file decides which fields the
-  // editor offers, and the server renders the same names. If the copies drift, a brand fills in a
-  // field that never reaches their page — which looks like it worked.
-  assert.equal(
-    bodyOf(resolve(CONTENT_REMOTE, 'sectionTypes.js')),
-    bodyOf(resolve(here, 'sectionTypes.js')),
-    'InfluencerContentUI/src/sectionTypes.js has drifted from shell/sectionTypes.js — copy the change across',
-  )
+test('the section vocabulary is not copied at all any more', () => {
+  // PR-44 / OP-19. This used to compare two copies of sectionTypes.js and fail when they drifted.
+  // They no longer exist: the module lives once in packages/ui and both projects alias it, so
+  // drift is impossible rather than detected.
+  //
+  // The test is inverted rather than deleted, because a future "the remote should own its own
+  // copy" change would otherwise silently reintroduce exactly the duplication that made the
+  // section editor blank in production for two days.
+  for (const gone of [
+    resolve(CONTENT_REMOTE, 'sectionTypes.js'),
+    resolve(CONTENT_REMOTE, 'pageTemplates.js'),
+    resolve(CONTENT_REMOTE, 'components/SectionEditor.jsx'),
+  ]) {
+    assert.equal(existsSync(gone), false,
+      `${gone} is back. These modules live once in packages/ui — re-copying them is what OP-19 fixed.`)
+  }
 })
