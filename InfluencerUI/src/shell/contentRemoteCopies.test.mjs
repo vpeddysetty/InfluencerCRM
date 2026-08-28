@@ -124,3 +124,30 @@ test('both API clients call the same section-editor endpoints', () => {
     assert.match(text, /\/api\/brand-page-templates/, `${path} should call the saved-template endpoints`)
   }
 })
+
+test('the content remote carries the same collaborator panel', () => {
+  // PR-42. The panel decides what a brand may do to a handoff in progress — whether the "hand
+  // over" button appears at this stage, whether "take it back" is offered, and whether the
+  // one-time invitation link is shown when delivery failed. A drift here means the two copies
+  // offer different actions, and only the remote's is served in production.
+  //
+  // These two are byte-identical: the panel imports only `./ui`, which both copies hold at the
+  // same depth, so unlike SectionEditor there is no import path to normalize.
+  assert.equal(
+    read(resolve(SHELL, 'components/CollaboratorPanel.jsx')),
+    read(resolve(REMOTE, 'components/CollaboratorPanel.jsx')),
+    'InfluencerContentUI/src/components/CollaboratorPanel.jsx has drifted — copy the change across',
+  )
+})
+
+test('both API clients call the same collaboration and invitation endpoints', () => {
+  // The handoff is ONE endpoint on purpose (a grant, a stage change and a turn change that only
+  // mean anything together), so a copy that drifted into calling the three underlying endpoints
+  // separately would reintroduce exactly the partial-handoff state the single call prevents.
+  for (const path of [resolve(SHELL, 'api/content.js'), resolve(REMOTE, 'api/content.js')]) {
+    const text = read(path)
+    assert.match(text, /\/handoff/, `${path} should hand off in one call`)
+    assert.match(text, /\/take-back/, `${path} should offer take-back`)
+    assert.match(text, /\/api\/creator-invites/, `${path} should call the invitation endpoints`)
+  }
+})

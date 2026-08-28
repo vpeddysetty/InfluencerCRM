@@ -160,3 +160,59 @@ export async function draftContent(token, payload) {
 }
 
 // ---- commissions & payouts ----
+
+
+// ---- Brand-creator collaboration (PR-42) ----
+//
+// The handoff is ONE call, not three. A grant, a stage change and a turn change only mean
+// anything together: a grant with no stage change is access to a page the board still shows as
+// the brand's, and a stage change with no grant tells the brand they are waiting on somebody who
+// was never asked. Driving that from here would make a half-done handoff possible, and it is not
+// recoverable by retrying -- the second attempt sees the first one's leftovers.
+
+export async function listPageCollaborators(token, templateId) {
+  const payload = await request(`/api/landing-pages/${templateId}/collaborators`, { token })
+  return unwrapList(payload)
+}
+
+export async function handOffPage(token, templateId, { creatorIdentityId, note } = {}) {
+  return request(`/api/landing-pages/${templateId}/handoff`, {
+    method: 'POST',
+    token,
+    body: { creatorIdentityId, note },
+  })
+}
+
+// Takes the TURN back, not the access. A brand who wants the page back for an hour should not
+// have to re-invite the creator afterwards, so this deliberately leaves the grant in place.
+export async function takePageBack(token, templateId) {
+  return request(`/api/landing-pages/${templateId}/take-back`, { method: 'POST', token })
+}
+
+export async function revokePageCollaborator(token, collaboratorId) {
+  return request(`/api/landing-pages/collaborators/${collaboratorId}`, { method: 'DELETE', token })
+}
+
+// ---- Creator invitations (PR-41) ----
+//
+// The response carries the token ONCE. That is deliberate: SES is in the sandbox as this ships, so
+// delivery failure is the expected path rather than an edge case, and the brand can pass the link
+// on by hand. It is never returned by any later read.
+
+export async function inviteCreator(token, { email, creatorId, landingTemplateId, brandName } = {}) {
+  return request('/api/creator-invites', {
+    method: 'POST',
+    token,
+    body: { email, creatorId, landingTemplateId, brandName },
+  })
+}
+
+export async function listCreatorInvites(token, { status } = {}) {
+  const query = status ? `?status=${encodeURIComponent(status)}` : ''
+  const payload = await request(`/api/creator-invites${query}`, { token })
+  return unwrapList(payload)
+}
+
+export async function revokeCreatorInvite(token, inviteId) {
+  return request(`/api/creator-invites/${inviteId}/revoke`, { method: 'POST', token })
+}
