@@ -136,6 +136,50 @@ public class PageCollaborationController {
     }
 
     /**
+     * Send the page back to the brand (roadmap PR-44).
+     *
+     * <p>Moves the turn and NOT the stage. The creator is saying they are done; whether the page
+     * is ready to publish is the brand's judgement, and advancing the stage here would let a
+     * creator declare a brand's campaign finished.
+     */
+    @PostMapping("/api/creator-portal/pages/{id}/hand-back")
+    public JsonNode handBack(@RequestHeader(value = "X-Creator-Token", required = false) String token,
+                             @PathVariable UUID id,
+                             @RequestBody(required = false) ObjectNode payload) {
+        String note = payload == null ? null : payload.path("note").asText(null);
+        return collaboration.handBack(requireCreator(token), id, note);
+    }
+
+    /**
+     * Render a preview of the page the creator is editing (roadmap PR-44).
+     *
+     * <p>Its own endpoint rather than the brand's, because the brand's requires
+     * {@code CONTENT_WRITE} — an operator permission a creator provably lacks. Same renderer, same
+     * output; only the authorisation differs, which is exactly the split the two credentials exist
+     * for.
+     */
+    @PostMapping("/api/creator-portal/pages/{id}/preview")
+    public String preview(@RequestHeader(value = "X-Creator-Token", required = false) String token,
+                          @PathVariable UUID id,
+                          @RequestBody ObjectNode payload) {
+        return collaboration.previewForCreator(requireCreator(token), id, payload);
+    }
+
+    /**
+     * Rewrite one section with AI, for the creator (roadmap PR-44).
+     *
+     * <p>The highest-value AI use in the product, and the framing matters: this helps the creator
+     * sound like <i>themselves</i>, not like the brand. Creators are not copywriters, and a blank
+     * box is what makes co-authoring fail.
+     */
+    @PostMapping("/api/creator-portal/pages/{id}/sections/rewrite")
+    public JsonNode rewriteSection(@RequestHeader(value = "X-Creator-Token", required = false) String token,
+                                   @PathVariable UUID id,
+                                   @RequestBody ObjectNode payload) {
+        return collaboration.rewriteSectionForCreator(requireCreator(token), id, payload);
+    }
+
+    /**
      * Resolve the portal token to a creator identity.
      *
      * <p>401 rather than 403 on a bad token: the caller is unauthenticated, not forbidden, and

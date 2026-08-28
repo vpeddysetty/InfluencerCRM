@@ -184,7 +184,7 @@ class PageHandoffTest {
     // ---- fixtures ------------------------------------------------------
 
     private PageCollaborationService service(RecordingDao dao) {
-        return new PageCollaborationService(dao, new ResponseShapeService(MAPPER), new HandoffMachine());
+        return new PageCollaborationService(dao, new ResponseShapeService(MAPPER), new HandoffMachine(), null, null);
     }
 
     private ObjectNode page(String stage, Instant scheduledAt) {

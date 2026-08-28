@@ -47,12 +47,18 @@ public class PageCollaborationService {
     private final DaoGatewayClient dao;
     private final ResponseShapeService shape;
     private final HandoffMachine handoffMachine;
+    private final LandingService landingService;
+    private final CampaignPageGenerationService generation;
 
     public PageCollaborationService(DaoGatewayClient dao, ResponseShapeService shape,
-                                    HandoffMachine handoffMachine) {
+                                    HandoffMachine handoffMachine,
+                                    LandingService landingService,
+                                    CampaignPageGenerationService generation) {
         this.dao = dao;
         this.shape = shape;
         this.handoffMachine = handoffMachine;
+        this.landingService = landingService;
+        this.generation = generation;
     }
 
     // ---- brand side (G.2) -----------------------------------------------
@@ -181,6 +187,98 @@ public class PageCollaborationService {
         JsonNode updated = dao.put("/landing-templates/" + templateId, body);
 
         recordHandoff(brandId, templateId, HandoffMachine.BRAND, actingUserId, null, null);
+        return shape.landingTemplate(updated);
+    }
+
+    /**
+     * Render a preview for a creator (roadmap PR-44).
+     *
+     * <p>Delegates to the same renderer the brand's preview uses — the point is the authorisation,
+     * not the rendering. The brand's endpoint requires {@code CONTENT_WRITE}, an operator
+     * permission a creator provably lacks, so a creator calling it would be refused for a reason
+     * that has nothing to do with whether they may see this page.
+     *
+     * <p>The grant is re-checked here rather than trusted from the session, so a creator cannot
+     * preview a page they were removed from a moment ago.
+     */
+    public String previewForCreator(UUID creatorIdentityId, UUID templateId, ObjectNode payload) {
+        JsonNode grant = requireEditRights(creatorIdentityId, templateId);
+        JsonNode page = dao.get("/landing-templates/" + templateId, null);
+        if (page == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Landing page not found");
+        }
+        requireGrantMatchesPage(grant, page);
+
+        ObjectNode body = payload == null ? shape.objectMapper().createObjectNode() : payload.deepCopy();
+        // Identity comes from the STORED page, never the caller: a preview that rendered somebody
+        // else's brand or slug would be a way to read a page through this endpoint.
+        body.put("brandId", page.get("brandId").asText());
+        body.put("campaignId", page.get("campaignId").asText());
+        body.put("publicSlug", page.get("publicSlug").asText());
+        return landingService.previewTemplate(UUID.fromString(page.get("brandId").asText()), body);
+    }
+
+    /**
+     * Rewrite one section with AI, for a creator (roadmap PR-44).
+     *
+     * <p>Same port as the brand's rewrite, different authorisation — and one deliberate difference
+     * in framing that belongs in the prompt rather than here: a creator is being helped to sound
+     * like themselves, not like the brand. The section type is pinned from the request by the
+     * generation service, so a rewrite cannot restructure the page.
+     */
+    public JsonNode rewriteSectionForCreator(UUID creatorIdentityId, UUID templateId, ObjectNode payload) {
+        JsonNode grant = requireEditRights(creatorIdentityId, templateId);
+        JsonNode page = dao.get("/landing-templates/" + templateId, null);
+        if (page == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Landing page not found");
+        }
+        requireGrantMatchesPage(grant, page);
+        return generation.rewriteSection(payload);
+    }
+
+    /**
+     * The creator sends the page back to the brand (roadmap PR-44).
+     *
+     * <p><b>This moves the TURN and not the stage</b>, which is the whole reason the two columns
+     * exist. The creator is asserting they are done; whether the page is then <i>ready to
+     * publish</i> is the brand's judgement, not theirs. Advancing the stage here would let a
+     * creator declare a brand's campaign finished.
+     *
+     * <p>Refused unless it is actually their turn. Without that check a creator could return a page
+     * they were never given, or return one twice — the second click landing after the brand had
+     * already picked it up, silently taking it back off them.
+     */
+    public JsonNode handBack(UUID creatorIdentityId, UUID templateId, String note) {
+        JsonNode grant = requireEditRights(creatorIdentityId, templateId);
+        JsonNode page = dao.get("/landing-templates/" + templateId, null);
+        if (page == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Landing page not found");
+        }
+        requireGrantMatchesPage(grant, page);
+
+        String turn = page.path("turn").asText(null);
+        if (!handoffMachine.canHandBack(turn)) {
+            // 409 with a reason the UI can show, rather than a silent no-op: a creator who taps
+            // "send back" twice needs to know the first one worked.
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "This page is already back with the brand.");
+        }
+
+        ObjectNode body = shape.objectMapper().createObjectNode();
+        body.put("brandId", page.get("brandId").asText());
+        body.put("campaignId", page.get("campaignId").asText());
+        body.put("publicSlug", page.get("publicSlug").asText());
+        body.put("name", page.path("name").asText("Landing page"));
+        body.put("status", page.path("status").asText("draft"));
+        // Unchanged, deliberately — see the note above.
+        body.put("stage", page.path("stage").asText(LandingStageMachine.DRAFT));
+        body.put("turn", HandoffMachine.BRAND);
+        body.put("turnChangedAt", Instant.now().toString());
+        LandingTemplateWrites.carryForwardScheduledPublish(page, body);
+        JsonNode updated = dao.put("/landing-templates/" + templateId, body);
+
+        recordHandoff(UUID.fromString(page.get("brandId").asText()), templateId,
+                HandoffMachine.BRAND, null, creatorIdentityId, note);
         return shape.landingTemplate(updated);
     }
 
