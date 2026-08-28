@@ -46,6 +46,38 @@ public class DaoCreatorIdentityClient {
         }
     }
 
+    /**
+     * One creator identity, projected to the fields a caller may see.
+     *
+     * <p><b>The projection is the point.</b> {@code GET /creator-identities/{id}} returns the whole
+     * JPA entity, {@code passwordHash} included — so returning the DAO's answer unchanged would
+     * spread a credential hash into every caller, and eventually into a response body or a log.
+     * Only id, email and displayName leave this method, and a new field has to be added here
+     * deliberately rather than appearing because the entity grew one.
+     *
+     * <p>Empty when the identity does not exist, which a caller must treat as "no such creator"
+     * rather than as an error: it is the ordinary answer for a deleted account.
+     */
+    public Optional<JsonNode> findById(UUID identityId) {
+        JsonNode found;
+        try {
+            found = gatewayClient.get("/creator-identities/" + identityId, Map.of());
+        } catch (RuntimeException e) {
+            // The DAO throws on a miss. Not found is not a fault.
+            return Optional.empty();
+        }
+        if (found == null || !found.hasNonNull("id")) {
+            return Optional.empty();
+        }
+        ObjectNode safe = JsonNodeFactory.instance.objectNode();
+        safe.put("id", found.get("id").asText());
+        safe.put("email", found.path("email").asText(""));
+        if (found.hasNonNull("displayName")) {
+            safe.put("displayName", found.get("displayName").asText());
+        }
+        return Optional.of(safe);
+    }
+
     public JsonNode link(UUID identityId, UUID creatorId, UUID brandId, String status, UUID decidedBy) {
         ObjectNode body = JsonNodeFactory.instance.objectNode()
                 .put("creatorId", creatorId.toString())

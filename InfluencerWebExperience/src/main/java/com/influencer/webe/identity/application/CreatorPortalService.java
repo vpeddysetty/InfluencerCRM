@@ -1,12 +1,16 @@
 package com.influencer.webe.identity.application;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.influencer.webe.identity.infrastructure.DaoCreatorIdentityClient;
 import com.influencer.webe.shared.application.CreatorSessionVerifier;
 import com.influencer.webe.shared.infrastructure.DaoGatewayClient;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
@@ -17,7 +21,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Sign-in and data access for creators (roadmap Stage 4).
@@ -44,15 +47,19 @@ public class CreatorPortalService implements CreatorSessionVerifier {
     private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
     private final SecureRandom random = new SecureRandom();
 
-    /**
-     * In-memory session store.
+    /*
+     * Sessions live in identity.creator_portal_sessions, not in this process (PR-40).
      *
-     * <p>Deliberately not Redis-backed like the operator session: the creator portal is new, has no
-     * multi-instance deployment yet, and adding a shared store before there is a second instance
-     * would be infrastructure ahead of need. It does mean a restart signs creators out — acceptable
-     * for a portal, and the reason this is called out rather than left to be discovered.
+     * They used to be a ConcurrentHashMap held here, called out at the time as
+     * infrastructure-ahead-of-need while the portal had no real users. What stopped that being
+     * acceptable is not multi-instance: an ASG instance refresh is the LIVE STEP of every deploy
+     * in this project, so an in-memory store signed out every creator on every release — a
+     * creator halfway through editing a page would lose their session to a deploy they cannot see
+     * coming.
+     *
+     * Only the SHA-256 hash of the token is sent to the DAO. The raw value is returned to the
+     * caller once and never persisted or logged, so a dump of that table cannot be replayed.
      */
-    private final Map<String, CreatorSession> sessions = new ConcurrentHashMap<>();
 
     public CreatorPortalService(DaoCreatorIdentityClient creatorIdentityClient,
                                 DaoGatewayClient daoGatewayClient) {
@@ -82,24 +89,82 @@ public class CreatorPortalService implements CreatorSessionVerifier {
         return openSession(identity);
     }
 
+    /**
+     * Resolve a token to its session, re-reading the store every time.
+     *
+     * <p>The re-read is the point, not an inefficiency: it is what makes revoking a creator's
+     * access take effect immediately rather than at token expiry. Caching here would reintroduce
+     * exactly the window the opaque-token design exists to avoid.
+     *
+     * <p>The DAO answers 404 for unknown, expired and revoked alike, so this method does not
+     * distinguish them either — the caller needs one answer, "not usable".
+     */
     public Optional<CreatorSession> resolve(String token) {
         if (token == null || token.isBlank()) {
             return Optional.empty();
         }
-        CreatorSession session = sessions.get(token);
-        if (session == null) {
+        JsonNode stored;
+        try {
+            stored = daoGatewayClient.get("/creator-portal-sessions/" + hash(token), null);
+        } catch (RuntimeException e) {
+            // A miss surfaces as a gateway exception because the DAO throws on 404. That is the
+            // same outcome as "no session" for the caller, and must not be an error: an
+            // unauthenticated request is an ordinary event, not a fault.
             return Optional.empty();
         }
-        if (session.expiresAt().isBefore(Instant.now())) {
-            sessions.remove(token);
+        if (stored == null || !stored.hasNonNull("creatorIdentityId")) {
             return Optional.empty();
         }
-        return Optional.of(session);
+
+        // The identity is re-read too, so a display name or email changed since sign-in is
+        // current, and so a deleted identity cannot keep resolving.
+        UUID creatorIdentityId = UUID.fromString(stored.get("creatorIdentityId").asText());
+        Optional<JsonNode> identity = creatorIdentityClient.findById(creatorIdentityId);
+        if (identity.isEmpty()) {
+            return Optional.empty();
+        }
+        JsonNode found = identity.get();
+        return Optional.of(new CreatorSession(
+                token,
+                creatorIdentityId,
+                found.path("email").asText(""),
+                found.hasNonNull("displayName") ? found.get("displayName").asText() : null,
+                Instant.parse(stored.get("expiresAt").asText())));
     }
 
     public void logout(String token) {
-        if (token != null) {
-            sessions.remove(token);
+        if (token == null || token.isBlank()) {
+            return;
+        }
+        try {
+            daoGatewayClient.delete("/creator-portal-sessions/" + hash(token));
+        } catch (RuntimeException e) {
+            // Signing out must not fail loudly. The session either did not exist or is already
+            // revoked; either way the caller's intent — "end this session" — holds.
+        }
+    }
+
+    /**
+     * SHA-256 of the token, hex encoded.
+     *
+     * <p>Not BCrypt, and the difference matters here: the token is 256 bits of {@code
+     * SecureRandom}, so there is no low-entropy secret to brute-force and nothing a slow hash
+     * would protect. BCrypt would cost ~100ms on EVERY authenticated request for no security
+     * gain. The reason to hash at all is that a database read must not yield a working credential.
+     */
+    private String hash(String token) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(token.getBytes(StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder(digest.length * 2);
+            for (byte b : digest) {
+                hex.append(Character.forDigit((b >> 4) & 0xF, 16));
+                hex.append(Character.forDigit(b & 0xF, 16));
+            }
+            return hex.toString();
+        } catch (java.security.NoSuchAlgorithmException e) {
+            // SHA-256 is mandated by the JLS; this cannot happen on a conformant JVM.
+            throw new IllegalStateException("SHA-256 unavailable", e);
         }
     }
 
@@ -182,14 +247,21 @@ public class CreatorPortalService implements CreatorSessionVerifier {
         byte[] bytes = new byte[32];
         random.nextBytes(bytes);
         String token = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
-        CreatorSession session = new CreatorSession(
+        UUID creatorIdentityId = UUID.fromString(identity.get("id").asText());
+        Instant expiresAt = Instant.now().plus(SESSION_TTL);
+
+        ObjectNode body = JsonNodeFactory.instance.objectNode();
+        body.put("tokenHash", hash(token));
+        body.put("creatorIdentityId", creatorIdentityId.toString());
+        body.put("expiresAt", expiresAt.toString());
+        daoGatewayClient.post("/creator-portal-sessions", body);
+
+        return new CreatorSession(
                 token,
-                UUID.fromString(identity.get("id").asText()),
+                creatorIdentityId,
                 identity.get("email").asText(),
                 identity.hasNonNull("displayName") ? identity.get("displayName").asText() : null,
-                Instant.now().plus(SESSION_TTL));
-        sessions.put(token, session);
-        return session;
+                expiresAt);
     }
 
     private String normalize(String email) {
