@@ -286,7 +286,7 @@ class PageCollaborationSaveTest {
     // ---- fixtures ------------------------------------------------------
 
     private PageCollaborationService service(RecordingDao dao) {
-        return new PageCollaborationService(dao, new ResponseShapeService(MAPPER));
+        return new PageCollaborationService(dao, new ResponseShapeService(MAPPER), new HandoffMachine());
     }
 
     private ObjectNode storedPage(UUID templateId, Instant scheduledAt) {

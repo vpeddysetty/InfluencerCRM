@@ -67,6 +67,45 @@ public class PageCollaborationController {
                 context.userId());
     }
 
+    /**
+     * Hand the page to a creator — the button (roadmap PR-42).
+     *
+     * <p>One endpoint rather than three calls, because a grant, a stage change and a turn change
+     * only mean anything together; see {@code PageCollaborationService.handOff} for what a partial
+     * one leaves behind.
+     *
+     * <p>Requires {@code CONTENT_WRITE}, which a {@code MARKETER} holds — handing off is
+     * day-to-day authoring work. Publishing needs {@code content:publish}, which they do not
+     * hold, so the same person can pass a page back and forth and still not release it.
+     */
+    @PostMapping("/api/landing-pages/{id}/handoff")
+    public JsonNode handOff(@RequestHeader(value = "Authorization", required = false) String authorization,
+                            @PathVariable UUID id,
+                            @RequestBody ObjectNode payload) {
+        var context = requestUserResolver.requirePermission(authorization, Permission.CONTENT_WRITE);
+        if (!payload.hasNonNull("creatorIdentityId")) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "creatorIdentityId is required");
+        }
+        return collaboration.handOff(context.brandId(), id,
+                UUID.fromString(payload.get("creatorIdentityId").asText()),
+                context.userId(),
+                payload.path("note").asText(null));
+    }
+
+    /**
+     * Take the page back from the creator (roadmap PR-42).
+     *
+     * <p>Leaves the collaborator grant in place: taking the turn back is not revoking access, and
+     * conflating them would mean a brand who wanted the page back for an hour had to re-invite the
+     * creator afterwards.
+     */
+    @PostMapping("/api/landing-pages/{id}/take-back")
+    public JsonNode takeBack(@RequestHeader(value = "Authorization", required = false) String authorization,
+                             @PathVariable UUID id) {
+        var context = requestUserResolver.requirePermission(authorization, Permission.CONTENT_WRITE);
+        return collaboration.takeBack(context.brandId(), id, context.userId());
+    }
+
     @DeleteMapping("/api/landing-pages/collaborators/{collaboratorId}")
     public JsonNode revoke(@RequestHeader(value = "Authorization", required = false) String authorization,
                            @PathVariable UUID collaboratorId) {

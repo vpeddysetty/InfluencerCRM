@@ -375,7 +375,14 @@ public class ResponseShapeService {
                 // the scheduled-publish sweep both PUT back a page they read through this
                 // projection, so a pending schedule dropped here would be silently cancelled by
                 // the next unrelated save.
-                "scheduledPublishAt");
+                "scheduledPublishAt",
+                // PR-40. Without these two the column is written and never seen: this projection
+                // is an ALLOW-LIST, so a populated field that is not named here simply never
+                // reaches the UI — and the "Waiting on you" filter would sit permanently empty
+                // while the database held the right answer all along. The same read-modify-write
+                // argument as scheduledPublishAt applies too: handOff and takeBack PUT back a page
+                // they read through this projection.
+                "turn", "turnChangedAt");
         out.set("blocks", parseJsonOrDefault(source, "blocks", objectMapper.createArrayNode()));
         out.set("theme", parseJsonOrDefault(source, "theme", objectMapper.createObjectNode()));
         // `document` is passed through as JSON null when absent rather than defaulted to {}:

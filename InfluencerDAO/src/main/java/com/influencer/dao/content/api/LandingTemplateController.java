@@ -100,6 +100,17 @@ public class LandingTemplateController {
         // which carries the existing value forward so an ordinary builder save does not silently
         // un-schedule a publish the user set.
         existing.setScheduledPublishAt(template.getScheduledPublishAt());
+        // PR-40. Null-guarded, unlike scheduledPublishAt above, and the asymmetry is deliberate.
+        // Clearing the turn IS meaningful -- publishing does it -- but it is expressed by the
+        // caller sending an explicit null field, whereas most writers to this row (the hosting
+        // sweep, the scheduled-publish sweep, an ordinary builder save) simply do not mention the
+        // turn at all. Unguarded, every one of those would silently drop a page out of somebody's
+        // "waiting on you" list. The publish path clears it by writing the column directly.
+        if (template.getTurn() != null) {
+            existing.setTurn(template.getTurn());
+            existing.setTurnChangedAt(template.getTurnChangedAt() == null
+                    ? java.time.Instant.now() : template.getTurnChangedAt());
+        }
         return repository.save(existing);
     }
 

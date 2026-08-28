@@ -108,6 +108,31 @@ public class LandingTemplate {
     private Instant updatedAt;
 
     /**
+     * Whose move it is: {@code brand}, {@code creator}, or NULL (PR-40, {@code V45}).
+     *
+     * <p>Deliberately separate from {@link #stage}, which records how far along the page is. The
+     * two change for different reasons and at different rates — a page sits at
+     * {@code content_needed} while the turn bounces brand → creator → brand three times over — so
+     * deriving one from the other breaks the first time work goes round the loop twice.
+     *
+     * <p>NULL is a real state and not "unknown": nobody owes anything. A solo draft nobody has
+     * been invited to, or a published page where the work is done. Defaulting it to {@code brand}
+     * would put every page a brand ever made into their "waiting on you" list.
+     */
+    @Column(name = "turn")
+    private String turn;
+
+    /**
+     * When the turn last moved.
+     *
+     * <p>Distinct from {@link #updatedAt}, which any edit moves. This answers "how long has this
+     * been sitting with someone", which is what the abandonment sweep needs — ghosting is the
+     * modal outcome in creator marketing, so that question has to be answerable.
+     */
+    @Column(name = "turn_changed_at")
+    private Instant turnChangedAt;
+
+    /**
      * Optimistic-lock counter (OP-18, {@code V44}).
      *
      * <p>This is the one row in the system with two editors by design: a brand and an invited
@@ -126,6 +151,22 @@ public class LandingTemplate {
 
     public Long getVersion() {
         return version;
+    }
+
+    public String getTurn() {
+        return turn;
+    }
+
+    public void setTurn(String turn) {
+        this.turn = turn;
+    }
+
+    public Instant getTurnChangedAt() {
+        return turnChangedAt;
+    }
+
+    public void setTurnChangedAt(Instant turnChangedAt) {
+        this.turnChangedAt = turnChangedAt;
     }
 
     @PrePersist

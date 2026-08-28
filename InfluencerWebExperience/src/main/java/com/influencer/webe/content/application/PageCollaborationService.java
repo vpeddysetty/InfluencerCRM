@@ -5,10 +5,13 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.influencer.webe.shared.application.ResponseShapeService;
 import com.influencer.webe.shared.infrastructure.DaoGatewayClient;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -39,12 +42,17 @@ public class PageCollaborationService {
 
     private static final Set<String> RIGHTS = Set.of("comment", "edit");
 
+    private static final Logger log = LoggerFactory.getLogger(PageCollaborationService.class);
+
     private final DaoGatewayClient dao;
     private final ResponseShapeService shape;
+    private final HandoffMachine handoffMachine;
 
-    public PageCollaborationService(DaoGatewayClient dao, ResponseShapeService shape) {
+    public PageCollaborationService(DaoGatewayClient dao, ResponseShapeService shape,
+                                    HandoffMachine handoffMachine) {
         this.dao = dao;
         this.shape = shape;
+        this.handoffMachine = handoffMachine;
     }
 
     // ---- brand side (G.2) -----------------------------------------------
@@ -86,6 +94,127 @@ public class PageCollaborationService {
             body.put("grantedByUserId", grantedByUserId.toString());
         }
         return dao.post("/landing-page-collaborators", body);
+    }
+
+    /**
+     * Hand a page to a creator: one button, one endpoint (roadmap PR-42).
+     *
+     * <p><b>Why this is one operation and not three calls from the UI.</b> A handoff is a grant, a
+     * stage change and a turn change that only mean anything together. Done from the client, a
+     * failure between them leaves a page in a state nobody designed: a grant with no stage change
+     * is access to a page the board still shows as the brand's, and a stage change with no grant
+     * is a page marked "with the creator" that the creator cannot open. Neither is recoverable by
+     * retrying, because the second attempt sees the half-done first one.
+     *
+     * <p>Ordered so the reversible parts happen first. The grant is written before the stage moves,
+     * because a grant with no stage change is invisible but harmless, while a stage change with no
+     * grant is visible and wrong — it tells the brand they are waiting on somebody who was never
+     * asked.
+     *
+     * @param note optional message from the brand, stored with the handoff rather than emailed
+     *             separately, so "what did they ask for?" survives in one place
+     */
+    public JsonNode handOff(UUID brandId, UUID templateId, UUID creatorIdentityId,
+                            UUID grantedByUserId, String note) {
+        JsonNode page = requireOwnedPage(brandId, templateId);
+
+        String stage = page.path("stage").asText(LandingStageMachine.DRAFT);
+        if (!handoffMachine.canHandOff(stage)) {
+            // Refused BEFORE the grant is written, so a rejected handoff leaves no collaborator row
+            // behind. An orphaned grant would give a creator access to a page nobody handed them.
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "A page at stage '" + stage + "' cannot be handed to a creator. "
+                            + "Approve it first.");
+        }
+
+        // The grant, with its own confirmed-link check. Rights are always `edit` for v1: `comment`
+        // is accepted by the schema and has no client that can honour it, and shipping a grant
+        // nothing implements is worse than recording the gap.
+        JsonNode grant = invite(brandId, templateId, creatorIdentityId, "edit", grantedByUserId);
+
+        ObjectNode body = shape.objectMapper().createObjectNode();
+        body.put("brandId", brandId.toString());
+        body.put("campaignId", page.get("campaignId").asText());
+        body.put("publicSlug", page.get("publicSlug").asText());
+        body.put("name", page.path("name").asText("Landing page"));
+        body.put("status", page.path("status").asText("draft"));
+        body.put("stage", LandingStageMachine.CREATOR_ASSIGNED);
+        body.put("turn", HandoffMachine.CREATOR);
+        body.put("turnChangedAt", Instant.now().toString());
+        // The same obligation every partial write to this row carries — see LandingTemplateWrites.
+        LandingTemplateWrites.carryForwardScheduledPublish(page, body);
+        JsonNode updated = dao.put("/landing-templates/" + templateId, body);
+
+        recordHandoff(brandId, templateId, HandoffMachine.CREATOR, grantedByUserId, null, note);
+
+        ObjectNode response = shape.objectMapper().createObjectNode();
+        response.set("page", shape.landingTemplate(updated));
+        response.set("collaborator", grant);
+        return response;
+    }
+
+    /**
+     * Take the page back from the creator (roadmap PR-42).
+     *
+     * <p>Deliberately allowed even when the turn already reads {@code brand} — see
+     * {@link HandoffMachine#canTakeBack}. This is how a brand recovers from an accidental handoff
+     * or an unresponsive creator, so refusing it in the state where the two have drifted apart
+     * would block the exact case it exists for.
+     *
+     * <p>The collaborator grant is left alone. Taking a turn back is not revoking access, and
+     * conflating them would mean a brand who wanted the page back for an hour had to re-invite the
+     * creator afterwards.
+     */
+    public JsonNode takeBack(UUID brandId, UUID templateId, UUID actingUserId) {
+        JsonNode page = requireOwnedPage(brandId, templateId);
+
+        ObjectNode body = shape.objectMapper().createObjectNode();
+        body.put("brandId", brandId.toString());
+        body.put("campaignId", page.get("campaignId").asText());
+        body.put("publicSlug", page.get("publicSlug").asText());
+        body.put("name", page.path("name").asText("Landing page"));
+        body.put("status", page.path("status").asText("draft"));
+        body.put("stage", page.path("stage").asText(LandingStageMachine.DRAFT));
+        body.put("turn", HandoffMachine.BRAND);
+        body.put("turnChangedAt", Instant.now().toString());
+        LandingTemplateWrites.carryForwardScheduledPublish(page, body);
+        JsonNode updated = dao.put("/landing-templates/" + templateId, body);
+
+        recordHandoff(brandId, templateId, HandoffMachine.BRAND, actingUserId, null, null);
+        return shape.landingTemplate(updated);
+    }
+
+    /**
+     * Write the audit row.
+     *
+     * <p>Never fails the operation it records. A handoff that succeeded and whose audit row did not
+     * write is a reporting gap; a handoff refused because its audit row failed is a feature outage.
+     * The same trade {@code snapshotVersion} makes, and for the same reason.
+     */
+    private void recordHandoff(UUID brandId, UUID templateId, String toTurn,
+                               UUID actorUserId, UUID actorCreatorIdentityId, String note) {
+        try {
+            ObjectNode row = shape.objectMapper().createObjectNode();
+            row.put("landingTemplateId", templateId.toString());
+            row.put("brandId", brandId.toString());
+            row.put("toTurn", toTurn);
+            if (actorUserId != null) {
+                row.put("actorUserId", actorUserId.toString());
+            }
+            if (actorCreatorIdentityId != null) {
+                row.put("actorCreatorIdentityId", actorCreatorIdentityId.toString());
+            }
+            if (note != null && !note.isBlank()) {
+                row.put("note", note.trim());
+            }
+            // Per occurrence, never templateId:from->to. Work legitimately goes round the loop
+            // more than once, and V24's transition log learned the expensive way that a key
+            // derived from the endpoints makes the second pass vanish from the audit trail.
+            row.put("idempotencyKey", templateId + ":" + toTurn + ":" + UUID.randomUUID());
+            dao.post("/page-handoffs", row);
+        } catch (RuntimeException e) {
+            log.warn("Handoff for page {} was applied but not recorded", templateId, e);
+        }
     }
 
     /** Revoke access. The row stays, marked revoked, so the history of access survives. */
