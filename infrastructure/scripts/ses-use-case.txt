@@ -1,0 +1,18 @@
+Tejdux (tejdux.com) is an influencer-marketing CRM for small brands. All mail is transactional and sent only to people who took an action that causes it.
+
+What we send, and to whom:
+1. Account email to people who signed up on tejdux.com: address verification, password reset, subscription and payment notifications, and account-closure confirmations.
+2. Team invitations, sent only to an address a signed-in account owner typed in order to invite a colleague to their own workspace.
+3. Collaboration email to creators a brand has explicitly invited to co-author a campaign page: the invitation itself, and a notification when that page is published.
+4. Service notices to the account owner, such as a warning before hosting for a published page expires.
+5. Operational digests to our own staff addresses.
+
+We do not send marketing, newsletters, promotional or bulk mail. We do not buy, rent or upload contact lists. Every recipient is either an account holder, somebody an account holder deliberately invited, or our own staff.
+
+Bounce and complaint handling: SES account-level suppression is enabled for BOUNCE and COMPLAINT, and we send through a configuration set (influencrm-prod) with reputation metrics enabled, so bounces and complaints are tracked and repeat sends to failing addresses are suppressed automatically.
+
+Unsubscribing: because all mail is transactional and tied to an account, recipients stop receiving it by closing their account, which they can do in the application. We also publish a data-deletion path at https://tejdux.com/data-deletion/ and a privacy policy at https://tejdux.com/privacy/, and requests to privacy@tejdux.com are recorded and actioned.
+
+Volume: low. We are pre-launch with a small number of accounts, and expect well under 1,000 messages per month initially.
+
+Sending domain tejdux.com is verified with DKIM signing enabled, SPF authorises amazonses.com, and a DMARC record is published with reporting to privacy@tejdux.com.

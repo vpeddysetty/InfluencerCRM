@@ -1,11 +1,27 @@
 """
 OP-06: request SES production access (sandbox exit).
 
-WHY A NEW REQUEST AND NOT AN UPDATE TO THE OLD CASE
-    Case 178750875200560 is closed as DENIED. There is no API to reopen or amend it, and replying
-    to a closed support case does not re-open a SES review. `put-account-details` submits a FRESH
-    review, which is the supported path -- the previous denial stays on the record, which is
-    exactly why this one has to be materially better rather than a resubmission of the same thing.
+THE API ROUTE IS CLOSED AFTER A DENIAL -- USE THE CONSOLE
+    Tried on 2026-08-27 and it does not work: with ReviewDetails.Status == DENIED on the account,
+    `put-account-details` returns
+
+        ConflictException  {"message": null}
+
+    with no detail, and the account is left completely unchanged -- ProductionAccessEnabled stays
+    false and UseCaseDescription is still absent, so nothing is queued and nothing is submitted.
+
+    That appears to be deliberate rather than a bug: it stops a denied account resubmitting the
+    same request in a loop, and pushes the appeal through a human who can see the previous case.
+    So after a denial the ONLY route is the console:
+
+        Support -> Your support cases -> case 178750875200560 -> Reply
+
+    Reply to the DENIED case with the text below. Do not open a brand-new case: the reviewer needs
+    the history, and a duplicate case for the same account is likely to be closed as such.
+
+    This script therefore still earns its place -- it holds the reviewed text, checks the live
+    state, and will work again if the account is ever back in a state the API accepts -- but if it
+    reports a conflict, copy USE_CASE into the console reply instead.
 
 WHY THE FIRST ONE WAS ALMOST CERTAINLY DENIED
     `aws sesv2 get-account --query Details` showed MailType, WebsiteURL and ContactLanguage all
@@ -90,10 +106,14 @@ USE_CASE = (
 )
 
 
-def aws(*args):
+def aws(*args, **kwargs):
+    """Run an aws CLI call. With check=False, return None on failure instead of exiting."""
+    check = kwargs.pop("check", True)
     command = ["aws", "--profile", PROFILE, "--region", REGION] + list(args)
     result = subprocess.run(command, capture_output=True, text=True, shell=False)
     if result.returncode != 0:
+        if not check:
+            return None
         sys.stderr.write(result.stderr)
         raise SystemExit("aws call failed: %s" % " ".join(args[:3]))
     return result.stdout.strip()
