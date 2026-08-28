@@ -103,6 +103,11 @@ import {
   scheduleLandingPublish,
   publishLandingNow,
   cancelLandingPublishSchedule,
+  listPageCollaborators,
+  handOffPage,
+  takePageBack,
+  revokePageCollaborator,
+  inviteCreator,
   listLandingVersions,
   restoreLandingVersion,
   listAssets,
@@ -1744,6 +1749,17 @@ function App() {
   const scheduleLandingPublishRecord = async (id, publishAt) => scheduleLandingPublish(authToken, id, publishAt)
   const publishLandingNowRecord = async (id) => publishLandingNow(authToken, id)
   const cancelLandingPublishScheduleRecord = async (id) => cancelLandingPublishSchedule(authToken, id)
+  // PR-42. The handoff is ONE call by design -- see api/content.js. Driving the grant, the stage
+  // change and the turn change from here would make a half-done handoff possible, and it is not
+  // recoverable by retrying because the second attempt sees the first one's leftovers.
+  const loadPageCollaboratorsRecord = async (templateId) =>
+    listPageCollaborators(authToken, templateId)
+  const handOffPageRecord = async (templateId, payload) => handOffPage(authToken, templateId, payload)
+  const takePageBackRecord = async (templateId) => takePageBack(authToken, templateId)
+  const revokePageCollaboratorRecord = async (collaboratorId) =>
+    revokePageCollaborator(authToken, collaboratorId)
+  const inviteCreatorRecord = async (payload) => inviteCreator(authToken, payload)
+
   const loadLandingVersionsRecord = async (campaignId) => listLandingVersions(authToken, campaignId)
   const restoreLandingVersionRecord = async (campaignId, versionNo) =>
     restoreLandingVersion(authToken, campaignId, versionNo)
@@ -2566,6 +2582,11 @@ function App() {
                   onSchedulePublish={scheduleLandingPublishRecord}
                   onCancelSchedule={cancelLandingPublishScheduleRecord}
                   onPublishNow={publishLandingNowRecord}
+                  onLoadCollaborators={loadPageCollaboratorsRecord}
+                  onHandOff={handOffPageRecord}
+                  onTakeBack={takePageBackRecord}
+                  onRevokeCollaborator={revokePageCollaboratorRecord}
+                  onInviteCreator={inviteCreatorRecord}
                   can={(permission) => permissions.includes(permission)}
                 />
               }

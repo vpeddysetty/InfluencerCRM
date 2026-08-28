@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { MdsKicker, MdsSectionRule, MdsNote } from './components/Mds'
 import LandingBuilder from './components/LandingBuilder'
 import SectionEditor from './components/SectionEditor'
 import { applyTemplate, stripForTemplate, templateById, templateForCampaignType, PAGE_TEMPLATES } from './pageTemplates.js'
 import { blankSection } from './sectionTypes.js'
 import CampaignPageGenerator from './components/CampaignPageGenerator'
+import CollaboratorPanel from './components/CollaboratorPanel'
 import { publicPageUrl } from './api/core'
 
 const EMPTY_CONTENT = { summary: '', goals: '', dos: '', donts: '', talkingPoints: '' }
@@ -50,6 +51,14 @@ function ContentPage({
   onSchedulePublish,
   onCancelSchedule,
   onPublishNow,
+  // PR-42. Optional: a caller that does not wire collaboration simply gets no
+  // panel rather than a crash. Two different shells load the two copies of this
+  // page, and only one of them is served in production.
+  onLoadCollaborators,
+  onHandOff,
+  onTakeBack,
+  onRevokeCollaborator,
+  onInviteCreator,
   can,
 }) {
   const [campaignId, setCampaignId] = useState('')
@@ -106,10 +115,32 @@ function ContentPage({
     [briefs, campaignId],
   )
 
+  const [collaborators, setCollaborators] = useState([])
+
   const currentTemplate = useMemo(
     () => templates.find((t) => t.campaignId === campaignId) || null,
     [templates, campaignId],
   )
+
+  // PR-42. Reloaded whenever the page changes or an action completes, and deliberately not cached
+  // across pages: a stale collaborator list is how a brand hands a page to somebody whose access
+  // was revoked while they were looking at it.
+  const refreshCollaborators = useCallback(async () => {
+    if (!currentTemplate?.id || typeof onLoadCollaborators !== 'function') {
+      setCollaborators([])
+      return
+    }
+    try {
+      setCollaborators((await onLoadCollaborators(currentTemplate.id)) || [])
+    } catch {
+      // A failed load must not break the editor around it. The panel then shows nobody, which is
+      // also what it shows before anyone is invited — a safe reading either way.
+      setCollaborators([])
+    }
+  }, [currentTemplate?.id, onLoadCollaborators])
+
+  useEffect(() => { refreshCollaborators() }, [refreshCollaborators])
+
 
   const refresh = async () => {
     setLoading(true)
@@ -875,6 +906,21 @@ function ContentPage({
             <p className="mds-note">Loading the editor…</p>
           ) : serverEditor === 'sections' ? (
             <>
+              {currentTemplate && typeof onHandOff === 'function' ? (
+                <CollaboratorPanel
+                  page={currentTemplate}
+                  collaborators={collaborators}
+                  can={can}
+                  onHandOff={(payload) => onHandOff(currentTemplate.id, payload)}
+                  onTakeBack={() => onTakeBack(currentTemplate.id)}
+                  onRevoke={(collaboratorId) => onRevokeCollaborator(collaboratorId)}
+                  onInvite={(payload) => onInviteCreator({
+                    ...payload,
+                    landingTemplateId: currentTemplate.id,
+                  })}
+                  onRefresh={refreshCollaborators}
+                />
+              ) : null}
               <label className="auth-label">Status</label>
               <select value={templateStatus} onChange={(e) => setTemplateStatus(e.target.value)}>
                 <option value="draft">Draft</option>
