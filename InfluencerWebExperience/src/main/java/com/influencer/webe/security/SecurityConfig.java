@@ -53,7 +53,13 @@ public class SecurityConfig {
             "/api/deletion-requests/approve",
             // Public keys, by definition. Every JWKS endpoint is unauthenticated; the response
             // contains only public halves and is what lets another service verify tokens itself.
-            "/.well-known/jwks.json"
+            "/.well-known/jwks.json",
+            // PR-41. The invite screen, shown to someone who has no account yet -- which is the
+            // entire reason they were sent a link. The 256-bit single-use token IS the credential,
+            // the same structural argument as /api/auth/verify-email. The response is redacted to
+            // status and brand: it must never render the page, because email scanners and link
+            // unfurlers fetch GETs automatically and would leak an unreleased campaign.
+            "/api/public/creator-invites/preview"
     };
 
     private static final String[] PUBLIC_POST_PATHS = {
@@ -97,7 +103,11 @@ public class SecurityConfig {
             // that must stay behind a creator session.
             "/api/creator-portal/auth/signup",
             "/api/creator-portal/auth/login",
-            "/api/creator-portal/auth/logout"
+            "/api/creator-portal/auth/logout",
+            // PR-41. Accepting a creator invitation, by someone who by definition has no account.
+            // A POST rather than a GET deliberately: mail scanners and unfurlers follow links, so
+            // a GET would let a corporate spam filter accept an invitation before the human saw it.
+            "/api/public/creator-invites/redeem"
     };
 
     /**
