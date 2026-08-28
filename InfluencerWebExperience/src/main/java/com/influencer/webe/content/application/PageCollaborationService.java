@@ -166,6 +166,15 @@ public class PageCollaborationService {
         // read the row twice on every save. See requireEditRights for the full reasoning.
         requireGrantMatchesPage(grant, page);
 
+        // PR-40. A caller-supplied stage was previously ignored in silence, which is safe but
+        // teaches nothing: a client sending one believes it worked. Refusing explicitly means the
+        // one place a creator could try to move a page says why, and says it the same way for
+        // every endpoint added later.
+        String requestedStage = payload.path("stage").asText(null);
+        if (requestedStage != null && !requestedStage.isBlank()) {
+            assertCreatorStageTransition(page.path("stage").asText("draft"), requestedStage);
+        }
+
         ObjectNode body = shape.objectMapper().createObjectNode();
         // Identity fields come from the STORED page, never from the caller.
         body.put("brandId", page.get("brandId").asText());
@@ -261,6 +270,47 @@ public class PageCollaborationService {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Landing page not found");
         }
         return grant;
+    }
+
+    /**
+     * The only stage changes a creator may cause, as one allowlist that defaults to deny (PR-40).
+     *
+     * <p><b>Why this is central rather than restated per endpoint.</b> The creator surface is
+     * about to grow from two handlers to eight or nine. A rule enforced at each one is a rule that
+     * holds only while every author remembers it, and the failure mode is silent — a handler that
+     * forgets it does not misbehave visibly, it just quietly lets a creator move a page somewhere
+     * they should not. The same reasoning as
+     * {@code CreatorTokenAuthenticationFilter}: make forgetting fail closed.
+     *
+     * <p><b>{@code PUBLISHED} is unreachable unconditionally</b>, not merely absent from the map.
+     * Publishing is the one action that puts a brand's page in front of the world, it requires
+     * {@code content:publish} which no creator holds, and {@code ck_collaborators_rights} has no
+     * {@code publish} value — so this is the fourth independent guard on the same act. That is
+     * deliberate: the cost of the check is nothing and the cost of being wrong is a creator
+     * publishing a brand's unfinished campaign.
+     *
+     * <p>The only move a creator makes is the hand-back, which changes the TURN and not the stage
+     * at all — so in practice this method exists to refuse everything else.
+     */
+    void assertCreatorStageTransition(String from, String to) {
+        String current = from == null ? "" : from.trim().toLowerCase(Locale.ROOT);
+        String target = to == null ? "" : to.trim().toLowerCase(Locale.ROOT);
+
+        if (target.isEmpty() || target.equals(current)) {
+            // Not a transition. A save that restates the stage it already has is the normal case.
+            return;
+        }
+        if (LandingStageMachine.PUBLISHED.equals(target)
+                || LandingStageMachine.PERFORMANCE_TRACKING.equals(target)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Publishing is the brand's decision. Send the page back when you are ready "
+                            + "and they will publish it.");
+        }
+        // Everything else: deny by default. A creator has no legitimate reason to move the stage
+        // -- handing back moves the turn instead -- so there is nothing to allow here yet. If a
+        // future flow needs one, add it explicitly rather than widening the check.
+        throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                "A collaborator cannot change the stage of a page.");
     }
 
     /**

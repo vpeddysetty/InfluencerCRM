@@ -163,11 +163,33 @@ class PageCollaborationSaveTest {
     }
 
     @Test
-    @DisplayName("a collaborator still cannot publish by saving")
-    void collaboratorSaveCannotChangeStatusOrStage() {
-        // Unchanged behaviour, pinned because the fixes above widened what this method forwards.
-        // The next person adding a field here needs the boundary written down as a test, not as a
-        // comment: content moves, authority does not.
+    @DisplayName("a save that tries to publish is refused, not quietly ignored")
+    void collaboratorSaveCannotPublish() {
+        // PR-40 changed this from silent to explicit. Ignoring the field was safe but taught
+        // nothing: a client sending a stage believed it had worked. Refusing says why, and says it
+        // identically for every creator endpoint added later, because the rule lives in one
+        // allowlist rather than in each handler.
+        UUID creator = UUID.randomUUID();
+        UUID template = UUID.randomUUID();
+        ObjectNode page = storedPage(template, null);
+        RecordingDao dao = new RecordingDao(page, grantFor(creator, template, page), confirmedLink(page));
+
+        ObjectNode payload = MAPPER.createObjectNode();
+        payload.put("stage", "published");
+        payload.putArray("sections").addObject().put("type", "hero");
+
+        assertThrows(ResponseStatusException.class,
+                () -> service(dao).saveAsCollaborator(creator, template, payload),
+                "a collaborator must not be able to publish by saving");
+        assertTrue(dao.puts.isEmpty(), "a refused save must write nothing at all");
+    }
+
+    @Test
+    @DisplayName("status and slug still come from the stored page, not the caller")
+    void collaboratorSaveTakesIdentityFromTheStoredPage() {
+        // The rest of the boundary, unchanged: content moves, authority does not. Pinned
+        // separately from the stage rule because these are ignored rather than refused -- a
+        // client sending a slug is not attempting anything, it is just sending back what it read.
         UUID creator = UUID.randomUUID();
         UUID template = UUID.randomUUID();
         ObjectNode page = storedPage(template, null);
@@ -175,7 +197,6 @@ class PageCollaborationSaveTest {
 
         ObjectNode payload = MAPPER.createObjectNode();
         payload.put("status", "published");
-        payload.put("stage", "published");
         payload.put("publicSlug", "stolen-slug");
         payload.putArray("sections").addObject().put("type", "hero");
 
@@ -183,7 +204,7 @@ class PageCollaborationSaveTest {
 
         ObjectNode sent = dao.puts.get(0);
         assertEquals("draft", sent.get("status").asText(), "a collaborator cannot publish");
-        assertEquals("draft", sent.get("stage").asText(), "a collaborator cannot move the stage");
+        assertEquals("draft", sent.get("stage").asText(), "the stage comes from the stored page");
         assertEquals("winter-trail", sent.get("publicSlug").asText(), "the slug comes from the stored page");
     }
 
