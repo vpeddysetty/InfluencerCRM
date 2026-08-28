@@ -233,7 +233,35 @@ public class PageCollaborationService {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Landing page not found");
         }
         requireGrantMatchesPage(grant, page);
-        return generation.rewriteSection(payload);
+
+        // The brand and campaign come from the STORED page, exactly as they do in
+        // previewForCreator -- and here they are not only a tenancy guard but the thing that makes
+        // the call work at all. `rewriteSection` builds a Brief, and a Brief with no `goal` is a
+        // 400; the goal is filled in by BriefEnricher from brandId + campaignId, which a creator
+        // has no way to send and must not be trusted to send. Forwarding the caller's payload
+        // unchanged failed every creator rewrite with "goal is required" -- found by running the
+        // editor against a live stack, because the UI sends only {section, instruction}.
+        ObjectNode body = payload == null ? shape.objectMapper().createObjectNode() : payload.deepCopy();
+        body.put("brandId", page.get("brandId").asText());
+        body.put("campaignId", page.get("campaignId").asText());
+
+        // A goal, or the Brief is refused with a 400 before the generator is ever asked.
+        //
+        // BriefEnricher fills `goal` from the CAMPAIGN BRIEF and from nowhere else, so a campaign
+        // with no brief row -- which is most of them, since a brief is optional -- leaves it blank.
+        // Confirmed against a live stack: every rewrite from the section editor failed this way,
+        // on the brand's side as much as the creator's, because SectionEditor's onRewrite contract
+        // is {section, instruction} and carries no brief at all.
+        //
+        // The page itself is the honest fallback. The creator is rewording THIS page, so its name
+        // states the goal as well as any sentence we could invent, and stating it plainly beats
+        // inventing a campaign objective the brand never wrote. Set only when the enricher would
+        // find nothing, so a real brief still wins.
+        if (body.path("goal").asText("").isBlank()) {
+            body.put("goal", "Rewrite one section of the landing page \""
+                    + page.path("name").asText("Landing page") + "\" in the creator's own voice.");
+        }
+        return generation.rewriteSection(body);
     }
 
     /**

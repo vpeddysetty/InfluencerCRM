@@ -20,6 +20,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -280,6 +281,66 @@ class PageCollaborationSaveTest {
     }
 
     @Test
+    @DisplayName("a creator's rewrite carries the brand and campaign the Brief needs")
+    void creatorRewriteCarriesBriefIdentity() {
+        // PR-44, found by running the editor against a live stack rather than by reading the code.
+        // rewriteSection builds a Brief, and a Brief with no `goal` is a 400 -- the goal being
+        // filled in by BriefEnricher from brandId + campaignId. The editor sends only
+        // {section, instruction}, which is the whole contract SectionEditor's onRewrite offers, so
+        // forwarding the caller's payload unchanged made EVERY creator rewrite fail with
+        // "goal is required". Both fields must come from the stored page, never from the caller.
+        UUID creator = UUID.randomUUID();
+        UUID template = UUID.randomUUID();
+        ObjectNode page = storedPage(template, null);
+        RecordingDao dao = new RecordingDao(page, grantFor(creator, template, page), confirmedLink(page));
+
+        ObjectNode payload = MAPPER.createObjectNode();
+        payload.put("instruction", "Make this warmer.");
+        ObjectNode section = payload.putObject("section");
+        section.put("type", "hero");
+        section.put("title", "Winter Trails");
+        section.put("body", "Maya wrote this.");
+
+        RecordingGeneration generation = new RecordingGeneration();
+        service(dao, generation).rewriteSectionForCreator(creator, template, payload);
+
+        assertNotNull(generation.seen, "the rewrite must reach the generation service");
+        assertEquals(page.get("brandId").asText(), generation.seen.path("brandId").asText(),
+                "brandId must come from the stored page so the Brief can be enriched");
+        assertEquals(page.get("campaignId").asText(), generation.seen.path("campaignId").asText(),
+                "campaignId must come from the stored page so the Brief can be enriched");
+        // The caller's own fields survive: this stamps identity, it does not replace the request.
+        assertEquals("Make this warmer.", generation.seen.path("instruction").asText(),
+                "the creator's instruction must still reach the generator");
+        // And a goal, or readBrief throws 400 before the generator is reached. BriefEnricher only
+        // sources one from a campaign brief, and most campaigns have none.
+        assertFalse(generation.seen.path("goal").asText("").isBlank(),
+                "a goal must be present or the Brief is refused before the generator sees it");
+    }
+
+    @Test
+    @DisplayName("a brief's own goal is not overwritten by the fallback")
+    void creatorRewriteKeepsAnExistingGoal() {
+        // The fallback fills a gap; it must not outrank the brand's actual campaign brief, which
+        // BriefEnricher would have written into the payload before this check runs.
+        UUID creator = UUID.randomUUID();
+        UUID template = UUID.randomUUID();
+        ObjectNode page = storedPage(template, null);
+        RecordingDao dao = new RecordingDao(page, grantFor(creator, template, page), confirmedLink(page));
+
+        ObjectNode payload = MAPPER.createObjectNode();
+        payload.put("goal", "Sell the winter collection to existing subscribers.");
+        payload.putObject("section").put("type", "hero");
+
+        RecordingGeneration generation = new RecordingGeneration();
+        service(dao, generation).rewriteSectionForCreator(creator, template, payload);
+
+        assertEquals("Sell the winter collection to existing subscribers.",
+                generation.seen.path("goal").asText(),
+                "a goal already on the payload must survive");
+    }
+
+    @Test
     @DisplayName("the version snapshot holds what was overwritten, not what replaced it")
     void snapshotCapturesThePreviousContent() {
         // This reads as an off-by-one and is not: a history made of what is already current
@@ -312,6 +373,33 @@ class PageCollaborationSaveTest {
 
     private PageCollaborationService service(RecordingDao dao) {
         return new PageCollaborationService(dao, new ResponseShapeService(MAPPER), new HandoffMachine(), null, null);
+    }
+
+    private PageCollaborationService service(RecordingDao dao, RecordingGeneration generation) {
+        return new PageCollaborationService(dao, new ResponseShapeService(MAPPER), new HandoffMachine(),
+                null, generation);
+    }
+
+    /**
+     * Captures the payload the generation service is handed.
+     *
+     * <p>Subclassed rather than mocked: the assertion is about what this service FORWARDS, and the
+     * real generator would reject the call for the very field under test before the test could see
+     * it. Mockito is also not usable on this JDK -- see the BFF test notes.
+     */
+    private static class RecordingGeneration extends CampaignPageGenerationService {
+
+        ObjectNode seen;
+
+        RecordingGeneration() {
+            super(null, new ResponseShapeService(MAPPER), null);
+        }
+
+        @Override
+        public JsonNode rewriteSection(ObjectNode payload) {
+            this.seen = payload;
+            return MAPPER.createObjectNode().put("rewritten", false);
+        }
     }
 
     private ObjectNode storedPage(UUID templateId, Instant scheduledAt) {

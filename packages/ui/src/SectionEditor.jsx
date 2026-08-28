@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import {
   SECTION_TYPES, FIELD_KINDS, TOKENS,
   blankSection, sectionType, sectionLabel, sectionIssues, tokensIn,
@@ -80,6 +80,9 @@ export default function SectionEditor({
   const [rewriteNote, setRewriteNote] = useState(null)
   const [narrow, setNarrow] = useState(false)
   const shellRef = useRef(null)
+  // Prefixes the ids of controls this component owns directly. Two editors on one page would
+  // otherwise emit the same id twice, and a duplicate id binds the label to whichever came first.
+  const editorId = useId()
 
   // The panel moves below the canvas on a narrow screen. Measured from the EDITOR's own width,
   // not the viewport: it also sits inside a page with its own chrome, so a viewport query would
@@ -324,8 +327,9 @@ export default function SectionEditor({
 
             {spec.variants.length > 0 ? (
               <>
-                <label className="auth-label">Layout</label>
+                <label className="auth-label" htmlFor={`${editorId}-layout`}>Layout</label>
                 <select
+                  id={`${editorId}-layout`}
                   value={current.variant || spec.variants[0].id}
                   onChange={(e) => update(sections.map((s, i) =>
                     (i === selected ? { ...s, variant: e.target.value } : s)))}
@@ -391,21 +395,35 @@ export default function SectionEditor({
   )
 }
 
-/** One field's input, chosen by kind. */
+/**
+ * One field's input, chosen by kind.
+ *
+ * <p>Every control is bound to its visible label with a generated id. Without that binding the
+ * labels are decoration: a screen reader announces "edit text, blank" for the headline of a page,
+ * and nothing can find the field by its name. `useId` rather than the field name because the same
+ * field name recurs across sections, and duplicate ids silently bind a label to the FIRST match --
+ * which reads as a label that focuses the wrong box.
+ */
 function FieldInput({ field, value, assets, onUploadAsset, onChange, onItemChange, onAddItem, onRemoveItem }) {
+  const id = useId()
   if (field.kind === FIELD_KINDS.ITEMS) {
     const items = Array.isArray(value) ? value : []
     return (
-      <div style={{ marginTop: 12 }}>
-        <label className="auth-label">{field.label}</label>
+      <div style={{ marginTop: 12 }} role="group" aria-labelledby={`${id}-legend`}>
+        {/* A group of repeated rows, so this names the GROUP rather than any one input; the rows
+            themselves are labelled by aria-label because a visible label per row would triple the
+            height of a list whose whole point is to be scannable. */}
+        <label className="auth-label" id={`${id}-legend`}>{field.label}</label>
         {items.map((item, i) => (
           <div key={i} style={S.itemBox}>
             {field.itemFields.map((sub) => (
               sub.kind === FIELD_KINDS.TEXTAREA ? (
                 <textarea key={sub.name} rows={2} placeholder={sub.placeholder || sub.label}
+                          aria-label={`${field.label} ${i + 1} ${sub.label}`}
                           value={item[sub.name] || ''} onChange={(e) => onItemChange(i, sub.name, e.target.value)} />
               ) : (
                 <input key={sub.name} type="text" placeholder={sub.placeholder || sub.label}
+                       aria-label={`${field.label} ${i + 1} ${sub.label}`}
                        value={item[sub.name] || ''} onChange={(e) => onItemChange(i, sub.name, e.target.value)} />
               )
             ))}
@@ -424,16 +442,17 @@ function FieldInput({ field, value, assets, onUploadAsset, onChange, onItemChang
   if (field.kind === FIELD_KINDS.ASSET) {
     return (
       <div style={{ marginTop: 12 }}>
-        <label className="auth-label">{field.label}</label>
+        <label className="auth-label" htmlFor={id}>{field.label}</label>
         {value ? (
           <img src={value} alt="" style={S.thumb} />
         ) : null}
-        <select value={value || ''} onChange={(e) => onChange(e.target.value)}>
+        <select id={id} value={value || ''} onChange={(e) => onChange(e.target.value)}>
           <option value="">— none —</option>
           {assets.map((a) => <option key={a.url} value={a.url}>{a.fileName || a.url}</option>)}
         </select>
         {typeof onUploadAsset === 'function' ? (
-          <input type="file" accept="image/*" onChange={async (e) => {
+          <input type="file" accept="image/*" aria-label={`Upload a new ${field.label.toLowerCase()}`}
+                 onChange={async (e) => {
             const file = e.target.files?.[0]
             if (!file) return
             const uploaded = await onUploadAsset(file)
@@ -447,8 +466,9 @@ function FieldInput({ field, value, assets, onUploadAsset, onChange, onItemChang
   const Input = field.kind === FIELD_KINDS.TEXTAREA ? 'textarea' : 'input'
   return (
     <div style={{ marginTop: 12 }}>
-      <label className="auth-label">{field.label}</label>
+      <label className="auth-label" htmlFor={id}>{field.label}</label>
       <Input
+        id={id}
         {...(field.kind === FIELD_KINDS.TEXTAREA ? { rows: 3 } : { type: 'text' })}
         value={value || ''}
         placeholder={field.placeholder || ''}
