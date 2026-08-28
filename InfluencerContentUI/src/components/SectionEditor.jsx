@@ -1,3 +1,9 @@
+import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  SECTION_TYPES, FIELD_KINDS, TOKENS,
+  blankSection, sectionType, sectionLabel, sectionIssues, tokensIn,
+} from '../sectionTypes.js'
+
 /**
  * The curated section editor (roadmap PR-39, piece C).
  *

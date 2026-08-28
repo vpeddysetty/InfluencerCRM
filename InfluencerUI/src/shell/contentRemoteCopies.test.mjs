@@ -151,3 +151,29 @@ test('both API clients call the same collaboration and invitation endpoints', ()
     assert.match(text, /\/api\/creator-invites/, `${path} should call the invitation endpoints`)
   }
 })
+
+test('the remote copies actually import what they use', () => {
+  // Found the hard way (PR-44): the remote's SectionEditor.jsx had lost its ENTIRE import block
+  // while still referencing useState, useEffect and SECTION_TYPES. Vite built it without a word --
+  // bundlers do not resolve undefined globals -- so it would have been a blank screen the first
+  // time a creator opened the editor, in production only, since VITE_USE_REMOTES=true means the
+  // remote is the copy that gets served.
+  //
+  // The comparison above could not catch it: it deliberately starts BELOW the header comment so
+  // each copy can explain its own side of the duplication, and the imports sit above that.
+  const files = [
+    'components/SectionEditor.jsx',
+    'components/CollaboratorPanel.jsx',
+    'components/CampaignPageGenerator.jsx',
+  ]
+  for (const file of files) {
+    const text = read(resolve(REMOTE, file))
+    if (/\buseState\b|\buseEffect\b|\buseMemo\b|\buseRef\b|\buseCallback\b/.test(text)) {
+      assert.match(text, /^import .*from 'react'/m, `${file} uses hooks but does not import them`)
+    }
+    if (/\bSECTION_TYPES\b|\bblankSection\b|\bsectionIssues\b/.test(text)) {
+      assert.match(text, /^import \{[\s\S]*?\} from '\.\.\/sectionTypes/m,
+        `${file} uses sectionTypes but does not import it`)
+    }
+  }
+})
