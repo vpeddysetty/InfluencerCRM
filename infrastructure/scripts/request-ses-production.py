@@ -1,33 +1,30 @@
 """
 OP-06: request SES production access (sandbox exit).
 
-THE API ROUTE IS CLOSED AFTER A DENIAL -- USE THE CONSOLE
-    Tried on 2026-08-27 and it does not work: with ReviewDetails.Status == DENIED on the account,
-    `put-account-details` returns
+THE API IS CLOSED WHILE A CASE IS OPEN -- REPLY TO THE CASE INSTEAD
+    `put-account-details` returns ConflictException with a null message and changes nothing:
+    ProductionAccessEnabled stays false and UseCaseDescription stays absent, so nothing is queued
+    and nothing is submitted. Retrying will never work, and the empty error message makes that
+    look like a transient fault worth retrying.
 
-        ConflictException  {"message": null}
+    The API is refusing because a review case is OPEN, not because the account was rejected.
 
-    with no detail, and the account is left completely unchanged -- ProductionAccessEnabled stays
-    false and UseCaseDescription is still absent, so nothing is queued and nothing is submitted.
+WHAT `get-account` SAYS IS NOT THE CASE STATUS
+    ReviewDetails.Status read DENIED on 2026-08-27 while AWS had in fact replied asking for more
+    information -- a normal step in an open review, not a refusal. The field lags the case and
+    is not a reliable signal. Read the support case, not this API, to know where a request stands.
 
-    That appears to be deliberate rather than a bug: it stops a denied account resubmitting the
-    same request in a loop, and pushes the appeal through a human who can see the previous case.
-    So after a denial the ONLY route is the console:
+WHAT AWS ACTUALLY ASKED FOR
+    Their follow-up asked four specific things, and ses-use-case.txt answers them in order:
+      1. How often we send, and at what volume.
+      2. How we maintain recipient lists.
+      3. How we manage bounces, complaints and unsubscribe requests.
+      4. Examples of the email we send.
+    They also required a verified identity before granting access, which tejdux.com already
+    satisfies -- verified for sending, DKIM SUCCESS, signing enabled.
 
-        Support -> Your support cases -> case 178750875200560 -> Reply
-
-    Reply to the DENIED case with the text below. Do not open a brand-new case: the reviewer needs
-    the history, and a duplicate case for the same account is likely to be closed as such.
-
-    This script therefore still earns its place -- it holds the reviewed text, checks the live
-    state, and will work again if the account is ever back in a state the API accepts -- but if it
-    reports a conflict, copy USE_CASE into the console reply instead.
-
-WHY THE FIRST ONE WAS ALMOST CERTAINLY DENIED
-    `aws sesv2 get-account --query Details` showed MailType, WebsiteURL and ContactLanguage all
-    populated and NO UseCaseDescription at all. That field is the one a human reviewer reads. A
-    request without it gives them nothing to approve, and "insufficient detail" is the most common
-    denial reason AWS publishes.
+    Reply to the EXISTING case with that text. Do not open a second request: it would fork the
+    conversation and a duplicate for the same account tends to be closed as one.
 
 WHAT REVIEWERS LOOK FOR, AND WHERE THIS PRODUCT STANDS
     1. Who receives the mail, and how they consented.
