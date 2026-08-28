@@ -71,6 +71,12 @@ class PageCollaborationSaveTest {
             if (path.startsWith("/creator-identities/")) {
                 return links;
             }
+            // Distinct from the page on purpose. The catch-all below returns the page for any
+            // unmatched path, and the page has a `name` of its own -- so a brand-name assertion
+            // would pass against the PAGE's name and prove nothing about the brand lookup.
+            if (path.startsWith("/tenancy/brands/")) {
+                return MAPPER.createObjectNode().put("name", "Acme Coffee");
+            }
             return page;
         }
 
@@ -252,6 +258,25 @@ class PageCollaborationSaveTest {
         JsonNode listed = service(dao).pagesForCreator(creator);
 
         assertEquals(0, listed.size(), "a page whose brand disagrees with the grant is not theirs");
+    }
+
+    @Test
+    @DisplayName("the page list names the brand each page belongs to")
+    void listedPagesCarryTheBrandName() {
+        // PR-44. The portal names the brand on the button that sends a page back, and the landing
+        // template carries only a brandId. Without this the editor falls back to "the brand" --
+        // which is precisely wrong for the creator this portal exists for, who works with several
+        // and needs to know which one they are returning work to.
+        UUID creator = UUID.randomUUID();
+        UUID template = UUID.randomUUID();
+        ObjectNode page = storedPage(template, null);
+        RecordingDao dao = new RecordingDao(page, grantFor(creator, template, page), confirmedLink(page));
+
+        JsonNode listed = service(dao).pagesForCreator(creator);
+
+        assertEquals(1, listed.size(), "the creator's own page must be listed");
+        assertEquals("Acme Coffee", listed.get(0).path("brandName").asText(),
+                "the entry must name the brand, not fall back to a placeholder");
     }
 
     @Test

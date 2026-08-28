@@ -119,10 +119,12 @@ function PageGroup({ title, description, entries, onOpen, emphasis = false }) {
           const page = entry.page || entry
           return (
             <li key={page.id}>
-              <button type="button" className="cp-card" onClick={() => onOpen(page)}>
+              <button type="button" className="cp-card" onClick={() => onOpen(entry)}>
                 <span className="cp-card__name">{page.name || 'Campaign page'}</span>
-                {/* Read-only is a real state: `comment` rights exist in the schema. The editor is
-                    not offered for them, rather than offered and then refused on save. */}
+                {/* Read-only is a real state: `comment` rights exist in the schema. The whole
+                    ENTRY is passed to onOpen, not just the page, so the editor knows this before
+                    it renders — a creator with comment rights sees the page without the save and
+                    rewrite controls, rather than seeing them and being refused on save. */}
                 {entry.rights === 'comment' ? (
                   <span className="cp-card__tag">view only</span>
                 ) : null}

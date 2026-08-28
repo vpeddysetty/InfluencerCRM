@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import EditPage from './pages/EditPage'
 import InvitePage from './pages/InvitePage'
 import MyPagesPage from './pages/MyPagesPage'
 import SignInPage from './pages/SignInPage'
@@ -18,6 +19,7 @@ import { getToken, logout, me, setToken } from './api/client'
 export default function App() {
   const [session, setSession] = useState(null)
   const [checking, setChecking] = useState(true)
+  const [editing, setEditing] = useState(null)
 
   const inviteToken = new URLSearchParams(window.location.search).get('token')
   const onInviteRoute = window.location.pathname.startsWith('/invite')
@@ -54,13 +56,20 @@ export default function App() {
     return <SignInPage onSignedIn={setSession} />
   }
 
-  return (
-    <MyPagesPage
-      onOpen={() => {
-        // PR-44 mounts SectionEditor here. Until then the list is honest about what it can do
-        // rather than offering a button that does nothing.
-      }}
-      onSignOut={signOut}
-    />
-  )
+  // PR-44. Still no router, and now for a stronger reason than "there are only three screens":
+  // the editor is a MODE of the page list, not a destination. It holds unsaved section edits, so a
+  // real URL would invite a back-button that discards them silently. `editing` holds the whole
+  // list entry rather than an id because the entry carries `rights` — the editor needs to know a
+  // view-only creator before it renders, not after a save is refused.
+  if (editing) {
+    return (
+      <EditPage
+        entry={editing}
+        onClose={() => setEditing(null)}
+        onSignOut={signOut}
+      />
+    )
+  }
+
+  return <MyPagesPage onOpen={setEditing} onSignOut={signOut} />
 }

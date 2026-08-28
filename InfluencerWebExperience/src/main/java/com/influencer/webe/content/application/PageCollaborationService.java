@@ -369,9 +369,36 @@ public class PageCollaborationService {
             entry.set("page", shape.landingTemplate(page));
             entry.put("rights", grant.path("rights").asText("edit"));
             entry.put("collaboratorId", grant.path("id").asText());
+            // PR-44. The portal names the brand on every screen -- most importantly on the button
+            // that sends the page back -- and a creator working with four brands needs to know
+            // WHICH one they are returning work to. The landing template carries only a brandId,
+            // so without this the editor falls back to "the brand" on the one screen where the
+            // distinction matters most.
+            entry.put("brandName", brandName(brandId));
             out.add(entry);
         }
         return out;
+    }
+
+    /**
+     * The brand's display name, for the creator-facing screens (roadmap PR-44).
+     *
+     * <p>Resolved here through this service's own DAO client rather than by calling
+     * {@code CreatorPortalService}, which has the identical private helper. That is not duplication
+     * worth removing: reaching into another context's service to read one string would make
+     * {@code content} depend on {@code identity} for a label, and the boundary rules exist to stop
+     * exactly that kind of incidental coupling.
+     *
+     * <p>Never throws. A brand whose name cannot be read is a missing label, not a reason the
+     * creator cannot see their pages -- the same trade the audit-row write makes.
+     */
+    private String brandName(UUID brandId) {
+        try {
+            JsonNode brand = dao.get("/tenancy/brands/" + brandId, null);
+            return brand != null && brand.hasNonNull("name") ? brand.get("name").asText() : "Brand";
+        } catch (Exception exception) {
+            return "Brand";
+        }
     }
 
     /**

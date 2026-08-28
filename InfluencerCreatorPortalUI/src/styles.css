@@ -218,6 +218,110 @@ h2 { font-size: 1.25rem; line-height: 1.25; margin-bottom: 0.25rem; }
   font-size: 0.9375rem;
 }
 
+/*
+ * The section editor's chrome (roadmap PR-44).
+ *
+ * SectionEditor is shared source (`packages/ui`), and it styles itself with the SHELL's class
+ * names -- `primary-btn`, `ghost-btn`, `auth-label`, `mds-note`, `row-actions` -- because it was
+ * written for the brand app, where those come from the design system. This portal has its own
+ * sheet and defined none of them, so mounting the component without this block renders working
+ * controls with no styling at all: unstyled buttons and labels, on the one screen a creator
+ * actually works in.
+ *
+ * These are re-implementations in the portal's own tokens, NOT a copy of the brand's rules. A copy
+ * would import the navy design system this sheet's header explains was deliberately rejected, and
+ * would drift the moment either side changed. Same names, this palette -- which is what lets the
+ * shared component sit inside either shell and look like it belongs.
+ */
+
+/* The editor needs the viewport, not the reading measure: it is a two-pane canvas, and --measure
+   is sized for prose. Only this screen opts out. */
+.cp-shell--wide { max-width: 76rem; }
+
+.auth-label {
+  display: block;
+  font-weight: 600;
+  font-size: 0.9375rem;
+  margin-top: 0.75rem;
+  color: var(--ink);
+}
+
+.mds-note {
+  color: var(--ink-mute);
+  font-size: 0.875rem;
+  margin: 0.5rem 0 0;
+}
+
+.row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.primary-btn,
+.ghost-btn {
+  font: inherit;
+  font-weight: 600;
+  padding: 0.6rem 1rem;
+  border-radius: 10px;
+  cursor: pointer;
+  /* 44px is the touch target minimum, and it is not decorative here: creators arrive from an
+     email on a phone, which is the whole premise of this sheet being mobile-first. */
+  min-height: 44px;
+}
+
+.primary-btn {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border: 1px solid var(--accent);
+}
+
+.ghost-btn {
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid var(--rule);
+}
+
+.primary-btn:disabled,
+.ghost-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.primary-btn:focus-visible,
+.ghost-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* The editor writes inputs and selects without classes, so they are reached by element inside its
+   own shell rather than globally -- the sign-in form styles its own and must not be overridden. */
+.cp-shell--wide input[type='text'],
+.cp-shell--wide input[type='number'],
+.cp-shell--wide input[type='url'],
+.cp-shell--wide textarea,
+.cp-shell--wide select {
+  width: 100%;
+  font: inherit;
+  color: var(--ink);
+  background: #FFFFFF;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 0.55rem 0.7rem;
+}
+
+.cp-shell--wide textarea { min-height: 5rem; resize: vertical; }
+
+/* Saved-confirmation twin of .cp-error. Not green-on-white: the accent-soft ground is one of the
+   three the palette's contrast was computed against. */
+.cp-success {
+  background: var(--accent-soft);
+  color: var(--ink);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  padding: 0.7rem 0.85rem;
+  margin: 1rem 0 0;
+  font-size: 0.9375rem;
+}
+
 @media (min-width: 40rem) {
   .cp-shell { padding-top: 64px; }
   h1 { font-size: 2.25rem; }

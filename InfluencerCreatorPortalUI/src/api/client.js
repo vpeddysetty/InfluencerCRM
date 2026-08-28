@@ -151,3 +151,62 @@ export async function listMyPages() {
   const payload = await request('/api/creator-portal/pages')
   return Array.isArray(payload) ? payload : payload?.items || []
 }
+
+/**
+ * Save the page's sections (roadmap PR-44).
+ *
+ * `sections` only. The BFF carries status, stage and slug over from the stored page whatever this
+ * sends, so there is nothing to gain by sending more — and sending less keeps the request honest
+ * about what a collaborator is actually allowed to change.
+ */
+export async function savePageSections(id, sections) {
+  return request(`/api/creator-portal/pages/${id}`, { method: 'PUT', body: { sections } })
+}
+
+/**
+ * Server-rendered preview of the sections being edited.
+ *
+ * Returns HTML, not JSON — the real renderer's output, which is why the editor puts it in an
+ * iframe rather than reconstructing the page in React. `request` parses JSON, so this one call
+ * goes to fetch directly rather than bending the shared helper to a second content type.
+ */
+export async function previewPageSections(id, sections) {
+  const token = getToken()
+  const response = await fetch(`${BASE}/api/creator-portal/pages/${id}/preview`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { 'X-Creator-Token': token } : {}),
+    },
+    body: JSON.stringify({ sections }),
+  })
+  if (response.status === 401 || response.status === 403) {
+    setToken('')
+    const error = new Error('Your session has ended. Please sign in again.')
+    error.code = 'session_expired'
+    throw error
+  }
+  if (!response.ok) throw new Error(`Preview failed (${response.status})`)
+  return response.text()
+}
+
+/** Rewrite one section with AI. The shape SectionEditor's `onRewrite` passes and expects back. */
+export async function rewriteSection(id, { section, instruction }) {
+  return request(`/api/creator-portal/pages/${id}/sections/rewrite`, {
+    method: 'POST',
+    body: { section, instruction },
+  })
+}
+
+/**
+ * Send the page back to the brand.
+ *
+ * A 409 here is not a failure to report as breakage — it means the page is already back with the
+ * brand, which is what the creator wanted. The caller distinguishes it by `status`.
+ */
+export async function handBackPage(id, note) {
+  return request(`/api/creator-portal/pages/${id}/hand-back`, {
+    method: 'POST',
+    body: { note: note || null },
+  })
+}
