@@ -215,7 +215,7 @@ class CreatorSessionStoreTest {
                                 .encode("correct-horse"));
                 return Optional.of(identity);
             }
-        }, dao);
+        }, dao, new LoginAttemptLimiter());
     }
 
     private ObjectNode storedSessionFor(String tokenHash) {

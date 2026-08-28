@@ -44,6 +44,7 @@ public class CreatorPortalService implements CreatorSessionVerifier {
 
     private final DaoCreatorIdentityClient creatorIdentityClient;
     private final DaoGatewayClient daoGatewayClient;
+    private final LoginAttemptLimiter loginAttemptLimiter;
     private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
     private final SecureRandom random = new SecureRandom();
 
@@ -62,9 +63,11 @@ public class CreatorPortalService implements CreatorSessionVerifier {
      */
 
     public CreatorPortalService(DaoCreatorIdentityClient creatorIdentityClient,
-                                DaoGatewayClient daoGatewayClient) {
+                                DaoGatewayClient daoGatewayClient,
+                                LoginAttemptLimiter loginAttemptLimiter) {
         this.creatorIdentityClient = creatorIdentityClient;
         this.daoGatewayClient = daoGatewayClient;
+        this.loginAttemptLimiter = loginAttemptLimiter;
     }
 
     public CreatorSession signup(String email, String password, String displayName) {
@@ -78,14 +81,28 @@ public class CreatorPortalService implements CreatorSessionVerifier {
     }
 
     public CreatorSession login(String email, String password) {
-        JsonNode identity = creatorIdentityClient.findByEmail(normalize(email))
-                .orElseThrow(() -> new IllegalArgumentException("Invalid credentials"));
-        String hash = identity.hasNonNull("passwordHash") ? identity.get("passwordHash").asText() : null;
+        String normalized = normalize(email);
+
+        // BEFORE the lookup and before BCrypt, which is the entire point. BCrypt costs ~100ms by
+        // design, so an unthrottled login endpoint is a denial-of-service amplifier: a few hundred
+        // concurrent guesses saturate the request threads with work the server chose to make
+        // expensive. Refusing here costs a map lookup instead.
+        if (!loginAttemptLimiter.allow(normalized)) {
+            throw new IllegalArgumentException(
+                    "Too many sign-in attempts. Please wait a few minutes and try again.");
+        }
+
+        JsonNode identity = creatorIdentityClient.findByEmail(normalized).orElse(null);
+        String hash = identity != null && identity.hasNonNull("passwordHash")
+                ? identity.get("passwordHash").asText() : null;
         if (hash == null || !passwordEncoder.matches(password, hash)) {
+            loginAttemptLimiter.recordFailure(normalized);
             // Same message as an unknown email: distinguishing them tells an attacker which
-            // addresses are registered.
+            // addresses are registered. An unknown address is also counted, so enumerating them
+            // is throttled at the same rate as guessing a password.
             throw new IllegalArgumentException("Invalid credentials");
         }
+        loginAttemptLimiter.recordSuccess(normalized);
         return openSession(identity);
     }
 
