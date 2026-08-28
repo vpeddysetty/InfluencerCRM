@@ -55,17 +55,20 @@ public class LandingStageService {
     private final BrandDomainService domains;
     /** Phase H: a rise in refusals means the map disagrees with how people actually work. */
     private final PlatformMetrics metrics;
+    private final CollaboratorNotifier collaboratorNotifier;
 
     public LandingStageService(DaoGatewayClient dao,
                                ResponseShapeService shape,
                                LandingStageMachine machine,
                                BrandDomainService domains,
-                               PlatformMetrics metrics) {
+                               PlatformMetrics metrics,
+                               CollaboratorNotifier collaboratorNotifier) {
         this.dao = dao;
         this.shape = shape;
         this.machine = machine;
         this.domains = domains;
         this.metrics = metrics;
+        this.collaboratorNotifier = collaboratorNotifier;
     }
 
     /**
@@ -152,12 +155,28 @@ public class LandingStageService {
         // full window on the thing being trialled. Idempotent, so republishing later does not
         // restart the clock and make the trial unbounded.
         if (LandingStageMachine.PUBLISHED.equals(target)) {
+            // Read BEFORE startHostingWindow, which is what stamps the column. Afterwards every
+            // publish looks like a first publish's opposite, and the distinction is the whole
+            // keying mechanism for the creator notification below.
+            boolean firstPublish = !template.hasNonNull("firstPublishedAt");
             try {
                 updated = domains.startHostingWindow(brandId, templateId);
             } catch (RuntimeException e) {
                 // A page that published but failed to get its expiry stamped hosts indefinitely,
                 // which is the safe direction to fail: it costs us, not the customer.
                 log.warn("Hosting window NOT started for page {}: {}", templateId, e.toString());
+            }
+            // PR-44. Keyed on FIRST publish, not on arriving at the published stage. A page that is
+            // published, pulled back to fix a typo and republished reaches this stage three times,
+            // and a creator who got three identical "your page is live" emails would learn to
+            // ignore the first one. `first_published_at` is already the column that answers "has
+            // this ever been live", so the notification borrows it rather than inventing a flag.
+            // Null-guarded, and not only for tests: the whole contract of this notification is
+            // that it can never fail a publish, and an absent collaborator notifier failing with a
+            // NullPointerException at the moment a page goes live would be the exact failure the
+            // class below wraps every one of its own paths to avoid.
+            if (firstPublish && collaboratorNotifier != null) {
+                collaboratorNotifier.notifyPublished(brandId, templateId);
             }
         }
 

@@ -113,7 +113,7 @@ class PublishReadinessTest {
 
     private LandingStageService serviceFor(StubDao dao) {
         return new LandingStageService(dao, new ResponseShapeService(MAPPER),
-                new LandingStageMachine(), null, new PlatformMetrics(new SimpleMeterRegistry()));
+                new LandingStageMachine(), null, new PlatformMetrics(new SimpleMeterRegistry()), null);
     }
 
     // ---- the warning -----------------------------------------------------

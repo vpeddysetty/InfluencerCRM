@@ -41,7 +41,7 @@ class ScheduledPublishTest {
         UUID failOn;
 
         RecordingStages() {
-            super(null, null, null, null, null);
+            super(null, null, null, null, null, null);
         }
 
         /**

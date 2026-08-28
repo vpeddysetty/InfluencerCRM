@@ -3,6 +3,7 @@ package com.influencer.webe.identity.infrastructure;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.influencer.webe.shared.application.CreatorDirectory;
 import com.influencer.webe.shared.infrastructure.DaoGatewayClient;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ResponseStatusException;
@@ -13,7 +14,7 @@ import java.util.UUID;
 
 /** Reads and writes creator logins and their per-brand links (roadmap Stage 4). */
 @Component
-public class DaoCreatorIdentityClient {
+public class DaoCreatorIdentityClient implements CreatorDirectory {
 
     private final DaoGatewayClient gatewayClient;
 
@@ -116,5 +117,19 @@ public class DaoCreatorIdentityClient {
             body.put("decidedByUserId", decidedByUserId.toString());
         }
         return gatewayClient.post("/creator-identities/links/" + linkId + "/decision", body);
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Reshapes {@link #findById(UUID)}'s projection rather than reading again, so there is
+     * exactly one place that decides what may leave this context.
+     */
+    @Override
+    public Optional<Creator> lookupCreator(UUID creatorIdentityId) {
+        return findById(creatorIdentityId).map(node -> new Creator(
+                UUID.fromString(node.get("id").asText()),
+                node.path("email").asText(null),
+                node.path("displayName").asText(null)));
     }
 }
