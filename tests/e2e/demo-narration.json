@@ -13,7 +13,9 @@
     "method anywhere; the live Meta token lacks instagram_content_publish), that payouts are",
     "automated (ManualPayoutProvider records a payment made out-of-band), that an AI writes the page",
     "(the provider is `template`), or that the revenue is live (the orders are seeded). See the",
-    "script's 'things not to say'."
+    "script's 'things not to say'.",
+    "",
+    "The creator-authors beat is REMOVED for now, not cut for length. The portal opens on its sign-in screen unless a creator has been invited and redeemed the invitation, so there is nothing to film -- and narration about a creator editing their page over a login form is worse than not making the claim. It returns when the seed creates a creator holding an edit grant."
   ],
   "voice": {
     "_comment": [
@@ -54,11 +56,6 @@
       "id": "brand-authors",
       "seconds": 25,
       "text": "Some campaigns you just need out the door. So describe it — the goal, the offer, who it's for — and you'll get a page back, built from sections that already work. Rewrite every word if you want to; you genuinely can't break the design, because there's nothing in here that sets a colour or a position. Add the coupon, hit publish, and it's live with the tracking already wired in."
-    },
-    {
-      "id": "creator-authors",
-      "seconds": 35,
-      "text": "Or hand it to the creator, which is where this gets good. One click, and they get a link — not an account to set up, not a password to forget. It opens on their phone with your product already in it. They make it sound like them, and send it back. It arrives in your list under waiting on you, you read what they changed, and you publish. They can't — that stays with you, always. Then they get their own link and their own code, and they share it with their audience in their own words. Every sale that comes through it is theirs."
     },
     {
       "id": "the-numbers",

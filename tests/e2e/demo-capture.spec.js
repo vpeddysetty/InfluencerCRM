@@ -1,6 +1,11 @@
 // The suite is ESM ("type": "module"); a require() here fails at collection and takes the whole
 // run down with it, not just this spec.
 import { expect, test } from '@playwright/test'
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const OUT_DIR = join(dirname(fileURLToPath(import.meta.url)), 'artifacts')
 
 /**
  * Records the six beats of the product demo, in order (docs/Demo-Script-Collaborative-Drop.md).
@@ -37,17 +42,32 @@ const BASE = process.env.E2E_BASE_URL || 'https://tejdux.com'
  * drift: if a beat's voiceover runs long, this is the one place to change.
  */
 // Measured from the rendered narration, not estimated -- demo-narrate.mjs prints the real
-// durations and flags any beat that outruns its hold. Every value here was raised to fit the
-// audio rather than the words being cut to fit a number somebody guessed.
+// durations and flags any beat that outruns its hold.
+//
+// These are MINIMUMS, not positions. The first version treated them as a timeline and assumed beat
+// N started at the sum of the holds before it; page loads added 38.6 seconds of navigation the
+// budget never accounted for, so every beat after the first drifted further out of sync with the
+// words. The capture now RECORDS where each beat actually began and writes those marks out for the
+// render to cut on -- measuring beats guessing, and the guess compounds.
 const BEAT = {
   signupImport: 24,
   board: 15,
   couponPayout: 29,
   brandAuthors: 26,
-  // 38, not 35. This is the handoff -- the beat the whole product argument rests on -- and it is
-  // the wrong one to rush by three seconds to save a re-record.
-  creatorAuthors: 38,
   theNumbers: 11,
+}
+
+/**
+ * Where each beat began, in seconds from the start of the recording.
+ *
+ * <p>Written to artifacts/beat-marks.json for build-demo.mjs. Without it the render has to assume
+ * the footage runs to the same schedule as the narration, and it never does.
+ */
+const marks = []
+let recordingStart = 0
+
+function mark(id) {
+  marks.push({ id, at: (Date.now() - recordingStart) / 1000 })
 }
 
 /** Hold the current frame long enough for the narration over it to finish. */
@@ -93,47 +113,48 @@ test.describe('Demo', () => {
     await page.waitForURL(/\/(workflow|dashboard|campaigns)/, { timeout: 90_000 })
     await page.waitForLoadState('networkidle')
 
-    // ---- Beat 0: the spreadsheet ------------------------------------------
-    // The import screen, held. The actual drag is done on the day with a real file -- a seeded
-    // upload would film a mapping of invented columns, which is the one part of this scene that
-    // has to look like somebody's real spreadsheet.
+    // The clock starts once the app is loaded and the login is off screen -- the recording begins
+    // at page.goto, so the sign-in is footage the narration never covers.
+    recordingStart = Date.now()
+
+    // ---- signup-import ----------------------------------------------------
+    // The import screen, held. The actual spreadsheet drag is done on the day with a real file: a
+    // seeded upload would film a mapping of invented columns, which is the one part of this scene
+    // that has to look like somebody's real spreadsheet.
     await gotoSection(page, /import/i)
+    mark('signup-import')
     await hold(page, BEAT.signupImport)
 
-    // ---- Beat 1: the brief becomes a page ---------------------------------
-    await gotoSection(page, /content|pages/i)
+    // ---- board ------------------------------------------------------------
+    await gotoSection(page, /workflow|board/i)
+    mark('board')
     await hold(page, BEAT.board)
 
-    // ---- Beat 2: the handoff, and the board that follows -------------------
-    // Two shots in one beat: the collaborator panel, then the board. Cut between them in the edit;
-    // recording both means the cut is available rather than needing a second take.
-    await hold(page, BEAT.theNumbersPayout / 2)
-    await gotoSection(page, /workflow|board/i)
-    await hold(page, BEAT.theNumbersPayout / 2)
+    // ---- coupon-payout ----------------------------------------------------
+    // Two shots under one beat: the coupons themselves, then what they add up to. Marked at the
+    // first, so the narration starts with the codes on screen.
+    await gotoSection(page, /coupon/i)
+    mark('coupon-payout')
+    await hold(page, BEAT.couponPayout / 2)
+    await gotoSection(page, /finance|payout/i)
+    await hold(page, BEAT.couponPayout / 2)
 
-    // ---- Beat 3: the creator ----------------------------------------------
-    // The portal is its own site on its own origin, so this is a separate context at phone size --
-    // the one beat that is not the brand app, and the reason the demo is split-screen at all.
-    const phone = await page.context().browser().newContext({
-      viewport: { width: 390, height: 844 },
-      isMobile: true,
-      hasTouch: true,
-      recordVideo: { dir: 'test-results/', size: { width: 390, height: 844 } },
-    })
-    const creatorPage = await phone.newPage()
-    await creatorPage.goto(process.env.DEMO_PORTAL_URL || `${BASE.replace('//', '//creators.')}/`)
-    await hold(creatorPage, BEAT.creatorAuthors)
-    await phone.close()
-
-    // ---- Beat 4: waiting on you -------------------------------------------
+    // ---- brand-authors ----------------------------------------------------
     await gotoSection(page, /content|pages/i)
+    mark('brand-authors')
     await hold(page, BEAT.brandAuthors)
 
-    // ---- Beat 5: the coupon and the attribution ---------------------------
-    await gotoSection(page, /coupon/i)
-    await hold(page, BEAT.theNumbers / 2)
+    // ---- the-numbers ------------------------------------------------------
     await gotoSection(page, /dashboard|analytic/i)
-    await hold(page, BEAT.theNumbers / 2)
+    mark('the-numbers')
+    await hold(page, BEAT.theNumbers)
+
+    // NO CREATOR BEAT. The portal opens on its sign-in screen unless a creator has been invited
+    // and has redeemed the invitation, and filming a login form under narration about a creator
+    // editing their page would be worse than leaving the beat out. It returns when the seed
+    // creates a creator holding an edit grant -- see docs/Demo-Script-Two-Cut.md beat 2.3.
+
+    writeFileSync(join(OUT_DIR, 'beat-marks.json'), JSON.stringify(marks, null, 2))
 
     // Nothing is asserted. See the header: a failed assertion here truncates the footage, and
     // proving the product works is the job of every other spec in this directory.

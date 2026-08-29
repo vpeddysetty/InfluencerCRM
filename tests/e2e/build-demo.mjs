@@ -129,8 +129,25 @@ console.log(`  narration  ${manifest.beats.length} beats\n`)
 rmSync(WORK, { recursive: true, force: true })
 mkdirSync(WORK, { recursive: true })
 
-// One segment per beat, each exactly as long as its narration. Cutting to the audio rather than
-// to the video is what stops a line being clipped mid-sentence.
+// Where each beat actually starts in the footage.
+//
+// The capture writes these; without them the render has to assume the footage runs to the same
+// schedule as the narration, and it never does -- page loads added 38.6 seconds the fixed holds
+// never budgeted for, and because segments were cut sequentially that drift compounded until the
+// words described a screen four beats behind.
+//
+// Falling back to sequential cutting when the marks are missing keeps an older capture usable, and
+// says so rather than silently producing the drift again.
+const marksPath = join(ARTIFACTS, 'beat-marks.json')
+const marks = existsSync(marksPath)
+  ? Object.fromEntries(JSON.parse(readFileSync(marksPath, 'utf8')).map((m) => [m.id, m.at]))
+  : null
+if (!marks) {
+  console.log('  NOTE   no beat-marks.json -- cutting sequentially, which drifts. Re-run the capture.')
+}
+
+// One segment per beat, each exactly as long as its narration. Cutting to the audio rather than to
+// the video is what stops a line being clipped mid-sentence.
 let cursor = 0
 const segments = []
 
@@ -154,7 +171,9 @@ for (const [index, beat] of manifest.beats.entries()) {
   // Seeking to just before the end instead gives tpad a frame to hold, so a beat past the footage
   // becomes a still under the narration rather than a broken segment. That is also the honest
   // failure mode for a capture that is shorter than its script.
-  const start = Math.max(0, Math.min(cursor, Math.max(0, footageSeconds - 0.5)))
+  // The recorded mark when there is one, the running cursor otherwise.
+  const from = marks && marks[beat.id] !== undefined ? marks[beat.id] : cursor
+  const start = Math.max(0, Math.min(from, Math.max(0, footageSeconds - 0.5)))
 
   run([
     '-y',
@@ -186,7 +205,8 @@ for (const [index, beat] of manifest.beats.entries()) {
   ])
 
   segments.push(segment)
-  console.log(`  beat   ${beat.id.padEnd(12)} ${seconds.toFixed(1)}s`)
+  const basis = marks && marks[beat.id] !== undefined ? `@${start.toFixed(1)}s` : '(sequential)'
+  console.log(`  beat   ${beat.id.padEnd(16)} ${seconds.toFixed(1)}s  ${basis}`)
   cursor += seconds
 }
 
