@@ -10,6 +10,15 @@
  * assignment that the real flow goes through, and could leave rows the product itself would never
  * create. Every row here is made the way a user makes it.
  *
+ * <p><b>It also has to look worked-in.</b> This seeds the workspace the demo video is filmed in
+ * (docs/Demo-Script-Collaborative-Drop.md), and a demo whose revenue view is empty proves nothing:
+ * attribution is real, but with no customers there is nothing to attribute. So orders are simulated
+ * per creator, through the auth-scoped `/api/attribution/simulate` endpoint that exists for exactly
+ * this — not by writing rows the product would never create.
+ *
+ * <p>Deliberately UNEVEN order counts. Three creators with identical revenue looks generated, and
+ * it also hides the one thing the view is for: telling you which partnership was worth more.
+ *
  * <p>Usage: E2E_BASE_URL=https://tejdux.com node seed-demo-workspace.mjs
  */
 import { chromium } from 'playwright'
@@ -21,9 +30,14 @@ const PASSWORD = 'DemoPass123!'
 const WORKSPACE = 'Linen & Trail'
 
 const CREATORS = [
-  { name: 'Maya Okonjo', handle: '@mayawears', email: 'maya@example.com', code: 'MAYA15' },
-  { name: 'Devon Reyes', handle: '@devonoutside', email: 'devon@example.com', code: 'DEVON15' },
-  { name: 'Priya Raman', handle: '@priyaknits', email: 'priya@example.com', code: 'PRIYA15' },
+  // `orders` and `avgOrder` shape the revenue view. Uneven on purpose: identical numbers across
+  // three creators read as fake, and they conceal the comparison the view exists to make.
+  { name: 'Maya Okonjo', handle: '@mayawears', email: 'maya@example.com', code: 'MAYA15',
+    orders: 14, avgOrder: 128 },
+  { name: 'Devon Reyes', handle: '@devonoutside', email: 'devon@example.com', code: 'DEVON15',
+    orders: 6, avgOrder: 96 },
+  { name: 'Priya Raman', handle: '@priyaknits', email: 'priya@example.com', code: 'PRIYA15',
+    orders: 9, avgOrder: 154 },
 ]
 
 const LEAD_CAMPAIGN = 'Winter Layers 2026'
@@ -41,7 +55,7 @@ async function goto(page, label) {
 
 const b = await chromium.launch({ headless: true })
 const page = await b.newPage({ viewport: { width: 1500, height: 1000 }, baseURL: BASE })
-const created = { creators: [], campaigns: [], coupons: [], links: [] }
+const created = { creators: [], campaigns: [], coupons: [], links: [], orders: [] }
 let generatorUsed = 'unknown'
 
 try {
@@ -194,6 +208,52 @@ try {
   // Collect the public links the page now advertises.
   const links = await page.locator('a[href*="/s/"]').evaluateAll((as) => as.map((a) => a.href))
   created.links = [...new Set(links)]
+
+  // ---- orders, so the revenue view has a shape -----------------------------
+  //
+  // Through /api/attribution/simulate, which exists for this and is auth-scoped: the brand comes
+  // from the caller's own verified token, so this cannot write into a workspace the session cannot
+  // reach. Run from inside the page context so the session's bearer token is the one used, rather
+  // than minting a second one here.
+  created.orders = await page.evaluate(async (creators) => {
+    const token = window.localStorage.getItem('token')
+        || window.sessionStorage.getItem('token') || ''
+    const results = []
+    for (const creator of creators) {
+      let placed = 0
+      for (let i = 0; i < creator.orders; i += 1) {
+        // Spread across the last three weeks so the windowed view (influencerRevenue takes a from
+        // and a to) has something to slice. A single day would make every window identical.
+        const daysAgo = Math.floor((i / creator.orders) * 21)
+        const placedAt = new Date(Date.now() - daysAgo * 86400000).toISOString()
+        // Vary the amount a little, or every order is the average and the numbers look typed in.
+        const amount = creator.avgOrder + ((i % 5) - 2) * 7
+        const response = await fetch('/api/attribution/simulate', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({
+            providerKey: 'mock',
+            order: {
+              // The coupon code is what ties the order to the creator -- it is the attribution
+              // primitive, and the reason it survives being read off a screen in a video.
+              couponCode: creator.code,
+              externalId: `demo-${creator.code}-${i}`,
+              totalAmount: amount,
+              currency: 'USD',
+              placedAt,
+            },
+          }),
+        })
+        if (response.ok) placed += 1
+      }
+      results.push(`${creator.code}: ${placed}/${creator.orders}`)
+    }
+    return results
+  }, CREATORS)
+
   await page.screenshot({ path: 'demo-workspace.png', fullPage: true })
 } catch (e) {
   log('ERROR: ' + String(e.message).slice(0, 300))
@@ -210,6 +270,7 @@ log(`  Workspace: ${WORKSPACE}`)
 log(`  Creators:  ${created.creators.join(', ') || '(none)'}`)
 log(`  Campaigns: ${created.campaigns.join(', ') || '(none)'}`)
 log(`  Coupons:   ${created.coupons.join(', ') || '(none)'}`)
+log(`  Orders:    ${(created.orders || []).join('  ') || '(none)'}`)
 log(`  Page copy: written by ${generatorUsed}`)
 log('  Public pages:')
 for (const l of created.links) log(`    ${l}`)
