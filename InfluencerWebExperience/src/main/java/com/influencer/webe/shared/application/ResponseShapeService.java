@@ -382,7 +382,10 @@ public class ResponseShapeService {
                 // while the database held the right answer all along. The same read-modify-write
                 // argument as scheduledPublishAt applies too: handOff and takeBack PUT back a page
                 // they read through this projection.
-                "turn", "turnChangedAt");
+                "turn", "turnChangedAt",
+                // PR-44. Same allow-list trap: without this the sweep reads a page whose stamp is
+                // always absent, concludes no reminder has been sent, and emails every hour.
+                "handoffReminderSentAt");
         out.set("blocks", parseJsonOrDefault(source, "blocks", objectMapper.createArrayNode()));
         out.set("theme", parseJsonOrDefault(source, "theme", objectMapper.createObjectNode()));
         // `document` is passed through as JSON null when absent rather than defaulted to {}:

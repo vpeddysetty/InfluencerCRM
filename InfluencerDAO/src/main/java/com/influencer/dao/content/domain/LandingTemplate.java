@@ -133,6 +133,19 @@ public class LandingTemplate {
     private Instant turnChangedAt;
 
     /**
+     * When a handoff nudge was last sent for this page (PR-44, {@code V47}).
+     *
+     * <p>NULL means none since the turn last moved. Compared against {@link #turnChangedAt} rather
+     * than cleared when the page changes hands, so passing it back and forth re-arms the sweep with
+     * nothing to reset — a flag would have had to be two flags, one per threshold, kept in step.
+     *
+     * <p>Without it an hourly sweep would see "three days elapsed" at hour 72, 73 and 74 and email
+     * the creator every hour until they acted, which is worse than no reminder at all.
+     */
+    @Column(name = "handoff_reminder_sent_at")
+    private Instant handoffReminderSentAt;
+
+    /**
      * Optimistic-lock counter (OP-18, {@code V44}).
      *
      * <p>This is the one row in the system with two editors by design: a brand and an invited
@@ -167,6 +180,14 @@ public class LandingTemplate {
 
     public void setTurnChangedAt(Instant turnChangedAt) {
         this.turnChangedAt = turnChangedAt;
+    }
+
+    public Instant getHandoffReminderSentAt() {
+        return handoffReminderSentAt;
+    }
+
+    public void setHandoffReminderSentAt(Instant handoffReminderSentAt) {
+        this.handoffReminderSentAt = handoffReminderSentAt;
     }
 
     @PrePersist

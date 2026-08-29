@@ -40,12 +40,14 @@ public class CollaboratorNotifier {
     private final CreatorDirectory creators;
     private final EmailPort emailPort;
     private final String publicBaseUrl;
+    private final String creatorPortalBaseUrl;
 
     public CollaboratorNotifier(DaoGatewayClient dao,
                                 CreatorDirectory creators,
                                 EmailPort emailPort,
                                 @Value("${web-experience.public-base-url:}") String publicBaseUrl,
-                                @Value("${web-experience.ui-base-url:}") String uiBaseUrl) {
+                                @Value("${web-experience.ui-base-url:}") String uiBaseUrl,
+                                @Value("${web-experience.creator-portal-base-url:}") String portalBaseUrl) {
         this.dao = dao;
         this.creators = creators;
         this.emailPort = emailPort;
@@ -55,6 +57,8 @@ public class CollaboratorNotifier {
         // "https://a.com,https://b.com/s/slug" — not a link.
         String configured = publicBaseUrl == null || publicBaseUrl.isBlank() ? uiBaseUrl : publicBaseUrl;
         this.publicBaseUrl = configured == null ? "" : configured.split(",")[0].trim().replaceAll("/+$", "");
+        this.creatorPortalBaseUrl = portalBaseUrl == null ? ""
+                : portalBaseUrl.split(",")[0].trim().replaceAll("/+$", "");
     }
 
     /**
@@ -209,5 +213,111 @@ public class CollaboratorNotifier {
     /** Deep link into the page in the brand's own app, or null when no UI base is configured. */
     private String manageUrl(UUID templateId) {
         return publicBaseUrl.isEmpty() ? null : publicBaseUrl + "/content?page=" + templateId;
+    }
+
+    /**
+     * Day three: remind the creator holding the page (roadmap PR-44).
+     *
+     * <p>Returns true when something was sent, so the sweep knows whether to stamp the row. A
+     * reminder that could not be sent must NOT be stamped — otherwise a transient mail failure
+     * silences this page permanently, which is the opposite of what the sweep is for.
+     */
+    public boolean remindCreator(UUID brandId, UUID templateId) {
+        return notifyOnce(brandId, templateId, (page, grant, creator, brand) ->
+                HandoffReminderEmail.toCreator(creator.email(), brand,
+                        page.path("name").asText(null), creatorPortalUrl()));
+    }
+
+    /**
+     * Day seven: tell the brand the page has been sitting (roadmap PR-44).
+     *
+     * <p>Goes to the user who granted the access, not the whole account — they asked for this work,
+     * and a broadcast trains everyone to ignore it.
+     */
+    public boolean notifyStalledToBrand(UUID brandId, UUID templateId, long daysWaiting) {
+        try {
+            JsonNode page = dao.get("/landing-templates/" + templateId, null);
+            if (page == null) {
+                return false;
+            }
+            JsonNode grant = liveGrant(templateId);
+            if (grant == null) {
+                return false;
+            }
+            String grantedBy = grant.path("grantedByUserId").asText(null);
+            if (grantedBy == null) {
+                // Pre-PR-42 grants carry no attribution, and guessing at an account member would
+                // send this to somebody who never asked for the work.
+                return false;
+            }
+            JsonNode user = dao.get("/users/" + grantedBy, null);
+            String to = user == null ? null : user.path("email").asText(null);
+            if (to == null || to.isBlank()) {
+                return false;
+            }
+            String creatorName = creators
+                    .lookupCreator(UUID.fromString(grant.get("creatorIdentityId").asText()))
+                    .map(CreatorDirectory.Creator::displayName)
+                    .orElse(null);
+
+            EmailPort.Result result = emailPort.send(HandoffReminderEmail.toBrand(
+                    to, creatorName, page.path("name").asText(null), daysWaiting,
+                    manageUrl(templateId)));
+            return result.sent();
+        } catch (RuntimeException e) {
+            log.warn("Stalled-handoff notice failed for page {}: {}", templateId, e.toString());
+            return false;
+        }
+    }
+
+    /** Shared shape for the creator-facing nudge: find the live grant, resolve them, compose, send. */
+    private boolean notifyOnce(UUID brandId, UUID templateId, MessageFor compose) {
+        try {
+            JsonNode page = dao.get("/landing-templates/" + templateId, null);
+            if (page == null) {
+                return false;
+            }
+            JsonNode grant = liveGrant(templateId);
+            if (grant == null) {
+                return false;
+            }
+            Optional<CreatorDirectory.Creator> creator = creators
+                    .lookupCreator(UUID.fromString(grant.get("creatorIdentityId").asText()));
+            if (creator.isEmpty() || creator.get().email() == null || creator.get().email().isBlank()) {
+                return false;
+            }
+            EmailPort.Result result = emailPort.send(
+                    compose.build(page, grant, creator.get(), brandName(brandId)));
+            return result.sent();
+        } catch (RuntimeException e) {
+            log.warn("Handoff reminder failed for page {}: {}", templateId, e.toString());
+            return false;
+        }
+    }
+
+    /** The first grant that has not been revoked, or null. */
+    private JsonNode liveGrant(UUID templateId) {
+        Map<String, String> query = new LinkedHashMap<>();
+        query.put("landingTemplateId", templateId.toString());
+        JsonNode grants = dao.get("/landing-page-collaborators", query);
+        if (grants == null || !grants.isArray()) {
+            return null;
+        }
+        for (JsonNode grant : grants) {
+            if (!grant.hasNonNull("revokedAt") && grant.hasNonNull("creatorIdentityId")) {
+                return grant;
+            }
+        }
+        return null;
+    }
+
+    private String creatorPortalUrl() {
+        return creatorPortalBaseUrl.isEmpty() ? null : creatorPortalBaseUrl + "/pages";
+    }
+
+    @FunctionalInterface
+    private interface MessageFor {
+        EmailPort.Message build(JsonNode page, JsonNode grant, CreatorDirectory.Creator creator,
+                                String brandName);
     }
 }

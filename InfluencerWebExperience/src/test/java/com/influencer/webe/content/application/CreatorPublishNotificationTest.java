@@ -223,7 +223,7 @@ class CreatorPublishNotificationTest {
 
     private CollaboratorNotifier notifier(StubDao dao, EmailPort email) {
         return new CollaboratorNotifier(dao, new StubDirectory(), email,
-                "https://tejdux.com", "https://tejdux.com,https://www.tejdux.com/");
+                "https://tejdux.com", "https://tejdux.com,https://www.tejdux.com/", "https://creators.tejdux.com");
     }
 
     private ArrayNode grantsFor(UUID creatorIdentityId) {

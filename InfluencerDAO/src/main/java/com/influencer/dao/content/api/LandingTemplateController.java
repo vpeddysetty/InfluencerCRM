@@ -38,6 +38,18 @@ public class LandingTemplateController {
         return repository.findAll();
     }
 
+    /**
+     * Pages waiting on someone since before a cutoff (PR-44).
+     *
+     * <p>Its own endpoint rather than a filter on the list above, because the list is brand-scoped
+     * and this deliberately is not: the abandonment sweep runs for the whole platform, and asking
+     * it to enumerate brands first would turn one indexed query into one per brand.
+     */
+    @GetMapping("/awaiting-turn")
+    public List<LandingTemplate> awaitingTurn(@RequestParam String before) {
+        return repository.findAwaitingTurnSince(java.time.Instant.parse(before));
+    }
+
     @GetMapping("/{id}")
     public LandingTemplate findById(@PathVariable UUID id) {
         return repository.findById(id).orElseThrow(() -> new RuntimeException("LandingTemplate not found"));
@@ -110,6 +122,14 @@ public class LandingTemplateController {
             existing.setTurn(template.getTurn());
             existing.setTurnChangedAt(template.getTurnChangedAt() == null
                     ? java.time.Instant.now() : template.getTurnChangedAt());
+        }
+        // PR-44. Null-guarded for the same reason as `turn` above: every other writer to this row
+        // -- the hosting sweep, the publish sweep, an ordinary save -- never mentions it, and
+        // unguarded each of them would clear the stamp and re-arm a reminder that already fired.
+        // It is never cleared explicitly; it goes stale on its own by being older than
+        // turn_changed_at once the page changes hands.
+        if (template.getHandoffReminderSentAt() != null) {
+            existing.setHandoffReminderSentAt(template.getHandoffReminderSentAt());
         }
         return repository.save(existing);
     }
