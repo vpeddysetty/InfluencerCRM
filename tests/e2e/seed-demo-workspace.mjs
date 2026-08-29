@@ -43,6 +43,23 @@ const CREATORS = [
 const LEAD_CAMPAIGN = 'Winter Layers 2026'
 const SECOND_CAMPAIGN = 'Spring Linen Preview'
 
+// Declared before captureToken closes over it: a `let` referenced above its declaration is a
+// temporal dead zone, not a hoisted undefined.
+let accessToken = ''
+
+function captureToken(page) {
+  page.on('response', async (r) => {
+    if (/\/api\/auth\/(signup|login|refresh)$/.test(r.url())) {
+      try {
+        const json = await r.json()
+        if (json && json.accessToken) accessToken = json.accessToken
+      } catch {
+        // A non-JSON body just means no token on this response.
+      }
+    }
+  })
+}
+
 const log = (m) => console.log(m)
 const pause = (page, ms = 400) => page.waitForTimeout(ms)
 
@@ -55,7 +72,14 @@ async function goto(page, label) {
 
 const b = await chromium.launch({ headless: true })
 const page = await b.newPage({ viewport: { width: 1500, height: 1000 }, baseURL: BASE })
+captureToken(page)
 const created = { creators: [], campaigns: [], coupons: [], links: [], orders: [] }
+
+// The SPA keeps its access token in MEMORY, not in storage -- the localStorage snapshot is UI
+// state and carries no credential. So it is captured off the wire at signup (see captureToken),
+// which is the same token the app itself goes on to use. An earlier version read
+// localStorage['token'], found nothing, and posted 29 unauthenticated orders that all failed.
+
 let generatorUsed = 'unknown'
 
 try {
@@ -215,9 +239,8 @@ try {
   // from the caller's own verified token, so this cannot write into a workspace the session cannot
   // reach. Run from inside the page context so the session's bearer token is the one used, rather
   // than minting a second one here.
-  created.orders = await page.evaluate(async (creators) => {
-    const token = window.localStorage.getItem('token')
-        || window.sessionStorage.getItem('token') || ''
+  created.orders = await page.evaluate(async ({ creators, bearer }) => {
+    const token = bearer
     const results = []
     for (const creator of creators) {
       let placed = 0
@@ -252,7 +275,7 @@ try {
       results.push(`${creator.code}: ${placed}/${creator.orders}`)
     }
     return results
-  }, CREATORS)
+  }, { creators: CREATORS, bearer: accessToken })
 
   await page.screenshot({ path: 'demo-workspace.png', fullPage: true })
 } catch (e) {
