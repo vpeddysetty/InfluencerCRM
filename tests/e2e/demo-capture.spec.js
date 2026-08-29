@@ -1,5 +1,6 @@
-// @ts-check
-const { test, expect } = require('@playwright/test')
+// The suite is ESM ("type": "module"); a require() here fails at collection and takes the whole
+// run down with it, not just this spec.
+import { expect, test } from '@playwright/test'
 
 /**
  * Records the six beats of the product demo, in order (docs/Demo-Script-Collaborative-Drop.md).

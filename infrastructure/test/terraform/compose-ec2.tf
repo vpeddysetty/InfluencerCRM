@@ -446,10 +446,23 @@ locals {
     #
     # Kept as a derived list rather than a second variable: the two origins are the same site, and
     # allowing one without the other is never the intent.
-    ui_allowed_origins = var.api_domain != "" ? join(",", [
+    # PR-43. The creator portal is a THIRD origin, and unlike the pair above it is not the same
+    # site under another name: it is a separate application on its own domain, for people with no
+    # account in the shell at all. So it is appended explicitly rather than derived — deriving it
+    # would imply a relationship the two do not have.
+    #
+    # Without it the portal loads, renders, and fails every request at the preflight — a CORS error
+    # in the browser console with nothing in the server logs, which is the same misleading failure
+    # the www omission above produced and the reason both are written down here.
+    #
+    # Only when the portal actually has a hostname. With aliasing off it serves on a
+    # *.cloudfront.net name that this configuration does not know, and an empty entry in a
+    # comma-separated list is worse than no entry.
+    ui_allowed_origins = var.api_domain != "" ? join(",", compact([
       var.ui_base_url,
       replace(var.ui_base_url, "://", "://www."),
-    ]) : var.ui_base_url
+      local.static_aliased ? "https://portal.${var.root_domain}" : "",
+    ])) : var.ui_base_url
 
     context_services = local.compose_context_services
   })
