@@ -31,7 +31,10 @@ import { fileURLToPath } from 'node:url'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = join(HERE, '..', '..')
-const ARTIFACTS = join(REPO_ROOT, 'test-results')
+// playwright.config.js sets outputDir: 'artifacts', relative to tests/e2e -- NOT the
+// test-results/ default. Guessing the default found nothing and reported "no capture", which
+// reads as "the run failed" rather than "the path is wrong".
+const ARTIFACTS = join(HERE, 'artifacts')
 const NARRATION = join(HERE, 'narration')
 const WORK = join(HERE, '.demo-build')
 const OUTPUT = process.env.DEMO_OUT || join(REPO_ROOT, 'influencrm-demo.mp4')

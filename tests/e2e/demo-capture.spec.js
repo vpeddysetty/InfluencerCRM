@@ -79,10 +79,18 @@ test.describe('Demo', () => {
     // Generous: this is six beats plus page loads, and a timeout mid-capture wastes the whole take.
     test.setTimeout(5 * 60 * 1000)
 
-    await page.goto(`${BASE}/login`)
-    await page.getByLabel(/email/i).fill(EMAIL)
-    await page.getByLabel(/password/i).fill(PASSWORD)
-    await page.getByRole('button', { name: /sign in|log in/i }).click()
+    // Sign-in is a TAB on the landing page, not a /login route -- the first version assumed a
+    // route and getByLabel, and timed out on a form that was never rendered.
+    //
+    // Anchored names throughout: "Log in" is the tab, "Enter workspace" is the submit, and a loose
+    // /log in/i matches the tab when you meant the button. brand-owner-journey records the same
+    // trap on the signup side, where clicking the tab silently never posts the form.
+    await page.goto(BASE)
+    await page.getByRole('button', { name: /^Log in$/ }).click()
+    await page.fill('input[name="email"]', EMAIL)
+    await page.fill('input[name="password"]', PASSWORD)
+    await page.getByRole('button', { name: /^Enter workspace$/i }).click()
+    await page.waitForURL(/\/(workflow|dashboard|campaigns)/, { timeout: 90_000 })
     await page.waitForLoadState('networkidle')
 
     // ---- Beat 0: the spreadsheet ------------------------------------------
