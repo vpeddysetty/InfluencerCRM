@@ -35,16 +35,18 @@ const BASE = process.env.E2E_BASE_URL || 'https://tejdux.com'
  * <p>Held as data rather than inline sleeps so the narration manuscript and the capture cannot
  * drift: if a beat's voiceover runs long, this is the one place to change.
  */
+// Measured from the rendered narration, not estimated -- demo-narrate.mjs prints the real
+// durations and flags any beat that outruns its hold. Every value here was raised to fit the
+// audio rather than the words being cut to fit a number somebody guessed.
 const BEAT = {
-  // 22, not 18: the rendered narration measured 21.8s. Raised rather than trimming the words --
-  // this is the beat that argues against the spreadsheet, which is the actual competitor, and it
-  // is the wrong one to rush.
-  spreadsheet: 22,
-  brief: 15,
-  handoff: 12,
-  creator: 20,
-  waiting: 12,
-  coupon: 18,
+  signupImport: 24,
+  board: 15,
+  couponPayout: 29,
+  brandAuthors: 26,
+  // 38, not 35. This is the handoff -- the beat the whole product argument rests on -- and it is
+  // the wrong one to rush by three seconds to save a re-record.
+  creatorAuthors: 38,
+  theNumbers: 11,
 }
 
 /** Hold the current frame long enough for the narration over it to finish. */
@@ -87,18 +89,18 @@ test.describe('Demo', () => {
     // upload would film a mapping of invented columns, which is the one part of this scene that
     // has to look like somebody's real spreadsheet.
     await gotoSection(page, /import/i)
-    await hold(page, BEAT.spreadsheet)
+    await hold(page, BEAT.signupImport)
 
     // ---- Beat 1: the brief becomes a page ---------------------------------
     await gotoSection(page, /content|pages/i)
-    await hold(page, BEAT.brief)
+    await hold(page, BEAT.board)
 
     // ---- Beat 2: the handoff, and the board that follows -------------------
     // Two shots in one beat: the collaborator panel, then the board. Cut between them in the edit;
     // recording both means the cut is available rather than needing a second take.
-    await hold(page, BEAT.handoff / 2)
+    await hold(page, BEAT.theNumbersPayout / 2)
     await gotoSection(page, /workflow|board/i)
-    await hold(page, BEAT.handoff / 2)
+    await hold(page, BEAT.theNumbersPayout / 2)
 
     // ---- Beat 3: the creator ----------------------------------------------
     // The portal is its own site on its own origin, so this is a separate context at phone size --
@@ -111,18 +113,18 @@ test.describe('Demo', () => {
     })
     const creatorPage = await phone.newPage()
     await creatorPage.goto(process.env.DEMO_PORTAL_URL || `${BASE.replace('//', '//creators.')}/`)
-    await hold(creatorPage, BEAT.creator)
+    await hold(creatorPage, BEAT.creatorAuthors)
     await phone.close()
 
     // ---- Beat 4: waiting on you -------------------------------------------
     await gotoSection(page, /content|pages/i)
-    await hold(page, BEAT.waiting)
+    await hold(page, BEAT.brandAuthors)
 
     // ---- Beat 5: the coupon and the attribution ---------------------------
     await gotoSection(page, /coupon/i)
-    await hold(page, BEAT.coupon / 2)
+    await hold(page, BEAT.theNumbers / 2)
     await gotoSection(page, /dashboard|analytic/i)
-    await hold(page, BEAT.coupon / 2)
+    await hold(page, BEAT.theNumbers / 2)
 
     // Nothing is asserted. See the header: a failed assertion here truncates the footage, and
     // proving the product works is the job of every other spec in this directory.
