@@ -151,4 +151,63 @@ public class CollaboratorNotifier {
             return null;
         }
     }
+
+    /**
+     * Tell the brand a creator has sent their page back (roadmap PR-44).
+     *
+     * <p>The return leg of the handoff, and the one email that has a deadline attached: the creator
+     * has stopped work and is waiting. Without it the page sits in the brand's "waiting on you"
+     * list, which nobody watches until they happen to open the app.
+     *
+     * <p>Sent to the user who granted the access rather than to every member of the account. They
+     * asked for this work; a broadcast to the whole team would train everyone to ignore it, which
+     * is how the one person who cares stops seeing it too.
+     */
+    public void notifyHandedBack(UUID brandId, UUID templateId, UUID creatorIdentityId, String note) {
+        try {
+            JsonNode page = dao.get("/landing-templates/" + templateId, null);
+            if (page == null) {
+                return;
+            }
+            Map<String, String> query = new LinkedHashMap<>();
+            query.put("landingTemplateId", templateId.toString());
+            query.put("creatorIdentityId", creatorIdentityId.toString());
+            JsonNode grants = dao.get("/landing-page-collaborators", query);
+            if (grants == null || !grants.isArray() || grants.isEmpty()) {
+                return;
+            }
+
+            String grantedBy = grants.get(0).path("grantedByUserId").asText(null);
+            if (grantedBy == null) {
+                // Pre-PR-42 grants carry no attribution. Nobody to tell, and guessing at an
+                // account member would send it to somebody who never asked for the work.
+                return;
+            }
+            JsonNode user = dao.get("/users/" + grantedBy, null);
+            String to = user == null ? null : user.path("email").asText(null);
+            if (to == null || to.isBlank()) {
+                return;
+            }
+
+            String creatorName = creators.lookupCreator(creatorIdentityId)
+                    .map(CreatorDirectory.Creator::displayName)
+                    .orElse(null);
+
+            EmailPort.Result result = emailPort.send(CreatorHandedBackEmail.compose(
+                    to, creatorName, page.path("name").asText(null), note, manageUrl(templateId)));
+            if (!result.sent()) {
+                log.info("Hand-back notification not delivered to {} via {}: {}",
+                        to, result.provider(), result.detail());
+            }
+        } catch (RuntimeException e) {
+            // The hand-back already happened. A missed email is a worse experience; a failed
+            // hand-back would leave the creator unable to return work they have finished.
+            log.warn("Hand-back notification failed for page {}: {}", templateId, e.toString());
+        }
+    }
+
+    /** Deep link into the page in the brand's own app, or null when no UI base is configured. */
+    private String manageUrl(UUID templateId) {
+        return publicBaseUrl.isEmpty() ? null : publicBaseUrl + "/content?page=" + templateId;
+    }
 }

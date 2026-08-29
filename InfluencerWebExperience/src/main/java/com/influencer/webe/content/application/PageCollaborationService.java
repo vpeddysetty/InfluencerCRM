@@ -49,16 +49,19 @@ public class PageCollaborationService {
     private final HandoffMachine handoffMachine;
     private final LandingService landingService;
     private final CampaignPageGenerationService generation;
+    private final CollaboratorNotifier notifier;
 
     public PageCollaborationService(DaoGatewayClient dao, ResponseShapeService shape,
                                     HandoffMachine handoffMachine,
                                     LandingService landingService,
-                                    CampaignPageGenerationService generation) {
+                                    CampaignPageGenerationService generation,
+                                    CollaboratorNotifier notifier) {
         this.dao = dao;
         this.shape = shape;
         this.handoffMachine = handoffMachine;
         this.landingService = landingService;
         this.generation = generation;
+        this.notifier = notifier;
     }
 
     // ---- brand side (G.2) -----------------------------------------------
@@ -305,8 +308,13 @@ public class PageCollaborationService {
         LandingTemplateWrites.carryForwardScheduledPublish(page, body);
         JsonNode updated = dao.put("/landing-templates/" + templateId, body);
 
-        recordHandoff(UUID.fromString(page.get("brandId").asText()), templateId,
-                HandoffMachine.BRAND, null, creatorIdentityId, note);
+        UUID brandId = UUID.fromString(page.get("brandId").asText());
+        recordHandoff(brandId, templateId, HandoffMachine.BRAND, null, creatorIdentityId, note);
+        // The creator has stopped work and is waiting. Without this the page sits in a list nobody
+        // watches until they happen to open the app.
+        if (notifier != null) {
+            notifier.notifyHandedBack(brandId, templateId, creatorIdentityId, note);
+        }
         return shape.landingTemplate(updated);
     }
 
@@ -349,6 +357,24 @@ public class PageCollaborationService {
         if (row == null || !row.path("brandId").asText("").equals(brandId.toString())) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Collaborator not found");
         }
+        // PR-44. Snapshot BEFORE the access is cut, so the brand keeps whatever the creator had
+        // written. Revoking is usually done in a hurry — a relationship ended, or the wrong person
+        // was invited — and the work in progress is the thing most easily lost in that moment. The
+        // creator may have been mid-edit; this captures what was last saved, which is the most the
+        // server can honestly promise.
+        String templateId = row.path("landingTemplateId").asText(null);
+        if (templateId != null) {
+            JsonNode page = null;
+            try {
+                page = dao.get("/landing-templates/" + templateId, null);
+            } catch (RuntimeException e) {
+                log.warn("Could not read page {} before revoking access", templateId, e);
+            }
+            if (page != null) {
+                snapshotVersion(page, page, row);
+            }
+        }
+
         // The DAO's delete takes no query map, so the attribution rides on the URL. Revoking
         // marks the row rather than removing it, so who had access and when survives.
         String path = "/landing-page-collaborators/" + collaboratorId
@@ -542,6 +568,16 @@ public class PageCollaborationService {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Landing page not found");
         }
         JsonNode grant = rows.get(0);
+
+        // PR-44. A revoked grant is answered differently from an unknown page, and the difference
+        // is deliberate. Everywhere else here a refusal is a bare 404 so a creator probing ids
+        // cannot learn which exist — but this creator was demonstrably given this page, so there is
+        // nothing left to conceal, and a 404 would tell them their work vanished. The portal reads
+        // `access_revoked` to say "the brand ended your access" and offer their draft.
+        if (grant.hasNonNull("revokedAt")) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "access_revoked");
+        }
+
         if (!"edit".equalsIgnoreCase(grant.path("rights").asText(""))) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
                     "You have comment access to this page, not edit access.");
@@ -549,7 +585,9 @@ public class PageCollaborationService {
         // Re-check the underlying relationship on every edit, not just at invite time.
         UUID brandId = UUID.fromString(grant.get("brandId").asText());
         if (!hasConfirmedLink(brandId, creatorIdentityId)) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Landing page not found");
+            // The brand ended the whole relationship rather than this one page. Same answer for the
+            // same reason: they held this page, so concealment buys nothing.
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "access_revoked");
         }
         return grant;
     }

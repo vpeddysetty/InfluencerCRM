@@ -189,6 +189,36 @@ class CreatorPublishNotificationTest {
         assertTrue(message.textBody().contains("Thank you"));
     }
 
+    @Test
+    @DisplayName("the hand-back email carries the creator's note verbatim")
+    void handBackEmailKeepsTheNote() {
+        // The note is the closest thing to a handover conversation the product has. Summarising or
+        // truncating it would lose exactly the "I changed the headline because..." that makes the
+        // brand's review quick.
+        EmailPort.Message message = CreatorHandedBackEmail.compose(
+                "owner@acme.com", "A Creator", "Winter trail",
+                "I rewrote the intro in my own voice and swapped the photo.",
+                "https://tejdux.com/content?page=abc");
+
+        assertTrue(message.textBody().contains("I rewrote the intro in my own voice"));
+        assertTrue(message.subject().contains("Winter trail"));
+        // The question the brand is about to have, answered before they ask it.
+        assertTrue(message.textBody().contains("Nothing is live until you publish it."));
+    }
+
+    @Test
+    @DisplayName("a hand-back with no note still reads as a complete message")
+    void handBackEmailWithoutANote() {
+        // Most creators will not write one. The email must not have a dangling "They said:" header
+        // over nothing.
+        EmailPort.Message message = CreatorHandedBackEmail.compose(
+                "owner@acme.com", null, null, null, null);
+
+        assertFalse(message.textBody().contains("They said"));
+        assertTrue(message.textBody().contains("A creator"), "falls back to a neutral name");
+        assertFalse(message.textBody().contains("http"), "no link rather than a broken one");
+    }
+
     // ---- fixtures ------------------------------------------------------
 
     private CollaboratorNotifier notifier(StubDao dao, EmailPort email) {

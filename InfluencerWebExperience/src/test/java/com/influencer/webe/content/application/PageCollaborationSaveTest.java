@@ -372,12 +372,12 @@ class PageCollaborationSaveTest {
     // ---- fixtures ------------------------------------------------------
 
     private PageCollaborationService service(RecordingDao dao) {
-        return new PageCollaborationService(dao, new ResponseShapeService(MAPPER), new HandoffMachine(), null, null);
+        return new PageCollaborationService(dao, new ResponseShapeService(MAPPER), new HandoffMachine(), null, null, null);
     }
 
     private PageCollaborationService service(RecordingDao dao, RecordingGeneration generation) {
         return new PageCollaborationService(dao, new ResponseShapeService(MAPPER), new HandoffMachine(),
-                null, generation);
+                null, generation, null);
     }
 
     /**
