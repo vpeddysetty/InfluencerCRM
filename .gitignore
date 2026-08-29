@@ -154,3 +154,8 @@ crash.*.log
 # an ElevenLabs key, so committing ~1.5MB of binary per re-render would bloat the history to store
 # something a command reproduces. The MANUSCRIPT is committed; the audio is a build artifact.
 tests/e2e/narration/
+
+# The rendered demo (tests/e2e/build-demo.mjs). Regenerable from the capture and the narration, and
+# a marketing video is not something to keep versions of in a source repo.
+influencrm-demo.mp4
+tests/e2e/.demo-build/
