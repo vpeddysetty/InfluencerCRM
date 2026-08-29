@@ -61,6 +61,21 @@ locals {
     commerce  = { project = "InfluencerCommerceUI", subdomain = "commerce", scope = "mf_commerce", env_var = "VITE_MF_COMMERCE_ORIGIN" }
     finance   = { project = "InfluencerFinanceUI", subdomain = "finance", scope = "mf_finance", env_var = "VITE_MF_FINANCE_ORIGIN" }
     content   = { project = "InfluencerContentUI", subdomain = "content", scope = "mf_content", env_var = "VITE_MF_CONTENT_ORIGIN" }
+
+    # PR-43. The creator portal is NOT a federation remote, unlike every entry above it, and the
+    # empty `scope` is the tell rather than an omission: it is a standalone site served on its own
+    # origin for people who have no account in the shell at all. The shell never loads it, so it
+    # publishes no env_var either — the same way `shell` itself carries none.
+    #
+    # It is in this map anyway because everything below cares only about `project` and the bucket
+    # prefix: one S3 prefix, one distribution, one deploy target. A separate resource pair would
+    # duplicate all of that to express a distinction the infrastructure does not have.
+    #
+    # The key is `creator-portal`, deliberately NOT `creators` — that is taken by
+    # InfluencerCreatorsUI above, and reusing it would silently repoint that remote's distribution
+    # at a different project. The two names are one character apart and the mistake would show as
+    # an ordinary "update".
+    "creator-portal" = { project = "InfluencerCreatorPortalUI", subdomain = "portal", scope = "", env_var = "" }
   }
 
   static_enabled = var.manage_static_site
