@@ -1,0 +1,74 @@
+{
+  "_comment": [
+    "Sarah's narration, one entry per beat (docs/Demo-Script-Collaborative-Drop.md).",
+    "",
+    "PER-BEAT ON PURPOSE. A single block would mean re-synthesising ninety seconds to fix one",
+    "sentence, and the beats are also the unit the capture holds for -- so a line that runs long",
+    "is fixed by changing one entry and its matching duration in demo-capture.spec.js.",
+    "",
+    "WRITTEN FOR SYNTHESIS, not for an actor. Short clauses, no asides, punctuation where a",
+    "breath goes. The actor-facing version is docs/Demo-Shoot-Pack.md and it is deliberately",
+    "looser -- a person reading these lines aloud sounds like a person reading.",
+    "",
+    "EVERY CLAIM HERE WAS CHECKED. Three things this narration does NOT say, because they are not",
+    "true yet: that an AI writes the page (the generator runs `template` while the Anthropic",
+    "balance is zero), that the rewrite speaks in the creator's voice (the options are Shorter,",
+    "Warmer and Lead with the offer), and that the revenue is live (the orders are seeded). See",
+    "the Demo-Shoot-Pack's 'things not to say'."
+  ],
+
+  "voice": {
+    "_comment": [
+      "A stock voice rather than a clone: this is workflow narration, not personality, and a",
+      "clone would be a licensing question for a fifteen-second gain. Rachel and Sarah are the",
+      "usual picks for confident B2B female narration -- swap the id and re-run to compare.",
+      "",
+      "Stability low-ish and similarity high is the combination that reads as 'explaining' rather",
+      "than 'announcing'. A demo narrated like an advertisement invites the scepticism the",
+      "spreadsheet opening is designed to disarm."
+    ],
+    "voiceId": "21m00Tcm4TlvDq8ikWAM",
+    "modelId": "eleven_multilingual_v2",
+    "stability": 0.42,
+    "similarityBoost": 0.8,
+    "style": 0.15
+  },
+
+  "beats": [
+    {
+      "id": "spreadsheet",
+      "seconds": 18,
+      "text": "This is how creator campaigns actually get run. A spreadsheet. Sixty rows, four people editing it, and nobody sure which copy is current. Drop that same file in here, and it works out which columns are creators and which are campaign details. Then it shows you, before it commits to anything."
+    },
+    {
+      "id": "brief",
+      "seconds": 15,
+      "text": "Write the brief once. The goal, the offer, who it's for. You get a page back, built from sections. You can change every word on it. You can't break the layout, because there's nothing in here that sets a colour or a position."
+    },
+    {
+      "id": "handoff",
+      "seconds": 12,
+      "text": "Then you hand it to the creator. One click. And the board isn't a separate tracker you keep in sync — the page moved, so the card moved. Drag the card back and the page follows."
+    },
+    {
+      "id": "creator",
+      "seconds": 20,
+      "text": "On their side there's no account to set up. A link arrives, and the page is just there, on their phone, with the product already in it. They rework the copy so it sounds like them rather than like a brand. Then they send it back. They can't publish it. That stays with you."
+    },
+    {
+      "id": "waiting",
+      "seconds": 12,
+      "text": "It comes back to your list, under waiting on you. That's the only list worth looking at — it's what somebody is actually blocked on. Read what changed, and publish."
+    },
+    {
+      "id": "coupon",
+      "seconds": 18,
+      "text": "Every creator gets their own code. Anything bought with it is attributed to them, automatically. So you know what each partnership was worth — per creator, over whatever window you choose. Not one number for the whole campaign."
+    },
+    {
+      "id": "close",
+      "seconds": 5,
+      "text": "From a spreadsheet, to a campaign, with the creator actually in it."
+    }
+  ]
+}
