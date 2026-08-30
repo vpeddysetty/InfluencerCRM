@@ -49,7 +49,12 @@ export default function InvitePage({ token, onSignedIn }) {
       // an email the previous line had just registered, and the server answered "An account with
       // this email already exists". The link was confirmed and the creator was stuck one step from
       // their pages, which is the worst place to fail -- it looks like the invitation was bad.
-      await redeemInvite({ token, displayName: displayName.trim(), password })
+      await redeemInvite({
+        token,
+        displayName: displayName.trim(),
+        password,
+        acceptedTerms: accepted,
+      })
       // Then LOG IN, not sign up: the account exists now. They land on their pages rather than on
       // a login form having just proved who they are.
       const session = await login({ email: state.invite.email, password })

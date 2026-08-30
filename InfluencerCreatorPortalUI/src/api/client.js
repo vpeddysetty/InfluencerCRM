@@ -107,10 +107,13 @@ export async function previewInvite(token) {
  * credential afterwards meant signing up an account that already existed -- which the server
  * refuses, correctly, and which stopped every creator on the last step of accepting.
  */
-export async function redeemInvite({ token, displayName, password }) {
+export async function redeemInvite({ token, displayName, password, acceptedTerms }) {
   return request('/api/public/creator-invites/redeem', {
     method: 'POST',
-    body: { token, displayName, password },
+    // acceptedTerms travels with the redemption for the same reason the password does: this call
+    // is what creates the account, so it is the call that has to carry the consent. The server
+    // rejects the redemption without it.
+    body: { token, displayName, password, acceptedTerms },
     token: null,
   })
 }
