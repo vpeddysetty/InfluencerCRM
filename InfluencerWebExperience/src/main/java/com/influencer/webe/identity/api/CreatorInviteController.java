@@ -3,6 +3,7 @@ package com.influencer.webe.identity.api;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.influencer.webe.identity.application.ConsentService;
 import com.influencer.webe.identity.application.CreatorInvitationService;
 import com.influencer.webe.security.Permission;
 import com.influencer.webe.security.TenantContext;
@@ -13,6 +14,7 @@ import jakarta.validation.constraints.NotBlank;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -37,12 +39,15 @@ import java.util.UUID;
 public class CreatorInviteController {
 
     private final CreatorInvitationService invitations;
+    private final ConsentService consentService;
     private final RequestUserResolver requestUserResolver;
 
     public CreatorInviteController(CreatorInvitationService invitations,
-                                   RequestUserResolver requestUserResolver) {
+                                   RequestUserResolver requestUserResolver,
+                                   ConsentService consentService) {
         this.invitations = invitations;
         this.requestUserResolver = requestUserResolver;
+        this.consentService = consentService;
     }
 
     // ---- brand side ----------------------------------------------------
@@ -122,10 +127,38 @@ public class CreatorInviteController {
      * corporate spam filter before the human ever saw it.
      */
     @PostMapping("/public/creator-invites/redeem")
-    public JsonNode redeem(@Valid @RequestBody RedeemRequest request) {
+    public JsonNode redeem(@Valid @RequestBody RedeemRequest request,
+                           HttpServletRequest httpRequest) {
+        // Consent is recorded HERE because this is now where the account is created. It used to be
+        // recorded by the signup call the invite screen made afterwards; that call could never
+        // succeed (redemption had already registered the email), so removing it would have dropped
+        // the consent record for every creator -- the surface where it matters most, since a
+        // creator is the data subject whose personal data the platform mostly processes.
+        consentService.requireAccepted(request.acceptedTerms());
         // The password is hashed in the service layer alongside the rest of the portal's
         // credential handling; nothing raw is forwarded to the DAO.
-        return invitations.redeem(request.token(), request.displayName(), null);
+        //
+        // It used to pass null here, and that had a consequence two calls away: the identity was
+        // created WITHOUT a credential, so the invite screen followed redemption with a signup to
+        // set one -- against an email redemption had just registered. The server rightly answered
+        // "An account with this email already exists", and every creator who accepted an invitation
+        // was stopped on the last step, after the link was already confirmed.
+        JsonNode redeemed = invitations.redeem(
+                request.token(), request.displayName(), request.password());
+
+        // Recorded after the redemption succeeds, not before: consent to terms by someone whose
+        // invitation turned out to be expired is not a record worth keeping, and writing it first
+        // would leave one behind for every failed attempt.
+        if (redeemed != null && redeemed.hasNonNull("creatorIdentityId")) {
+            consentService.recordSignupConsent(
+                    ConsentService.SUBJECT_CREATOR_IDENTITY,
+                    UUID.fromString(redeemed.get("creatorIdentityId").asText()),
+                    redeemed.path("email").asText(null),
+                    "creator_invitation_redeem",
+                    httpRequest,
+                    null);
+        }
+        return redeemed;
     }
 
     public record InviteRequest(@Email @NotBlank String email,
@@ -134,6 +167,13 @@ public class CreatorInviteController {
                                 String brandName) {
     }
 
-    public record RedeemRequest(@NotBlank String token, String displayName) {
+    /**
+     * @param password chosen on the invite screen. Optional: a creator who already has an identity
+     *                 is redeeming a second brand's invitation and keeps the credential they have.
+     */
+    public record RedeemRequest(@NotBlank String token,
+                                String displayName,
+                                String password,
+                                Boolean acceptedTerms) {
     }
 }

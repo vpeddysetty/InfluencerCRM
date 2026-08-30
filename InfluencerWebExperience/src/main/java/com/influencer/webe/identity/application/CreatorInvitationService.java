@@ -9,6 +9,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.util.UriUtils;
@@ -146,13 +147,20 @@ public class CreatorInvitationService {
      * <p>The whole redemption happens in one DAO transaction — see {@code CreatorInviteController}
      * for why a partial one is worse than a failure in both directions.
      */
-    public JsonNode redeem(String token, String displayName, String passwordHash) {
+    /** Matches CreatorPortalService: the same encoder has to verify what this writes. */
+    private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
+
+    public JsonNode redeem(String token, String displayName, String rawPassword) {
         ObjectNode body = JsonNodeFactory.instance.objectNode();
         if (displayName != null && !displayName.isBlank()) {
             body.put("displayName", displayName.trim());
         }
-        if (passwordHash != null) {
-            body.put("passwordHash", passwordHash);
+        // Hashed HERE, never forwarded raw and never hashed in the browser: the DAO stores what it
+        // is given, so a raw password crossing this boundary would be a raw password at rest.
+        // BCrypt to match CreatorPortalService, which is what verifies it at sign-in -- a different
+        // algorithm here would produce an account that cannot log in.
+        if (rawPassword != null && !rawPassword.isBlank()) {
+            body.put("passwordHash", passwordEncoder.encode(rawPassword));
         }
         try {
             return dao.post("/creator-invites/by-token/" + hash(token) + "/redeem", body);

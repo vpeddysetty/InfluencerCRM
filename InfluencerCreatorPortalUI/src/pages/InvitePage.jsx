@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { previewInvite, redeemInvite, signup } from '../api/client'
+import { login, previewInvite, redeemInvite } from '../api/client'
 
 /**
  * The invitation screen — the entire cold start (roadmap PR-43).
@@ -44,15 +44,15 @@ export default function InvitePage({ token, onSignedIn }) {
       // Redeeming creates the identity and the CONFIRMED link together, server-side, in one
       // transaction. Doing it in two calls from here would let a creator end up with an account
       // and no relationship — an account that signs in and sees nothing.
-      await redeemInvite({ token, displayName: displayName.trim() })
-      // Then sign in, so they land on their pages rather than on a login form having just proved
-      // who they are.
-      const session = await signup({
-        email: state.invite.email,
-        password,
-        displayName: displayName.trim(),
-        acceptedTerms: accepted,
-      })
+      // The password travels WITH the redemption. It used to be set by a signup call afterwards,
+      // which could never succeed: redeeming creates the identity, so that signup was registering
+      // an email the previous line had just registered, and the server answered "An account with
+      // this email already exists". The link was confirmed and the creator was stuck one step from
+      // their pages, which is the worst place to fail -- it looks like the invitation was bad.
+      await redeemInvite({ token, displayName: displayName.trim(), password })
+      // Then LOG IN, not sign up: the account exists now. They land on their pages rather than on
+      // a login form having just proved who they are.
+      const session = await login({ email: state.invite.email, password })
       onSignedIn(session)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'That did not work. Please try again.')

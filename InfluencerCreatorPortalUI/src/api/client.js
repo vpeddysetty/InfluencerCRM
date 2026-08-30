@@ -100,11 +100,17 @@ export async function previewInvite(token) {
   return request(`/api/public/creator-invites/preview?token=${encodeURIComponent(token)}`)
 }
 
-/** A POST, so a mail scanner following the link cannot accept the invitation for the creator. */
-export async function redeemInvite({ token, displayName }) {
+/**
+ * A POST, so a mail scanner following the link cannot accept the invitation for the creator.
+ *
+ * <p>The password goes WITH the redemption. Redeeming creates the identity, so setting the
+ * credential afterwards meant signing up an account that already existed -- which the server
+ * refuses, correctly, and which stopped every creator on the last step of accepting.
+ */
+export async function redeemInvite({ token, displayName, password }) {
   return request('/api/public/creator-invites/redeem', {
     method: 'POST',
-    body: { token, displayName },
+    body: { token, displayName, password },
     token: null,
   })
 }
