@@ -193,6 +193,9 @@ Sequenced by *what blocks taking money, safely* — not by size, not by document
 
 *Gate: can a stranger pay us?*
 
+**Payouts:** `§11` adds `PR-47`..`PR-56` and `OP-21` (payments and creator onboarding). Only `OP-21` (0.5d)
+and `PR-47` (5d) belong before the agency conversations — **read §11.5 before scheduling the other ~29 days.**
+
 `OP-18` and `PR-40`..`PR-44` are the creator-handoff plan, detailed in §10. They are listed here because `OP-18` repairs defects that are live in production **now** and should not wait behind a stage boundary. The rest of that block is sequenced but **not yet committed** — §10.4 records a real argument for delivering the same user-visible outcome in ~6 days instead of ~25, and that decision is open.
 
 | ID | Item | Size | Note |
@@ -205,7 +208,7 @@ Sequenced by *what blocks taking money, safely* — not by size, not by document
 | ~~`OP-11`~~ | Stripe Tax — **done 2026-08-21 (test mode)**. Head office set, `txcd_10103001` on both products, `automatic_tax` + `tax_id_collection` on checkout. **Zero registrations by choice**: no nexus at zero revenue, so it computes $0 and collects nothing until one is added. UK/EU deferred — see Decision 8 | 0 | Was: VAT is owed from the first EU/UK sale; retrofitting onto issued invoices is painful |
 | `PR-02` | **Activation** — guided first run, empty states, welcome email, demo seed | 7 | The highest-value product work remaining. Against a free incumbent, activation *is* the product |
 | `OP-19` | **The section editor was blank in production** — ✅ **FIXED AND DEPLOYED 2026-08-27.** `InfluencerContentUI/src/components/SectionEditor.jsx` had lost its entire import block while still referencing `useState`, `useEffect` and `SECTION_TYPES`. Vite built it without a word — bundlers do not resolve undefined globals — so opening the section editor on tejdux.com threw `ReferenceError` and rendered nothing. **Live since 2026-08-25 23:19**, the same evening PR-39 switched `landing_editor = "sections"` on, so this was the editor every brand got. **Confirmed against the deployed bundle rather than inferred:** in `ContentPage-Cj13Gjt3.js`, `SECTION_TYPES` had zero definitions and zero imports, and `useState` (x8), `useEffect` (x3) and `useMemo` (x1) all appeared bare and unminified — an identifier that survives minification unrenamed is one the bundler treated as a global. The shell's copy was correct, so it worked perfectly in local dev: exactly the failure `VITE_USE_REMOTES=true` creates and that CLAUDE.md §1 warns about. **`contentRemoteCopies.test.mjs` could not catch it** — it compares BELOW the header comment so each copy can explain its own duplication, and imports sit above that line; a second assertion now checks the remotes import what they reference, confirmed to fail when the imports are removed again. Deployed by hand (the script needs Terraform outputs that are not available locally) with the same two-pass cache headers and a targeted invalidation. **Verified live:** bare `SECTION_TYPES` 1 -> 0, `useState` 8 -> 0, editor still present. **Found only because PR-44 required reading that file closely enough to reuse it** — which is the first real cost of the duplicated-pages debt `@influencer/ui` is meant to repay | 0.5 | **A third copy of `SectionEditor` lands in PR-44.** That is the point at which the extraction stops being a tidy-up and becomes the fix for a class of bug that has now bitten once |
-| `OP-20` | **Spreadsheet import returned 500 for the commonest mapping there is** — ✅ **FIXED 2026-08-29, awaiting deploy.** A creator roster has no campaign column in it: names, handles, emails, a fee, a notes column. Mapped the obvious way — `creator.name`/`handle`/`email` plus `campaign_creator.agreedFee` — every row built a plan whose `campaignValues` was **null**, because `HydrationRowPlan` nulls each value-group it found nothing for. `resolveCampaignId` then dereferenced that null on its first line; the DAO returned 500, the BFF turned it into **502**, and the user saw an import that simply refused. `resolveCreatorId` had the identical shape. Guarding those alone was **not sufficient**: the resolver legitimately returns null when the row names no campaign this brand already has, and that null reached `campaignRepository.existsById(null)`, which Spring Data rejects outright — so the guard has to sit before the call, not inside it. An unattachable relationship now skips the **link** rather than the row: the creator is still created, because dropping the row would discard the roster the user came to import. **Found by recording the demo against production**, not by a test — which is why the regression test drives the real mapping rather than a synthetic one, and why it was confirmed to fail with the exact production `NullPointerException` before the fix was restored. **Not fixed here:** preview reports `plannedOperationCount: 16` for 8 rows while `created`/`updated`/`skipped` are all `0` — the count is inflated and the breakdown unpopulated. Filed rather than fixed, because it misleads but does not block. **Verified by:** `dao/campaign/application/ImportBatchHydrationServiceTest.java` (3 tests), DAO suite 59 | 0.5 | **Import is the first thing a new account does** — it is step two of the Getting Started checklist, and PR-02 (Activation) is built on it. Every trial user who brought their own spreadsheet hit this. The blast radius is larger than the fix: any mapping that omits one entity, not merely this one |
+| `OP-20` | **Spreadsheet import returned 500 for the commonest mapping there is** — ✅ **FIXED 2026-08-29, awaiting deploy.** A creator roster has no campaign column in it: names, handles, emails, a fee, a notes column. Mapped the obvious way — `creator.name`/`handle`/`email` plus `campaign_creator.agreedFee` — every row built a plan whose `campaignValues` was **null**, because `HydrationRowPlan` nulls each value-group it found nothing for. `resolveCampaignId` then dereferenced that null on its first line; the DAO returned 500, the BFF turned it into **502**, and the user saw an import that simply refused. `resolveCreatorId` had the identical shape. Guarding those alone was **not sufficient**: the resolver legitimately returns null when the row names no campaign this brand already has, and that null reached `campaignRepository.existsById(null)`, which Spring Data rejects outright — so the guard has to sit before the call, not inside it. An unattachable relationship now skips the **link** rather than the row: the creator is still created, because dropping the row would discard the roster the user came to import. **Found by recording the demo against production**, not by a test — which is why the regression test drives the real mapping rather than a synthetic one, and why it was confirmed to fail with the exact production `NullPointerException` before the fix was restored. **Not fixed here:** preview reports `plannedOperationCount: 16` for 8 rows while `created`/`updated`/`skipped` are all `0` — the count is inflated and the breakdown unpopulated. Filed rather than fixed, because it misleads but does not block. **A SECOND defect sat behind the first**, reachable only once the crash was gone: the import then got as far as the database and was rejected there with *"null value in column `content_themes` of relation `creators` violates not-null constraint"*. `content_themes`, `risk_flags` and `vetting_status` arrived later than the rest of the columns and were never added to `CreatorProvisioningService.applyDefaults`. Each is `not null default ...`, which reads as though the database fills it in — it does not: **a Postgres default applies only when the column is OMITTED from the INSERT**, and every one is a mapped field Hibernate always names, so an unset field is written as an explicit NULL and rejected. Exactly the trap `CreatorProvisioningServiceTest` was written for on `campaign_creators`; the creator side had the identical hole and no test. **All** not-null columns on `creator.creators` were then checked against `applyDefaults` rather than only the one the error named — there are no others. Found by reading the **RDS Postgres log** after the `v1.0.37` deploy; two rounds of reasoning from the committed schema had pointed at the wrong column, because the base schema file is stale and Flyway owns the truth. **Verified by:** `dao/campaign/application/ImportBatchHydrationServiceTest.java` (3 tests), `dao/creator/application/CreatorProvisioningServiceTest.java` (+1, confirmed red without the fix), DAO suite 60. Shipped in `v1.0.37` (crash) and `v1.0.38` (defaults) | 1 | **Import is the first thing a new account does** — it is step two of the Getting Started checklist, and PR-02 (Activation) is built on it. Every trial user who brought their own spreadsheet hit this. The blast radius is larger than the fix: any mapping that omits one entity, not merely this one |
 | ~~`OP-18`~~ | **Creator-collaboration foundation repair** — ✅ **SHIPPED 2026-08-27.** five live defects in the already-shipped collaboration path, four verified directly against the code. (a) `saveAsCollaborator` handles only `document`/`blocks`, **not `sections`** — since `PR-39` switched production to the section editor, a creator's edit returns 200 and is silently discarded. (b) The same method drops `scheduledPublishAt`/`hostingExpiresAt`/`firstPublishedAt`; the DAO comment at `LandingService.java:85` states the rule — *"every BFF caller writing this row restates it"* — and `PageCollaborationService` is a BFF caller that does not, so **one creator save silently cancels the brand's scheduled launch**. Extract one shared carry-forward helper, since this has now been got wrong twice, and fix `changeStage` the same way. (c) `decide()` loads the claim by `linkId` alone with no brand comparison; the BFF checks `CREATOR_WRITE` but never that the link is the caller's, and `linkId` comes from the URL — so **any user with `creator:write` in any brand confirms another brand's pending creator claim by guessing a UUID**. Check `brandId` at **both** BFF and DAO. (d) `pagesForCreator`/`requireEditRights` read `brandId` from the grant row and never compare it to the fetched page's, so a malformed grant is cross-brand read+write. (e) No `@Version` on `LandingTemplate` — concurrent brand and creator edits overwrite unrecoverably; add it with a 409 carrying both versions, and make `snapshotVersion` capture `before`, not `saved`. Also: `X-Creator-Token` into `setAllowedHeaders`, and symmetric status on backward stage transitions. **These are the first unit tests either service has had.** **Design:** `docs/Creator-Handoff-Design.md` §1 | 3 | **Two of these are live cross-tenant defects and one is silent data loss, all in production today**, independent of whether the creator portal is ever built. This is the one row worth doing regardless of how §10.4 is resolved — it fixes shipped bugs, not speculative ones. Ordered first because every later row writes through the code it repairs. **Verified by:** `schema/flyway/V44__landing_template_optimistic_lock.sql`, `webe/content/application/LandingTemplateWrites.java`, `webe/content/application/PageCollaborationSaveTest.java` (7 tests), `dao/identity/api/CreatorLinkDecisionTest.java` (4), `dao/content/api/LandingTemplateVersionTest.java` (4). DAO 56, BFF 510. Every defect test was confirmed to FAIL against the unfixed code rather than merely passing against the new one — a regression test that was never red proves nothing. **Two findings worth carrying:** the `sections` omission did not destroy a creator's edit as first thought — the DAO null-guards that column, so the save was *silently ignored* and returned 200, which is harder to diagnose than loss. And `changeStage` had the same `scheduledPublishAt` omission, so dragging a Kanban card cancelled a scheduled launch too; its content columns were never at risk, again because of the DAO's guards |
 | ~~`PR-40`~~ | **Creator auth filter + the `turn` axis** — ✅ **SHIPPED 2026-08-27.** — `CreatorTokenAuthenticationFilter`, and `CREATOR_PORTAL_PATHS` moves from `permitAll()` to `authenticated()`. Today that matcher is `permitAll()` with *all* authentication hand-rolled in controller bodies, and this plan adds six to eight endpoints to that surface: one forgotten `requireCreator(token)` is a fully unauthenticated endpoint serving unpublished pages. The filter makes a forgotten check **fail closed**. `V45` adds `turn` (nullable `brand`&#124;`creator`), `turn_changed_at`, a `page_handoffs` audit table, and `creator_portal_sessions` (**`V44` went to `OP-18`**, which shipped first — the version is a position in the sequence, not an identifier of a plan) — the session map is a `ConcurrentHashMap` today and an ASG roll is the live step of every deploy, so it must be a table before the first real creator uses it. `HandoffMachine` shaped after `LandingStageMachine`; `assertCreatorStageTransition` as one central allowlist defaulting to deny with `PUBLISHED` unreachable unconditionally, rather than restated per endpoint. Idempotency keys are per-occurrence, **not** `templateId:from->to`, because work legitimately loops twice | 5 | The spine. **Stage and turn are orthogonal** — stage answers *how far along*, turn answers *whose move*; a page sits at `content_needed` while the turn bounces three times. Provable end-to-end by `tests/e2e_handoff.sh` before any UI exists. The `permitAll` → `authenticated` flip is the single highest-leverage security change in the plan. **Verified by:** `schema/flyway/V45__creator_handoff.sql`, `webe/security/CreatorTokenAuthenticationFilter.java`, `webe/shared/application/CreatorSessionVerifier.java`, `webe/content/application/HandoffMachine.java`, `dao/identity/domain/CreatorPortalSession.java`, plus tests `CreatorTokenAuthenticationFilterTest` (5), `CreatorSessionStoreTest` (6), `HandoffMachineTest` (6). DAO 56, BFF 528. V45 applied against a real Postgres, re-run for idempotency, both check constraints confirmed to reject bad data. **Three findings worth carrying.** ArchUnit refused the filter's first form — `security` is cross-cutting and may not import a context — so the credential is resolved through a `CreatorSessionVerifier` port in `shared`, mirroring `TokenVerifier`; that also narrowed what crosses the boundary to the creator's id, leaving the token inside the context that mints it. The session store's move was more urgent than its original comment implied: the justification given was "no second instance yet", but an ASG instance refresh is the live step of every deploy, so the map signed out every creator on every release. And `GET /creator-identities/{id}` returns `passwordHash`, so the new `findById` projects to id/email/displayName — closing part of what `PR-41` had been scheduled to fix |
 | ~~`PR-41`~~ | **Tokenised invite + the first creator email** — ✅ **SHIPPED 2026-08-27.** — `creator_invites` with the token SHA-256-hashed at rest, single-use, 7-day expiry, ≥128-bit entropy and rate-limited redemption, following `MemberInvitationService` exactly. Redemption creates the identity and the confirmed link atomically. An expired link lands on "ask Acme for a new one", not a 404. Adds `findById`→email to `DaoCreatorIdentityClient` projecting **only** id/email/displayName, because `GET /creator-identities/{id}` currently returns the whole entity **including `passwordHash`** | 4 | **This is what breaks the bootstrap circularity**: today the only route to a `confirmed` creator link is an out-of-band UUID exchange, which is why the collaboration backend has been dark since Phase G. **Verified by:** `schema/flyway/V46__creator_invites.sql`, `webe/identity/application/CreatorInvitationService.java`, `dao/identity/api/CreatorInviteController.java` (redemption is one transaction), `CreatorInvitationServiceTest` (8 tests). V46 applied against a real Postgres; the partial unique index was confirmed to refuse a second pending invite and to free the slot on revoke. **Not blocked by `OP-06` after all** — a failed send deliberately does not roll the invitation back, and the token is returned to the inviting brand once, so a brand can pass the link on by hand until SES clears. **One bug worth recording:** `EmailPort.send` REPORTS failure rather than throwing it, and the `log` provider — today's configured default — returns `sent=false` having written a line, so a first version that only caught exceptions reported `delivered=true` for mail nobody sent |
@@ -641,6 +644,116 @@ the product is. Those five defects are wrong today, in production, in code that 
 
 ---
 
+## 11. Payments and creator onboarding (added 2026-08-29)
+
+Source: `tejdux-payout-roadmap.md`, drafted 29 Aug 2026. Scope: everything between "campaign ends"
+and "creator has been paid." Entity: KMPS Global Corporation (d/b/a Tejdux).
+
+The pitch it serves: **"You run the campaign. We handle attribution and the payout paperwork."**
+Judge every item below against whether it makes that sentence more true.
+
+### 11.1 What the source document did not know: most of the ledger already exists
+
+The draft reads as a greenfield plan. It is not. Per §1.1 the code outranks the document, and the
+code says all four of its phases are **partly shipped**. Recording this before the table, because
+planning to build `influencer_commissions` a second time is the expensive version of this mistake:
+
+| Draft item | Reality on disk |
+|---|---|
+| 4.1 commission ledger | `influencer_commissions` exists (`V8__coupons_marketplace_commissions.sql`), one row per attributed sale, with `clawed_back` and `void` already in the status vocabulary |
+| 4.2 accrual lifecycle | `dao/finance/application/CommissionService.java` enforces the transitions and emits `CommissionAccrued`/`CommissionApproved`; re-approving a `paid` commission throws rather than silently re-opening a settled obligation |
+| 4.3 batched payout run | `influencer_payouts` is **already a batch** — one row settles many commissions to one creator over a period. `webe/finance/application/PayoutService.java`, `CommissionsPayoutsController.java` and `PayoutsPage.jsx` exist |
+| 1.1/1.2 Stripe + PayPal | `webe/payout/PayoutProvider.java` + `PayoutProviderRegistry.java` exist, with `ManualPayoutProvider` as the shipped default. The SPI javadoc already names Stripe Connect / PayPal / Wise as the intended implementations, and `PR-28` already made `payoutId` the idempotency key **specifically** so a Stripe `Idempotency-Key` or PayPal `sender_batch_id` slots in without redesign |
+| 3.2 order-line attribution | `influencer_sale_attributions.order_line_id` exists (`V2`) — the column the draft calls non-negotiable is already there |
+| 3.2 webhook idempotency | Shipped as `PR-29` (`V35`, `attribution/api/WebhookController.java`) |
+
+**So the honest framing is: this is not four phases of construction. It is one genuinely missing
+piece — creator onboarding, so money has somewhere to go — plus filling in bodies behind ports that
+were built to receive them.** That is a much smaller number than the draft implies, and it is the
+main reason the answer in §11.5 is what it is.
+
+### 11.2 What is genuinely missing
+
+| ID | Item | Size | Note |
+|---|---|---|---|
+| `PR-47` | **Stripe Connect Express onboarding.** Stripe-hosted pages for identity, bank and tax — do not build these screens. `stripe_account_id` + `payouts_enabled` on the creator record, surfaced to the brand. Trigger onboarding at **invitation**, not at payout time | 5 | The one truly blocking item. `PR-40`..`PR-44` already own creator invitation (§10.2), so this is a step added to a flow being built, not a new flow |
+| `PR-48` | **`StripeConnectPayoutProvider`** — a `@Component` implementing the existing `PayoutProvider`, passing `payoutId` as the `Idempotency-Key`. Selected by a `web-experience.payout.provider` property, per the §1 registry pattern | 2 | Small *because* `PR-28` and the SPI already landed |
+| `PR-49` | **Tax collection up front.** W-9 (US) / W-8BEN (non-US) at onboarding, never at payout time. Track cumulative paid-per-creator-per-calendar-year against the $600 1099-NEC threshold. **Enable Stripe Connect's tax reporting rather than building 1099 generation** | 3 | The sequencing is the whole point: chasing paperwork while someone is asking where their money is is the worst possible order |
+| `PR-50` | **PayPal Payouts fallback.** Per-creator payout preference: Stripe default, PayPal (email only) as the escape hatch — lower friction, worse economics | 3 | Justified by a batch-level failure, not a per-creator one: one creator who will not finish Connect onboarding stalls the agency's whole batch |
+| `PR-51` | **Hold period → `cleared`.** The draft's `pending → cleared → paid` needs one new state between the two that exist; the hold matches the merchant's return window (usually 30d) | 2 | `approved` today is an operator decision, not a time-based clearing. These are different things and both are wanted |
+| `PR-52` | **Append-only ledger discipline.** Today `CommissionService` mutates `status` in place. A refund must write a **negative entry**, never edit the original row | 3 | **The difference between a tool an agency trusts and a spreadsheet with extra steps.** Also the only item here that changes shipped code rather than adding to it, so it carries the most regression risk |
+| `PR-53` | **Campaign agreement + e-signature.** Deliverables, rate/structure, commission base, hold period, payment terms. Dropbox Sign or DocuSign; click-to-accept acceptable at small amounts | 5 | Gated on `OP-21` being settled, not on it shipping |
+| `PR-54` | **Attribution priority waterfall.** Code redeemed on the order → deterministic credit; else tracked-link click inside the window → click-ID credit; else unattributed | 3 | Extends the existing coupon spine rather than replacing it |
+| `PR-55` | **Fraud and code-leakage controls.** Self-referral (billing email matches creator), same-IP clusters, abnormal AOV spikes; per-campaign rotation, redemption caps, velocity flags | 4 | Vanity codes reach Honey and RetailMeNot within days — a *when*, not an *if* |
+| `PR-56` | **Payout hygiene.** Minimum payout threshold (~$50) to avoid dust payments, fixed schedule (net-30, monthly), every payout traceable to its ledger entry ids | 1 | Traceability is mostly there already via `payout_id` on the commission row |
+| `OP-21` | **Write the commission base down once, identically, in three places** — the agreement, the UI, and the ledger logic: **net revenue after discount, excluding tax and shipping** | 0.5 | The cheapest item here and the highest ratio of dispute-prevention to effort. `net_amount` and `discount_amount` already exist on `influencer_sale_attributions`; what is missing is that they mean the same thing everywhere |
+
+**Total: ~34.5 days**, of which `PR-47` (5d) is the only hard blocker on anything downstream.
+
+### 11.3 Decisions this needs before the first campaign, not after
+
+These are **not** build items; they are choices that must be settled or the ledger encodes an
+accident. Recorded here because they will otherwise be re-litigated mid-implementation:
+
+- First-touch vs last-touch attribution, and the window (7/30/60 days)
+- Split rules when a code and a *different* creator's link both fire
+- Refund/clawback behaviour — the schema already permits `clawed_back`; nothing decides *when*
+
+### 11.4 Out of scope — decided, not deferred by accident
+
+| Item | Why not |
+|---|---|
+| Creator vetting / audience-quality scoring | Deep, expensive problem the funded platforms compete on. Not the wedge |
+| Smart-contract settlement | Sales and money both live off-chain. An oracle feeding our own numbers keeps every trust assumption while adding crypto complexity. Revisit only for cross-border payouts at volume |
+| Multi-currency / global payouts | US-only for now — consistent with Decision 8 (no UK/EU sales until VAT is registered), not a separate call |
+
+### 11.5 The honest argument — do not complete this before taking it to brands
+
+**Take `PR-47` plus what is already shipped. Not §11.2 in full.** The reasoning is the same shape as
+§10.4 rather than a new one:
+
+**The demo already exists.** §11.1 is the finding that matters commercially. The batched payout run
+the draft calls *"the demo moment — the thing worth showing an agency in the first five minutes"* is
+**already built**, end to end, against `ManualPayoutProvider`. An agency watching a screen cannot see
+whether the money left via Stripe or via the operator's bank app ten minutes later; they see one
+approve replacing an afternoon of individual transfers. That demo is available **now**, and it is
+the one that tests willingness to pay.
+
+**The draft says so itself**, and its closing warning must not be lost in the act of filing it into a
+roadmap: *"the risk with a document like this one is that it becomes a month of building instead of a
+month of asking."* Filing it here without this subsection would do precisely that.
+
+**§2.1 has not changed.** The remaining gap is commercial, not technical. Zero subscribers. ~34 days
+of payout engineering is ~34 days not spent on `PR-02` (activation) or on the ten conversations.
+
+**And the sequencing is inverted for a pre-revenue product.** Phases 2–4 of the draft encode answers
+— attribution window, split rules, hold period, commission base — that ten agency conversations would
+*give* us. Building them first means guessing and then rebuilding. The draft's own parallel track says
+Phases 2–4 "should be shaped by what the conversations turn up"; that is not a nicety, it is the
+argument for not building them yet.
+
+**What is worth building before the conversations, and why each:**
+
+1. **`OP-21`** (0.5d) — the commission base, written down identically in three places. You cannot
+   have a credible pricing conversation without stating precisely what you take a percentage *of*,
+   and getting it wrong in front of an agency is worse than not demoing.
+2. **`PR-47`** (5d) — Stripe Connect onboarding, and the honest argument for starting it slightly
+   early rather than on demand is that Connect approval has an external lead time, like `PR-04`.
+   Nothing downstream of it can move money.
+
+**Total before the conversations: ~5.5 days, not ~34.**
+
+**The trigger to build the rest is an agency saying "we would pay for this, but we need X"** — where
+X names one of `PR-49`..`PR-56`. Then build X, not the phase X belongs to. If no agency names any of
+them, that is information too, bought for 5.5 days instead of 34.
+
+**The caveat against my own answer:** if the first conversation is with an agency already running
+paid campaigns that wants to switch *this month*, then `PR-47` + `PR-48` + `PR-49` (10d) become
+urgent together — you cannot pay a US creator more than $600 in a year without the tax form on file.
+**Do not promise a payout date before `PR-49` exists.**
+
+---
+
 ## Appendix A — Old → new ID crosswalk
 
 | Old | New | Item |
@@ -676,6 +789,7 @@ the product is. Those five defects are wrong today, in production, in code that 
 | DDD 0–6 | `PR-37` | Architecture migration (complete) |
 | GAPS Tier 1 #1/#2 | `PR-20` / `IN-02` | Billing; deploy |
 | EXEC §1 "the tax" | `PR-16` | Duplication cleanup (deferred) |
+| Payout draft Phases 1–4 | `PR-47`..`PR-56`, `OP-21` | Payments and creator onboarding (§11) — the draft's four phases do not map one-to-one, because §11.1 found most of Phase 4 already shipped |
 
 ## Appendix B — Archived documents
 
