@@ -1,5 +1,6 @@
 package com.influencer.dao.identity.api;
 
+import com.influencer.dao.creator.application.CreatorProvisioningPort;
 import com.influencer.dao.identity.domain.CreatorIdentity;
 import com.influencer.dao.identity.domain.CreatorIdentityLink;
 import com.influencer.dao.identity.domain.CreatorInvite;
@@ -20,6 +21,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -51,6 +53,7 @@ class CreatorInviteRedemptionTest {
     private CreatorInviteRepository inviteRepository;
     private CreatorIdentityRepository identityRepository;
     private CreatorIdentityLinkRepository linkRepository;
+    private CreatorProvisioningPort creatorProvisioning;
     private CreatorInviteController controller;
 
     @BeforeEach
@@ -58,17 +61,20 @@ class CreatorInviteRedemptionTest {
         inviteRepository = mock(CreatorInviteRepository.class);
         identityRepository = mock(CreatorIdentityRepository.class);
         linkRepository = mock(CreatorIdentityLinkRepository.class);
-        controller = new CreatorInviteController(inviteRepository, identityRepository, linkRepository);
+        creatorProvisioning = mock(CreatorProvisioningPort.class);
+        controller = new CreatorInviteController(
+                inviteRepository, identityRepository, linkRepository, creatorProvisioning);
 
         CreatorInvite invite = new CreatorInvite();
         invite.setId(UUID.randomUUID());
         invite.setBrandId(BRAND_ID);
-        invite.setCreatorId(CREATOR_ID);
         invite.setEmail("maya@example.com");
         invite.setStatus("pending");
         invite.setExpiresAt(Instant.now().plus(7, ChronoUnit.DAYS));
 
         when(inviteRepository.findByTokenHash(TOKEN_HASH)).thenReturn(Optional.of(invite));
+        when(creatorProvisioning.findOrCreateCreatorForEmail(any(), any(), any()))
+                .thenReturn(CREATOR_ID);
         when(identityRepository.findByEmailIgnoreCase(anyString())).thenReturn(Optional.empty());
         when(linkRepository.findByCreatorIdentityIdAndBrandId(any(), any())).thenReturn(Optional.empty());
         when(identityRepository.save(any(CreatorIdentity.class))).thenAnswer(i -> {
@@ -119,6 +125,40 @@ class CreatorInviteRedemptionTest {
         assertThat(saved.getUpdatedAt()).isNotNull();
         assertThat(saved.getStatus()).isEqualTo("confirmed");
         assertThat(saved.getBrandId()).isEqualTo(BRAND_ID);
+    }
+
+    @Test
+    @DisplayName("an invitation that names no creator resolves one from the invited email")
+    void emailOnlyInvitationResolvesACreator() {
+        controller.redeem(TOKEN_HASH, new CreatorInviteController.RedeemRequest("Maya Okonjo", null));
+
+        // creator_invites.creator_id is nullable and the UI never sets it -- CollaboratorPanel
+        // sends an address and nothing else. creator_identity_links.creator_id is NOT NULL, so
+        // every invitation the product can actually send failed on it until this resolved one.
+        verify(creatorProvisioning).findOrCreateCreatorForEmail(
+                BRAND_ID, "maya@example.com", "Maya Okonjo");
+
+        ArgumentCaptor<CreatorIdentityLink> captor = ArgumentCaptor.forClass(CreatorIdentityLink.class);
+        verify(linkRepository).save(captor.capture());
+        assertThat(captor.getValue().getCreatorId()).isEqualTo(CREATOR_ID);
+    }
+
+    @Test
+    @DisplayName("an invitation that names a creator uses it rather than resolving another")
+    void namedCreatorIsHonoured() {
+        UUID named = UUID.fromString("f0000000-0000-0000-0000-00000000000f");
+        CreatorInvite invite = inviteRepository.findByTokenHash(TOKEN_HASH).orElseThrow();
+        invite.setCreatorId(named);
+
+        controller.redeem(TOKEN_HASH, new CreatorInviteController.RedeemRequest("Maya Okonjo", null));
+
+        // Resolving by email here would attach the invitation to whichever creator happens to hold
+        // that address, silently overriding the row the brand actually chose.
+        verify(creatorProvisioning, never()).findOrCreateCreatorForEmail(any(), any(), any());
+
+        ArgumentCaptor<CreatorIdentityLink> captor = ArgumentCaptor.forClass(CreatorIdentityLink.class);
+        verify(linkRepository).save(captor.capture());
+        assertThat(captor.getValue().getCreatorId()).isEqualTo(named);
     }
 
     @Test

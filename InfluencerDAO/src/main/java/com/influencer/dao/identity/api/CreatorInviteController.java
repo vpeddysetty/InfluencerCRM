@@ -2,6 +2,7 @@ package com.influencer.dao.identity.api;
 
 import com.influencer.dao.identity.domain.CreatorIdentity;
 import com.influencer.dao.identity.domain.CreatorIdentityLink;
+import com.influencer.dao.creator.application.CreatorProvisioningPort;
 import com.influencer.dao.identity.domain.CreatorInvite;
 import com.influencer.dao.identity.infrastructure.CreatorIdentityLinkRepository;
 import com.influencer.dao.identity.infrastructure.CreatorIdentityRepository;
@@ -38,12 +39,16 @@ public class CreatorInviteController {
     private final CreatorIdentityRepository identityRepository;
     private final CreatorIdentityLinkRepository linkRepository;
 
+    private final CreatorProvisioningPort creatorProvisioning;
+
     public CreatorInviteController(CreatorInviteRepository inviteRepository,
                                    CreatorIdentityRepository identityRepository,
-                                   CreatorIdentityLinkRepository linkRepository) {
+                                   CreatorIdentityLinkRepository linkRepository,
+                                   CreatorProvisioningPort creatorProvisioning) {
         this.inviteRepository = inviteRepository;
         this.identityRepository = identityRepository;
         this.linkRepository = linkRepository;
+        this.creatorProvisioning = creatorProvisioning;
     }
 
     @PostMapping
@@ -142,6 +147,21 @@ public class CreatorInviteController {
             return identityRepository.save(created);
         });
 
+        // An invitation is sent to an ADDRESS and usually names no creator row -- that is what V46
+        // exists for, and creator_invites.creator_id is nullable to say so. But the LINK's
+        // creator_id is not-null: the table's whole purpose is recording which brand-side creator
+        // a login speaks for, and two unique indexes are built on that column. So the row has to
+        // be resolved here, matching on the invited email first because the brand has almost
+        // always imported them already.
+        //
+        // Without this, every email-only invitation -- the only kind the UI can send -- failed on
+        // "null value in column creator_id", which the BFF reported as "This invitation is no
+        // longer valid": the token was fine and the brand had no way to tell.
+        UUID creatorId = invite.getCreatorId() != null
+                ? invite.getCreatorId()
+                : creatorProvisioning.findOrCreateCreatorForEmail(
+                        invite.getBrandId(), invite.getEmail(), request.displayName());
+
         // If a link already exists, confirm it rather than adding a second: a creator invited twice
         // must not end up with two rows, which would make revocation remove only one of them.
         CreatorIdentityLink link = linkRepository
@@ -150,7 +170,7 @@ public class CreatorInviteController {
                     CreatorIdentityLink fresh = new CreatorIdentityLink();
                     fresh.setCreatorIdentityId(identity.getId());
                     fresh.setBrandId(invite.getBrandId());
-                    fresh.setCreatorId(invite.getCreatorId());
+                    fresh.setCreatorId(creatorId);
                     // Same reason as the identity above: creator_identity_links.created_at is
                     // not-null with a default the ORM never lets the database apply. updatedAt is
                     // stamped below for both the new and the existing row.

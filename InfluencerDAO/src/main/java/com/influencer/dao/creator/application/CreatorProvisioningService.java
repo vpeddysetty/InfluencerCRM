@@ -8,6 +8,7 @@ import com.influencer.dao.shared.support.AttributeBinder;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -63,6 +64,41 @@ public class CreatorProvisioningService implements CreatorProvisioningPort {
 
         Creator saved = creatorRepository.save(creator);
         return new ProvisionResult(saved.getId(), existing.isEmpty());
+    }
+
+    @Override
+    public UUID findOrCreateCreatorForEmail(UUID brandId, String email, String displayName) {
+        if (email == null || email.isBlank()) {
+            throw new IllegalArgumentException("email is required");
+        }
+        String normalized = email.trim();
+
+        // The brand almost always already has them: an invitation usually follows an import by
+        // minutes. Reusing that row keeps one creator with one set of fees and coupons, instead of
+        // two rows the roster cannot tell apart.
+        List<Creator> existing = creatorRepository.findByBrandIdAndEmailIgnoreCase(brandId, normalized);
+        if (!existing.isEmpty()) {
+            return existing.get(0).getId();
+        }
+
+        Creator creator = new Creator();
+        creator.setBrandId(brandId);
+        creator.setEmail(normalized);
+        creator.setName(displayName == null || displayName.isBlank() ? normalized : displayName.trim());
+        // handle is NOT NULL, so it has to be something, and an invitation carries no platform
+        // identifier at all -- only an address. The local part of the email is the one stable
+        // thing available, prefixed so it is obviously provisional rather than a real Instagram
+        // handle somebody could mistake for one and message.
+        //
+        // It also has to be UNIQUE within (brand, platform, handle), which the email already is
+        // for this brand: this method only reaches here when no creator holds that address.
+        //
+        // The platform is a guess and is recorded as one. Instagram because it is the default
+        // everywhere else in this service, not because the invitation said so.
+        creator.setHandle("invited:" + normalized.split("@")[0]);
+        creator.setPlatform("instagram");
+        applyDefaults(creator, "creator-invitation");
+        return creatorRepository.save(creator).getId();
     }
 
     @Override
