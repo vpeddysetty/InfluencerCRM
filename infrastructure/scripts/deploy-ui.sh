@@ -49,6 +49,17 @@ TARGETS=(
     "commerce:InfluencerCommerceUI"
     "finance:InfluencerFinanceUI"
     "content:InfluencerContentUI"
+    # Not a federated remote: a standalone app on its own host with its own sign-in. It is here
+    # because it was previously deployed BY HAND, which is a step that gets forgotten -- and did:
+    # the invitation fixes shipped in the backend while the portal serving them stayed stale.
+    # Its terraform key is `creator-portal`, deliberately not `creators` (that is
+    # InfluencerCreatorsUI), and the S3 prefix must match the key static-site.tf uses.
+    #
+    # It gets NO .env.production, and that is correct rather than an omission: its only variable is
+    # VITE_API_BASE_URL, which is meant to be empty. Its own CloudFront distribution routes /api/*
+    # to the API origin, so relative URLs reach the BFF from the portal's host. Writing an absolute
+    # one here would send the browser cross-origin for no reason and put the calls back through CORS.
+    "creator-portal:InfluencerCreatorPortalUI"
     "shell:InfluencerUI"
 )
 
