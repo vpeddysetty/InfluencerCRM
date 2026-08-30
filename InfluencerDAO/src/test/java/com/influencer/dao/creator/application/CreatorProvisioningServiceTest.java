@@ -1,6 +1,7 @@
 package com.influencer.dao.creator.application;
 
 import com.influencer.dao.creator.domain.CampaignCreator;
+import com.influencer.dao.creator.domain.Creator;
 import com.influencer.dao.creator.infrastructure.CampaignCreatorRepository;
 import com.influencer.dao.creator.infrastructure.CreatorRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -95,6 +96,48 @@ class CreatorProvisioningServiceTest {
         assertThat(saved.getOutreachStatus()).isEqualTo("contacted");
         // Untouched by the caller, so still defaulted.
         assertThat(saved.getContentReviewStatus()).isEqualTo("not_requested");
+    }
+
+    @Test
+    @DisplayName("an imported creator is given every not-null default the schema declares")
+    void newCreatorGetsSchemaDefaults() {
+        when(creatorRepository.findByBrandIdAndPlatformAndHandle(BRAND_ID, "instagram", "@mayawears"))
+                .thenReturn(Optional.empty());
+        when(creatorRepository.save(any(Creator.class))).thenAnswer(i -> {
+            Creator c = i.getArgument(0);
+            if (c.getId() == null) {
+                c.setId(UUID.randomUUID());
+            }
+            return c;
+        });
+
+        Map<String, Object> attributes = new HashMap<>();
+        attributes.put("handle", "@mayawears");
+        attributes.put("name", "Maya Okonjo");
+        service.findOrCreateCreator(BRAND_ID, BATCH_ID, "creator-roster.csv", attributes);
+
+        ArgumentCaptor<Creator> captor = ArgumentCaptor.forClass(Creator.class);
+        verify(creatorRepository).save(captor.capture());
+        Creator saved = captor.getValue();
+
+        // The three that were missing, and that failed every real import with
+        // "null value in column content_themes ... violates not-null constraint". They are
+        // `not null default ...` in the schema, but a Postgres default applies only when the column
+        // is OMITTED from the INSERT -- and Hibernate always names every mapped field, so an unset
+        // field is written as an explicit NULL and rejected.
+        assertThat(saved.getContentThemes()).isNotNull();
+        assertThat(saved.getRiskFlags()).isNotNull();
+        assertThat(saved.getVettingStatus()).isEqualTo("lead");
+
+        // The ones that were already right, asserted here so a future edit cannot quietly drop one.
+        assertThat(saved.getStatus()).isEqualTo("active");
+        assertThat(saved.getSource()).isEqualTo("creator-roster.csv");
+        assertThat(saved.getCurrency()).isEqualTo("USD");
+        assertThat(saved.getTags()).isNotNull();
+        assertThat(saved.getLanguages()).isNotNull();
+        assertThat(saved.getContentCategories()).isNotNull();
+        assertThat(saved.getAudienceDemographics()).isEqualTo("{}");
+        assertThat(saved.getCustomAttributes()).isEqualTo("{}");
     }
 
     private CampaignCreator captureSaved() {

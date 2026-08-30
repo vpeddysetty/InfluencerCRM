@@ -189,6 +189,28 @@ public class CreatorProvisioningService implements CreatorProvisioningPort {
         if (creator.getCustomAttributes() == null) {
             creator.setCustomAttributes("{}");
         }
+        // These three arrived later than the rest and were never added here, so an imported creator
+        // failed on the first row with "null value in column content_themes ... violates not-null
+        // constraint" -- a 400 the user could do nothing about, on the commonest import there is.
+        //
+        // Each is `not null default ...` in the schema, which reads as though the database fills it
+        // in. It does not: a Postgres default applies only when the column is OMITTED from the
+        // INSERT, and every one of these is a mapped field that Hibernate always names, so an unset
+        // field is written as an explicit NULL and rejected. That is the same trap
+        // CreatorProvisioningServiceTest was written for on campaign_creators; the creator side had
+        // the identical hole and no test.
+        //
+        // Values mirror the schema exactly. A mismatch means a row imported through this path
+        // differs from one the database defaulted, which is worse than either.
+        if (creator.getContentThemes() == null) {
+            creator.setContentThemes(new String[0]);
+        }
+        if (creator.getRiskFlags() == null) {
+            creator.setRiskFlags(new String[0]);
+        }
+        if (creator.getVettingStatus() == null) {
+            creator.setVettingStatus("lead");
+        }
     }
 
     private String text(Object value) {
