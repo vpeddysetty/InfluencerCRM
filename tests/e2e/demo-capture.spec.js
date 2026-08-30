@@ -586,10 +586,10 @@ async function acceptAndEdit(creatorPage) {
     await clickIfPresent(creatorPage,
       creatorPage.getByRole('button', { name: /Accept and get started/i }), 6000)
 
-    // Into the page they were handed. Named loosely because the portal's list is one row today and
-    // its label is the page's name, which the brand chose.
-    await clickIfPresent(creatorPage,
-      creatorPage.getByRole('button', { name: /Open|Edit|Autumn/i }), 4000)
+    // Into the page they were handed. Located by class, not by name: the card is a button whose
+    // only label is the page's own name -- which the BRAND typed -- so matching on text would tie
+    // this capture to a string chosen four beats earlier and elsewhere.
+    await clickIfPresent(creatorPage, creatorPage.locator('button.cp-card'), 4000)
     await creatorPage.mouse.wheel(0, 400)
   } catch {
     // Deliberately swallowed -- see runImport.
