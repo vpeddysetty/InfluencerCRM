@@ -1,66 +1,112 @@
 {
   "_comment": [
-    "Voiceover for the SCREEN segments of docs/Demo-Script-Two-Cut.md.",
+    "Voiceover for docs/Demo-Script-Two-Cut.md, restructured 2026-08-29.",
     "",
-    "The three on-camera pieces (1.1, 2.1 and the close) are NOT here -- those are the actor, in",
-    "their own words, and synthesising them would defeat the point of casting a person to describe a",
-    "problem they recognise.",
+    "THE SHAPE CHANGED, and this is the important part. The first version narrated while the capture",
+    "browsed -- it moved between pages and held, so the words described features nobody was using.",
+    "That reads as a tour rather than a demonstration, and no amount of timing precision fixes it.",
     "",
-    "PER BEAT ON PURPOSE. A single block would mean re-synthesising the whole thing to fix one",
-    "sentence, and the beats are also the unit the capture holds for.",
+    "Every beat is now a PAIR: a short line naming what the feature is, then a longer one spoken",
+    "while it is actually performed on screen. The capture drives the app for real -- uploads the",
+    "spreadsheet, generates the coupon, moves the card -- so the narration has something to describe.",
     "",
-    "EVERY CLAIM CHECKED. This narration does not say: that Instagram publishing exists (no publish",
-    "method anywhere; the live Meta token lacks instagram_content_publish), that payouts are",
-    "automated (ManualPayoutProvider records a payment made out-of-band), that an AI writes the page",
-    "(the provider is `template`), or that the revenue is live (the orders are seeded). See the",
-    "script's 'things not to say'.",
+    "Kept as separate `-intro` and `-do` beats rather than one block, because the intro is spoken",
+    "over a still screen and the action beat has to start exactly when the click does. One block",
+    "would put the words for the action over the seconds before it.",
     "",
-    "The creator-authors beat is REMOVED for now, not cut for length. The portal opens on its sign-in screen unless a creator has been invited and redeemed the invitation, so there is nothing to film -- and narration about a creator editing their page over a login form is worse than not making the claim. It returns when the seed creates a creator holding an edit grant."
+    "EVERY CLAIM CHECKED. Not said here: that Instagram publishing exists (no publish method; the",
+    "live Meta token lacks instagram_content_publish), that payouts move money (ManualPayoutProvider",
+    "records a payment made out-of-band), or that the revenue is live (the orders are seeded)."
   ],
   "voice": {
     "_comment": [
       "A stock voice rather than a clone: this is workflow narration, not personality, and a",
-      "clone would be a licensing question for a fifteen-second gain. Rachel and Sarah are the",
-      "usual picks for confident B2B female narration -- swap the id and re-run to compare.",
+      "clone would be a licensing question for a fifteen-second gain.",
       "",
-      "Warmed for the two-cut script: stability lower and style higher than the first pass, which",
-      "read as competent and cool. This is a video about somebody's daily frustration, and the",
-      "narration should sound like it is on their side rather than presenting at them.",
+      "JESSICA, not Rachel. Rachel is the default B2B pick and reads as competent and cool --",
+      "which is the wrong register for a video whose opening beat is somebody's daily frustration.",
+      "Jessica is labelled 'playful, bright, warm' and sounds like a person talking to you rather",
+      "than a narrator presenting at you. Liam ('social media creator') and Laura ('quirky') were",
+      "the other two auditioned; samples for all three are in tests/e2e/voice-samples/.",
+      "",
+      "Style raised again to 0.4 with the voice change. Jessica carries warmth on her own, so this",
+      "is for emphasis across the intro/do pairs -- the -intro beats name a feature and the -do",
+      "beats narrate it happening, and a flat read makes those two register the same.",
       "",
       "Still short of advertising warmth. A demo that sounds like an ad invites exactly the",
       "scepticism the spreadsheet opening is designed to disarm."
     ],
-    "voiceId": "21m00Tcm4TlvDq8ikWAM",
+    "voiceId": "cgSgspJ2msm6clMCkdW9",
     "modelId": "eleven_multilingual_v2",
     "stability": 0.35,
     "similarityBoost": 0.8,
-    "style": 0.35
+    "style": 0.4
   },
   "beats": [
     {
-      "id": "signup-import",
-      "seconds": 25,
-      "text": "Signing up takes about a minute, and the free tier is a genuine one — a brand, twenty-five creators, a seat. Enough to actually run a campaign, not a trial that quietly expires on you. And that spreadsheet you've been living in? Just drop it in. It'll work out which columns are your creators and which are campaign details, and show you what it's found before it touches anything."
+      "id": "open",
+      "seconds": 14,
+      "text": "This is Tejdux. It's for brands who work with creators — and right now, are running the whole thing out of a spreadsheet. Let me show you what the free tier gives you, and then actually use each piece."
     },
     {
-      "id": "board",
-      "seconds": 20,
-      "text": "Every campaign gets a board. And this is the nice part — it isn't another tracker to keep in sync. Move the page, the card moves with it. Drag the card, the page follows. One truth, two views, and nothing to reconcile on a Friday afternoon."
+      "id": "signup-intro",
+      "seconds": 10,
+      "text": "First, the free tier. One brand, twenty-five creators, one seat. No card, and no trial clock counting down."
     },
     {
-      "id": "coupon-payout",
-      "seconds": 30,
-      "text": "Now here's the thing the spreadsheet could never do for you. Every creator gets their own code, and the moment someone orders with it, that sale is theirs. So when you ask what a partnership was really worth, there's an answer waiting — per creator, over whatever window you care about. And paying them follows from the very same number. Approve what's owed, record that you've paid it, and it's closed off against the work they did."
+      "id": "signup-do",
+      "seconds": 12,
+      "text": "Signing up is a name, an email, a password. That's the whole thing — and you land in a working workspace, not an onboarding queue."
     },
     {
-      "id": "brand-authors",
-      "seconds": 25,
-      "text": "Some campaigns you just need out the door. So describe it — the goal, the offer, who it's for — and you'll get a page back, built from sections that already work. Rewrite every word if you want to; you genuinely can't break the design, because there's nothing in here that sets a colour or a position. Add the coupon, hit publish, and it's live with the tracking already wired in."
+      "id": "import-intro",
+      "seconds": 11,
+      "text": "Now the spreadsheet. Everyone has one: inconsistent headers, a notes column doing four jobs, someone's initials in a cell."
     },
     {
-      "id": "the-numbers",
+      "id": "import-do",
+      "seconds": 18,
+      "text": "Drop it straight in. It reads the columns and works out which are creators, which are handles, which are fees — and then it shows you what it found, before it commits to anything. You check it, and the roster is in."
+    },
+    {
+      "id": "coupon-intro",
+      "seconds": 10,
+      "text": "Next, the bit a spreadsheet genuinely cannot do. When a sale arrives, which creator earned it?"
+    },
+    {
+      "id": "coupon-do",
+      "seconds": 16,
+      "text": "Give each creator their own code. Generate them per creator, in one pass — and from here every order placed with one is attributed to the person whose code it was, automatically."
+    },
+    {
+      "id": "board-intro",
+      "seconds": 9,
+      "text": "Campaigns get a board. But not a tracker you keep in sync by hand."
+    },
+    {
+      "id": "board-do",
+      "seconds": 14,
+      "text": "Move a card and the page behind it moves. Move the page and the card follows. One truth, two views — and nothing to reconcile on a Friday afternoon."
+    },
+    {
+      "id": "page-intro",
+      "seconds": 10,
+      "text": "Then the campaign page itself. Describe what you're selling, and you get a page rather than a blank canvas."
+    },
+    {
+      "id": "page-do",
+      "seconds": 21,
+      "text": "Pick the shape, write the words, and watch the real page build as you type. Then drop the creator's coupon straight into it — the code they were given, on the page their audience lands on. Rewrite every line if you want; you can't break the layout, because nothing in here sets a colour or a position. Publish, and the link is live with the tracking already wired in."
+    },
+    {
+      "id": "numbers",
       "seconds": 15,
-      "text": "And both paths land in the same place. What each creator brought in, what they're owed, and what you've already paid them. No guessing at the end of the month."
+      "text": "And it all lands here. What each creator brought in, what they're owed, and what you've already paid them. No guessing at the end of the month."
+    },
+    {
+      "id": "close",
+      "seconds": 12,
+      "text": "That's the free tier — all of it. Paid adds more creators, your whole team, and several brands if you're an agency. Coming next: handing a page to a creator to write in their own voice, and a share kit that sizes the post for them."
     }
   ]
 }

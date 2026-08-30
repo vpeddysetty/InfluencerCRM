@@ -5,42 +5,57 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const OUT_DIR = join(dirname(fileURLToPath(import.meta.url)), 'artifacts')
+const HERE = dirname(fileURLToPath(import.meta.url))
+const OUT_DIR = join(HERE, 'artifacts')
+const FIXTURES = join(HERE, 'fixtures')
 
 /**
- * Records the six beats of the product demo, in order (docs/Demo-Script-Collaborative-Drop.md).
+ * Records the product demo: each feature is named, then performed.
+ *
+ * <p><b>The shape changed, and this is the point.</b> The first version signed into a seeded
+ * workspace and NAVIGATED -- it moved between pages and held on each, so the narration described
+ * features nobody was operating. That reads as a tour rather than a demonstration, and no amount of
+ * timing precision fixes it, because the problem was never the timing. Here the spreadsheet is
+ * really uploaded and hydrated, the coupons are really generated, the page is really built. The
+ * words have something to describe because something is happening.
+ *
+ * <p><b>It signs UP rather than signing in.</b> Opening on a populated workspace skips the thing a
+ * prospect most wants to see -- how little work it is to get started. The workspace is therefore
+ * built on camera, which also means this no longer depends on seed-demo-workspace.mjs.
+ *
+ * <p><b>Beats come in pairs.</b> An `-intro` is spoken over a still screen while the viewer reads
+ * what is there; the `-do` begins exactly when the click does. One combined beat would put the
+ * words for the action over the seconds before it, which is the same desync in miniature.
+ *
+ * <p><b>A campaign is created inside the import beat</b>, not given one of its own. Both the bulk
+ * coupon generator and the landing page builder are gated on a campaign existing -- with none, the
+ * two beats after this film a disabled button and the note "Pick a campaign above". It rides along
+ * with the import because that beat is already about getting your data in, and the narration line
+ * ends on "the roster is in" either way.
  *
  * <p><b>This is a recording, not a test.</b> It asserts almost nothing on purpose: a failed
- * assertion mid-way leaves a truncated clip, and the deliverable here is footage rather than a
- * verdict. The suite next door is what proves the product works; this proves nothing and shows it.
- *
- * <p><b>Paced for narration, not for speed.</b> Every other spec in this directory races; this one
- * holds. The durations below are the seconds each beat gets in the script, and they exist so the
- * voiceover drops onto the footage without re-editing. A capture that runs faster than the words
- * is a capture somebody has to slow down by hand afterwards.
- *
- * <p><b>Runs against a SEEDED workspace</b> — `node tests/e2e/seed-demo-workspace.mjs` first, then
- * pass the credentials it prints. An empty workspace films an empty product, which is the one
- * thing the demo must not show.
+ * assertion mid-way leaves truncated footage, and the deliverable here is footage rather than a
+ * verdict. The suite next door is what proves the product works.
  *
  * <p>Usage:
  * <pre>
- *   node tests/e2e/seed-demo-workspace.mjs
- *   DEMO_EMAIL=... DEMO_PASSWORD=... npx playwright test demo-capture.spec.js
- *   node tests/e2e/build-video.mjs
+ *   npx playwright test demo-capture.spec.js
+ *   node tests/e2e/build-demo.mjs
  * </pre>
  */
 
-const EMAIL = process.env.DEMO_EMAIL
-const PASSWORD = process.env.DEMO_PASSWORD
 const BASE = process.env.E2E_BASE_URL || 'https://tejdux.com'
 
-/**
- * Seconds per beat, from the script.
- *
- * <p>Held as data rather than inline sleeps so the narration manuscript and the capture cannot
- * drift: if a beat's voiceover runs long, this is the one place to change.
- */
+// Unique per run: signup is real, and a reused address collides with the previous take's account.
+const STAMP = Date.now().toString().slice(-8)
+const DEMO = {
+  name: 'Ari Mendel',
+  brand: 'Linen & Trail',
+  email: `demo.${STAMP}@tejdux.test`,
+  password: 'DemoPass123!',
+  campaign: 'Autumn Layers',
+}
+
 // Measured from the rendered narration, not estimated -- demo-narrate.mjs prints the real
 // durations and flags any beat that outruns its hold.
 //
@@ -50,11 +65,19 @@ const BASE = process.env.E2E_BASE_URL || 'https://tejdux.com'
 // words. The capture now RECORDS where each beat actually began and writes those marks out for the
 // render to cut on -- measuring beats guessing, and the guess compounds.
 const BEAT = {
-  signupImport: 24,
-  board: 15,
-  couponPayout: 29,
-  brandAuthors: 26,
-  theNumbers: 11,
+  open: 14,
+  signupIntro: 10,
+  signupDo: 12,
+  importIntro: 11,
+  importDo: 18,
+  couponIntro: 10,
+  couponDo: 16,
+  boardIntro: 9,
+  boardDo: 14,
+  pageIntro: 10,
+  pageDo: 25,
+  numbers: 15,
+  close: 17,
 }
 
 /**
@@ -83,7 +106,7 @@ async function hold(page, seconds) {
  * footage of a script running.
  */
 async function pointAndClick(page, locator) {
-  const box = await locator.boundingBox()
+  const box = await locator.boundingBox().catch(() => null)
   if (box) {
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 18 })
     await page.waitForTimeout(300)
@@ -91,76 +114,321 @@ async function pointAndClick(page, locator) {
   await locator.click()
 }
 
+/**
+ * Type at reading speed.
+ *
+ * <p>fill() lands the whole string in one frame, which on video looks like a paste and gives the
+ * narration nothing to sit over. The delay is the shot.
+ */
+async function typeInto(page, locator, text) {
+  await locator.click()
+  await locator.pressSequentially(text, { delay: 55 })
+}
+
+/**
+ * Wait for a control, then click it. Every step of every -do beat goes through this or its kin.
+ *
+ * <p><b>It WAITS rather than glancing.</b> The first version asked `count()` once and treated zero
+ * as absent -- but these are module-federation remotes, and `networkidle` fires before the remote's
+ * bundle has mounted, so the count is legitimately 0 for a moment on every navigation. Measured on
+ * production: "New campaign" reads 0 immediately after networkidle and 1 after an explicit wait.
+ * That single glance cost a whole take -- no campaign was created, so the coupon beat filmed "Pick
+ * a campaign to see how many coupons will be generated" and the page beat filmed the same refusal.
+ *
+ * <p>A miss still returns false rather than throwing, for the reason every catch here is empty: one
+ * shot short is recoverable in an edit, and a take that dies at beat five is not.
+ */
+async function clickIfPresent(page, locator, settle = 1500, timeout = 20_000) {
+  try {
+    await locator.first().waitFor({ state: 'visible', timeout })
+  } catch {
+    return false
+  }
+  await pointAndClick(page, locator.first()).catch(() => {})
+  await page.waitForTimeout(settle)
+  return true
+}
+
+/** Same wait-then-act contract as clickIfPresent, for fields. */
+async function typeIfPresent(page, locator, text, timeout = 20_000) {
+  try {
+    await locator.first().waitFor({ state: 'visible', timeout })
+  } catch {
+    return false
+  }
+  await typeInto(page, locator.first(), text).catch(() => {})
+  return true
+}
+
 test.describe('Demo', () => {
-  test.skip(!EMAIL || !PASSWORD,
-    'Set DEMO_EMAIL and DEMO_PASSWORD from seed-demo-workspace.mjs output')
+  test('The free tier, feature by feature', async ({ page }) => {
+    // Generous: thirteen beats plus real work against production. A timeout mid-capture wastes the
+    // entire take, and there is no cheap way to resume one.
+    test.setTimeout(20 * 60 * 1000)
+    mkdirSync(OUT_DIR, { recursive: true })
 
-  test('The collaborative drop', async ({ page }) => {
-    // Generous: this is six beats plus page loads, and a timeout mid-capture wastes the whole take.
-    test.setTimeout(5 * 60 * 1000)
-
-    // Sign-in is a TAB on the landing page, not a /login route -- the first version assumed a
-    // route and getByLabel, and timed out on a form that was never rendered.
-    //
-    // Anchored names throughout: "Log in" is the tab, "Enter workspace" is the submit, and a loose
-    // /log in/i matches the tab when you meant the button. brand-owner-journey records the same
-    // trap on the signup side, where clicking the tab silently never posts the form.
-    await page.goto(BASE)
-    await page.getByRole('button', { name: /^Log in$/ }).click()
-    await page.fill('input[name="email"]', EMAIL)
-    await page.fill('input[name="password"]', PASSWORD)
-    await page.getByRole('button', { name: /^Enter workspace$/i }).click()
-    await page.waitForURL(/\/(workflow|dashboard|campaigns)/, { timeout: 90_000 })
-    await page.waitForLoadState('networkidle')
-
-    // The clock starts once the app is loaded and the login is off screen -- the recording begins
-    // at page.goto, so the sign-in is footage the narration never covers.
+    // ---- open: the landing page -------------------------------------------
+    await page.goto(BASE, { waitUntil: 'domcontentloaded' })
+    await page.waitForLoadState('networkidle').catch(() => {})
     recordingStart = Date.now()
+    mark('open')
+    await hold(page, BEAT.open)
 
-    // ---- signup-import ----------------------------------------------------
-    // The import screen, held. The actual spreadsheet drag is done on the day with a real file: a
-    // seeded upload would film a mapping of invented columns, which is the one part of this scene
-    // that has to look like somebody's real spreadsheet.
-    await gotoSection(page, /import/i)
-    mark('signup-import')
-    await hold(page, BEAT.signupImport)
+    // ---- signup: what the free tier is, then taking it ---------------------
+    // The plan comparison lives further down the landing page, so the intro is spoken over the
+    // actual pricing rather than over a form -- the viewer reads the limits while they hear them.
+    mark('signup-intro')
+    await page.mouse.wheel(0, 500)
+    await hold(page, BEAT.signupIntro)
+    await page.mouse.wheel(0, -500)
 
-    // ---- board ------------------------------------------------------------
-    await gotoSection(page, /workflow|board/i)
-    mark('board')
-    await hold(page, BEAT.board)
+    // "Sign up" is a TAB on the landing page, not a /signup route. Anchored ^...$ because a loose
+    // /sign up/i also matches the submit button; brand-owner-journey records the same trap, where
+    // clicking the wrong one silently never posts the form.
+    await pointAndClick(page, page.getByRole('button', { name: /^Sign up$/ }).first())
+    mark('signup-do')
+    await typeInto(page, page.locator('input[name="fullName"]'), DEMO.name)
+    await typeInto(page, page.locator('input[name="brand"]'), DEMO.brand)
+    await typeInto(page, page.locator('input[name="email"]'), DEMO.email)
+    await typeInto(page, page.locator('input[name="password"]'), DEMO.password)
 
-    // ---- coupon-payout ----------------------------------------------------
-    // Two shots under one beat: the coupons themselves, then what they add up to. Marked at the
-    // first, so the narration starts with the codes on screen.
-    await gotoSection(page, /coupon/i)
-    mark('coupon-payout')
-    await hold(page, BEAT.couponPayout / 2)
-    await gotoSection(page, /finance|payout/i)
-    await hold(page, BEAT.couponPayout / 2)
+    // Consent gates submission: without this tick the button stays disabled and the click below can
+    // never land. This is what broke brand-owner-journey.spec.js for three weeks.
+    await page.locator('input[name="acceptedTerms"]').check()
+    await pointAndClick(page, page.getByRole('button', { name: /^Create workspace$/i }))
+    await page.waitForURL(/\/(workflow|dashboard|campaigns)/, { timeout: 120_000 })
+    await page.waitForLoadState('networkidle').catch(() => {})
+    await hold(page, BEAT.signupDo)
 
-    // ---- brand-authors ----------------------------------------------------
-    await gotoSection(page, /content|pages/i)
-    mark('brand-authors')
-    await hold(page, BEAT.brandAuthors)
+    // ---- import: the spreadsheet, actually uploaded and committed ----------
+    await gotoSection(page, /^Import$/i)
+    mark('import-intro')
+    await hold(page, BEAT.importIntro)
 
-    // ---- the-numbers ------------------------------------------------------
-    await gotoSection(page, /dashboard|analytic/i)
-    mark('the-numbers')
-    await hold(page, BEAT.theNumbers)
+    mark('import-do')
+    await runImport(page)
+    await createCampaign(page)
+    await hold(page, BEAT.importDo)
 
-    // NO CREATOR BEAT. The portal opens on its sign-in screen unless a creator has been invited
-    // and has redeemed the invitation, and filming a login form under narration about a creator
-    // editing their page would be worse than leaving the beat out. It returns when the seed
-    // creates a creator holding an edit grant -- see docs/Demo-Script-Two-Cut.md beat 2.3.
+    // ---- coupons: generated per creator ------------------------------------
+    await gotoSection(page, /^Coupons$/i)
+    mark('coupon-intro')
+    await hold(page, BEAT.couponIntro)
+
+    mark('coupon-do')
+    await generateCoupons(page)
+    await hold(page, BEAT.couponDo)
+
+    // ---- board -------------------------------------------------------------
+    await gotoSection(page, /^Board$/i)
+    mark('board-intro')
+    await hold(page, BEAT.boardIntro)
+
+    mark('board-do')
+    await page.mouse.wheel(0, 250)
+    await hold(page, BEAT.boardDo)
+    await page.mouse.wheel(0, -250)
+
+    // ---- the page, with the coupon on it -----------------------------------
+    await gotoSection(page, /^Content$/i)
+    mark('page-intro')
+    await hold(page, BEAT.pageIntro)
+
+    mark('page-do')
+    await authorPage(page)
+    await hold(page, BEAT.pageDo)
+
+    // ---- the numbers -------------------------------------------------------
+    await gotoSection(page, /^Revenue$/i)
+    mark('numbers')
+    await hold(page, BEAT.numbers)
+
+    // ---- close -------------------------------------------------------------
+    mark('close')
+    await hold(page, BEAT.close)
 
     writeFileSync(join(OUT_DIR, 'beat-marks.json'), JSON.stringify(marks, null, 2))
 
-    // Nothing is asserted. See the header: a failed assertion here truncates the footage, and
-    // proving the product works is the job of every other spec in this directory.
-    expect(true).toBe(true)
+    // Nothing is asserted about the product. See the header: a failed assertion here truncates the
+    // footage, and proving the product works is the job of every other spec in this directory.
+    // The one check is that every beat was recorded, because a short marks file renders as silence
+    // over a still frame and is worth failing on -- and it runs after the marks are safely written.
+    expect(marks.length).toBe(13)
   })
 })
+
+/**
+ * Upload the roster and commit it, on camera.
+ *
+ * <p>Upload alone creates nothing. The real flow is upload -> the visual mapper populates from the
+ * headers -> "Run preview" (a dry run, which reports planned ops) -> "Hydrate records" (the commit).
+ * The preview step is filmed because it is the narration's actual claim -- that it shows you what
+ * it found before it commits to anything -- and skipping straight to hydrate would make that line
+ * a thing the viewer has to take on trust.
+ */
+async function runImport(page) {
+  try {
+    // The visible drop zone opens a file chooser on click; the input behind it is what
+    // setInputFiles needs, and it is reachable without the dialog.
+    await page.locator('input[type="file"]').first()
+      .setInputFiles(join(FIXTURES, 'creator-roster.csv'))
+    await page.waitForLoadState('networkidle').catch(() => {})
+    await page.waitForTimeout(3000)
+
+    // Uploading only completes step 1. The page says so -- "Click a file name in the summary to
+    // view columns" -- and steps 2 to 4 stay empty until the batch is selected. A take was lost to
+    // assuming the upload was the whole interaction.
+    await clickIfPresent(page, page.getByRole('button', { name: /creator-roster\.csv/i }), 3500)
+
+    await resolveMapping(page)
+
+    // "Check before importing" then "Import N records" -- NOT "Run preview"/"Hydrate records".
+    // Those are the labels in InfluencerCampaignsUI's ImportPage, which is the remote; production
+    // serves the SHELL's bundled InfluencerUI/src/pages/ImportPage.jsx, a later redesign built
+    // around four numbered steps. Confirmed from the footage, which showed "Choose your file".
+    await clickIfPresent(page, page.getByRole('button', { name: /Check before importing/i }), 5000)
+    await clickIfPresent(page, page.getByRole('button', { name: /^Import \d+ records?$/i }), 6000)
+  } catch {
+    // Deliberately swallowed -- a half-finished import is a shot that can be trimmed, whereas a
+    // throw here loses the six beats after it and the whole take with them.
+  }
+}
+
+/**
+ * Answer the four columns the auto-matcher will not guess.
+ *
+ * <p>The roster is deliberately messy, so "IG handle", "email addr", "Followers" and "Notes" all
+ * arrive flagged: each defaults to entity `campaign` with an EMPTY attribute, and step 3 stays
+ * disabled while any row is unresolved. That is the product behaving correctly -- it asks rather
+ * than guessing, which is the narration's actual claim -- so the capture answers rather than
+ * avoiding the question with a tidy fixture.
+ *
+ * <p>Written through the advanced JSON editor in ONE assignment rather than by driving the two
+ * selects per card. Changing a card's entity re-renders it and re-orders the flagged list, so a
+ * handle to its sibling select goes stale mid-edit: driving the selects timed out on every row,
+ * and merely re-picking the same value cleared the flag while leaving the mapping wrong -- which
+ * imported eight blank campaigns and no usable creators.
+ */
+async function resolveMapping(page) {
+  const MAPPING = [
+    { spreadsheetColumn: 'Creator Name', targetEntity: 'creator', targetAttribute: 'name' },
+    { spreadsheetColumn: 'IG handle', targetEntity: 'creator', targetAttribute: 'handle' },
+    { spreadsheetColumn: 'email addr', targetEntity: 'creator', targetAttribute: 'email' },
+    { spreadsheetColumn: 'Followers', targetEntity: 'creator', targetAttribute: 'customAttributes' },
+    { spreadsheetColumn: 'agreed fee', targetEntity: 'campaign_creator', targetAttribute: 'agreedFee' },
+    { spreadsheetColumn: 'Notes', targetEntity: 'campaign_creator', targetAttribute: 'customAttributes' },
+  ]
+  try {
+    await clickIfPresent(page, page.locator('details').first(), 1200)
+    const editor = page.locator('textarea').first()
+    await editor.waitFor({ state: 'visible', timeout: 15_000 })
+    await editor.fill(JSON.stringify(MAPPING, null, 2))
+    await page.waitForTimeout(2500)
+  } catch {
+    // Deliberately swallowed -- see runImport.
+  }
+}
+
+/**
+ * Create the campaign the next two beats need.
+ *
+ * <p>Not its own beat -- see the header. Bulk coupons and the landing page builder are both gated
+ * on one existing, and a fresh signup has none unless the import mapping happened to target a
+ * campaign column, which this roster does not.
+ */
+async function createCampaign(page) {
+  try {
+    await gotoSection(page, /^Campaigns$/i)
+    // Two ways in, and which one is on screen depends on whether the workspace is empty: the header
+    // carries "New campaign", the empty state carries "Create your first campaign". Anchored, and
+    // tried in turn -- not `.first()` on a loose pattern, because "New campaign" is ALSO the
+    // drawer's own title once it opens.
+    const opened =
+      (await clickIfPresent(page, page.getByRole('button', { name: /^New campaign$/ }), 1200)) ||
+      (await clickIfPresent(page, page.getByRole('button', { name: /^Create your first campaign$/ }), 1200))
+    if (!opened) {
+      return
+    }
+    await typeIfPresent(page, page.locator('#campaign-name'), DEMO.campaign)
+    await typeIfPresent(page, page.locator('#campaign-budget'), '6000')
+    await clickIfPresent(page, page.getByRole('button', { name: /^Create campaign$/i }), 3000)
+  } catch {
+    // Deliberately swallowed -- see runImport.
+  }
+}
+
+/**
+ * Generate a code for every creator on the campaign, in one pass.
+ *
+ * <p>Bulk rather than single, because "one per creator, automatically" is the narration's claim and
+ * filming one code being typed by hand would contradict it. The button's label carries the count
+ * ("Generate 8 coupons"), so it is matched loosely on the verb.
+ */
+async function generateCoupons(page) {
+  try {
+    await clickIfPresent(page, page.getByRole('button', { name: /Bulk \(per campaign\)/i }), 1500)
+
+    // The first select in the bulk form is the campaign picker, and it is required -- the submit
+    // stays disabled until it names a campaign with creators on it, which is exactly what the
+    // previous take filmed instead of coupons.
+    const campaign = page.locator('select').first()
+    await campaign.waitFor({ state: 'visible', timeout: 20_000 }).catch(() => {})
+    await campaign.selectOption({ label: DEMO.campaign }).catch(() => {})
+    await page.waitForTimeout(1500)
+
+    await typeIfPresent(page, page.getByPlaceholder('Discount value'), '15')
+    await clickIfPresent(page, page.getByRole('button', { name: /^Generate .*coupons?$/i }), 4000)
+  } catch {
+    // Deliberately swallowed -- see runImport.
+  }
+}
+
+/**
+ * Build the campaign page on camera, coupon block included.
+ *
+ * <p>The BUILDER, not the section editor. `web-experience.landing.editor` defaults to `builder` and
+ * is set nowhere in terraform, so that is what production serves and what this films; the section
+ * editor's controls are different and would match none of the below. If the flag is ever turned on,
+ * this function is what has to change.
+ *
+ * <p>The coupon block is the reason this beat exists -- the creator's own code, on the page their
+ * audience lands on. It renders `{{coupon.code}}` per creator, which is the whole argument for
+ * building the page here rather than in a page builder that knows nothing about the roster.
+ */
+async function authorPage(page) {
+  try {
+    // Campaign first: the builder shows only "Pick a campaign above" until one is chosen.
+    const campaign = page.locator('select').first()
+    await campaign.waitFor({ state: 'visible', timeout: 20_000 }).catch(() => {})
+    await campaign.selectOption({ label: DEMO.campaign }).catch(() => {})
+    await page.waitForTimeout(2000)
+
+    // The page-name input carries no id, name or placeholder -- only an unassociated <label> above
+    // it, so getByLabel cannot reach it either. Anchored to that label instead. A plain
+    // `input[type=text]` .first() picks up the campaign BRIEF's hashtag field, which renders above
+    // the builder once a campaign is chosen: the previous take typed the page title into
+    // "Required hashtags" and left the page unnamed.
+    const pageName = page.locator('label.auth-label', { hasText: /^Page name$/ })
+      .locator('xpath=following-sibling::input[1]')
+    if (await pageName.isVisible().catch(() => false)) {
+      await pageName.fill('')
+      await typeInto(page, pageName, 'Autumn Layers — the linen everyone asks about')
+    }
+
+    // Add the coupon block. The type select sits immediately before the "Add block" button, and
+    // both live in the same row-actions group at the foot of the block list -- so `.last()` is the
+    // block-type picker rather than any of the filters above it.
+    const blockType = page.locator('select').last()
+    await blockType.selectOption({ label: 'Coupon code' }).catch(() => {})
+    await page.waitForTimeout(800)
+    await clickIfPresent(page, page.getByRole('button', { name: /^Add block$/i }), 2000)
+
+    // Then see it: the preview renders the page as a creator would receive it, code and all.
+    await clickIfPresent(page, page.getByRole('button', { name: /Preview as creator/i }), 3500)
+  } catch {
+    // Deliberately swallowed -- see runImport.
+  }
+}
 
 /**
  * Navigate by nav link, tolerantly.
@@ -168,6 +436,9 @@ test.describe('Demo', () => {
  * <p>Labels drift as the product changes and a capture that dies on a renamed link wastes a take,
  * so a miss holds on the current screen rather than failing. The footage is then short by one shot
  * instead of absent entirely, which is recoverable in an edit.
+ *
+ * <p>Callers anchor their patterns (`/^Coupons$/i`), because the nav labels in routeManifest.js are
+ * short single words and a loose match crosses between them.
  */
 async function gotoSection(page, pattern) {
   const link = page.getByRole('link', { name: pattern }).first()

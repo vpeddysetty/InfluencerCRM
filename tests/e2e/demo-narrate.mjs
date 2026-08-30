@@ -104,13 +104,35 @@ async function synthesise(beat) {
   return Buffer.from(await response.arrayBuffer())
 }
 
+// What the mp3s on disk were actually rendered with, from the last run's manifest. Absent or
+// unreadable means "unknown", which re-renders rather than trusting them -- the cost of a needless
+// re-render is a few thousand characters, and the cost of trusting a stale file is a wrong-voice
+// video that looks finished.
+const previousVoice = (() => {
+  try {
+    return JSON.parse(readFileSync(join(OUT, 'manifest.json'), 'utf8')).voice
+  } catch {
+    return null
+  }
+})()
+
+if (previousVoice && previousVoice !== voice.voiceId) {
+  console.log(`  voice changed ${previousVoice} -> ${voice.voiceId}; re-rendering every beat
+`)
+}
+
 const manifest = []
 let spent = 0
 
 for (const beat of beats) {
   const path = join(OUT, `${beat.id}.mp3`)
 
-  if (existsSync(path) && !FORCE) {
+  // The cache keys on the beat id AND the voice it was rendered with. Id alone is not enough: the
+  // text and the voice can both change under a stable id, and a stale mp3 is silent about which.
+  // Changing voiceId and re-running skipped all thirteen beats as "already rendered" and left the
+  // manifest claiming the NEW voice over audio in the old one -- the video would have shipped in
+  // the wrong voice with nothing on screen or in the logs to say so.
+  if (existsSync(path) && !FORCE && previousVoice === voice.voiceId) {
     const actual = measureSeconds(path)
     console.log(`  skip   ${beat.id.padEnd(12)} ${actual.toFixed(1)}s (already rendered)`)
     manifest.push({ id: beat.id, file: `narration/${beat.id}.mp3`, seconds: actual, target: beat.seconds })
