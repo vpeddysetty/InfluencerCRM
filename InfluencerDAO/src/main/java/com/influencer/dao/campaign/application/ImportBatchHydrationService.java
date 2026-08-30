@@ -113,9 +113,21 @@ public class ImportBatchHydrationService {
                 if (plan.campaignCreatorValues != null) {
                     UUID campaignId = resolveCampaignId(importBatch, plan.campaignValues, campaignResult, normalizedRow, rowIndex);
                     UUID creatorId = resolveCreatorId(importBatch, plan.creatorValues, creatorResult, normalizedRow, rowIndex);
-                    if (!campaignRepository.existsById(campaignId)) {
-                        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                                "campaignId " + campaignId + " does not exist");
+                    // Both resolvers return null when the row names no campaign (or creator) this
+                    // brand already has -- a spreadsheet of creators and their fees, with no
+                    // campaign column, resolves to exactly that. The LINK is what cannot be made;
+                    // the creator above was still created, and dropping the whole row over an
+                    // unattachable relationship would throw away the roster the user came to
+                    // import. So skip the link and keep the record.
+                    //
+                    // existsById(null) is also the reason this must be checked before the call and
+                    // not inside it: Spring Data throws InvalidDataAccessApiUsageException on a
+                    // null id, which surfaced as a 500 rather than as anything a user could act on.
+                    boolean linkable = campaignId != null && creatorId != null
+                            && campaignRepository.existsById(campaignId);
+                    if (!linkable) {
+                        response.incrementSkippedCount();
+                        continue;
                     }
                     CreatorProvisioningPort.ProvisionResult linkResult =
                             creatorProvisioning.linkCreatorToCampaign(
@@ -195,7 +207,14 @@ public class ImportBatchHydrationService {
     }
 
     private UUID resolveCampaignId(ImportBatch importBatch, Map<String, Object> campaignValues, HydratedEntity<Campaign> campaignResult, Map<String, Object> row, int rowIndex) {
-        Object explicitId = campaignValues.get("id");
+        // campaignValues is NULL whenever the mapping names no campaign column -- HydrationRowPlan
+        // nulls each group it found nothing for. That is not an exotic case: a creator roster
+        // mapped to creator.* plus campaign_creator.* (fee, stage, notes) is the most natural
+        // mapping there is, and it reached this line and threw NPE, which the controller turned
+        // into a 500 and the BFF into a 502. The row is still recoverable -- the fallbacks below
+        // look the campaign up by name from the raw row -- so treat an absent group as "nothing
+        // explicit here" and carry on, rather than failing the whole import.
+        Object explicitId = campaignValues == null ? null : campaignValues.get("id");
         if (explicitId != null) {
             UUID campaignId = toUuid(explicitId);
             if (!campaignRepository.existsById(campaignId)) {
@@ -208,7 +227,7 @@ public class ImportBatchHydrationService {
             return campaignResult.getEntity().getId();
         }
 
-        String campaignName = stringValue(campaignValues.get("name"));
+        String campaignName = campaignValues == null ? null : stringValue(campaignValues.get("name"));
         if (campaignName == null) {
             campaignName = stringValue(lookupValue(row, "campaign_name"));
         }
@@ -224,7 +243,8 @@ public class ImportBatchHydrationService {
     }
 
     private UUID resolveCreatorId(ImportBatch importBatch, Map<String, Object> creatorValues, CreatorProvisioningPort.ProvisionResult creatorResult, Map<String, Object> row, int rowIndex) {
-        Object explicitId = creatorValues.get("id");
+        // Null for the same reason as in resolveCampaignId above -- see the note there.
+        Object explicitId = creatorValues == null ? null : creatorValues.get("id");
         if (explicitId != null) {
             UUID creatorId = toUuid(explicitId);
             if (!creatorProvisioning.creatorExists(creatorId)) {
@@ -237,7 +257,7 @@ public class ImportBatchHydrationService {
             return creatorResult.id();
         }
 
-        String handle = stringValue(creatorValues.get("handle"));
+        String handle = creatorValues == null ? null : stringValue(creatorValues.get("handle"));
         if (handle == null) {
             handle = stringValue(lookupValue(row, "handle"));
         }
@@ -248,7 +268,7 @@ public class ImportBatchHydrationService {
             return null;
         }
 
-        String platform = stringValue(creatorValues.get("platform"));
+        String platform = creatorValues == null ? null : stringValue(creatorValues.get("platform"));
         if (platform == null) {
             platform = "instagram";
         }
