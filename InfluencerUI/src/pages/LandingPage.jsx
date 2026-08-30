@@ -28,6 +28,13 @@ function LandingPage({
   // without it regardless — this only keeps the user from a pointless round trip.
   const [acceptedTerms, setAcceptedTerms] = useState(false)
 
+  // Build-time for the same reason as the billing flag below: the landing page is signed out. Read
+  // from the environment rather than hardcoded, because .env.production is GENERATED from terraform
+  // outputs and says "Do not edit" — a literal here would be overwritten on the next deploy in the
+  // file but not in this component, which is the drift that produces a dead link nobody notices.
+  // Unset renders nothing at all rather than a broken link.
+  const creatorPortalUrl = import.meta.env?.VITE_CREATOR_PORTAL_URL || ''
+
   // Build-time, not state: the landing page is signed out and cannot ask the BFF which billing
   // provider is configured. Free-only until VITE_BILLING_LIVE=true.
   const billingLive = BILLING_LIVE
@@ -466,6 +473,21 @@ function LandingPage({
             to read. The targets are the same live pages registered with Meta and TikTok — see
             docs/platform-app-registration.md. Both 403'd from 2026-08-05 until the shell
             distribution was given a route to them; see static-site-cdn.tf. */}
+        {/* The way back for a creator who already accepted an invitation. Their account exists only
+            because a brand invited them — which is why there is no creator SIGNUP here, and why
+            this is a link to the portal's sign-in rather than a third tab. But the portal was
+            reachable from nowhere at all: a creator who closed the tab had to know the subdomain,
+            and an invitation link is single-use, so re-sending it was not a recovery either.
+
+            On the log-in tab only. Someone signing up is creating a workspace and is by definition
+            not a returning creator, and the sign-up tab already carries the consent copy. */}
+        {!isSignUp && creatorPortalUrl ? (
+          <p className="landing-footnote landing-footnote--portal">
+            Invited by a brand as a creator?{' '}
+            <a href={creatorPortalUrl}>Sign in to your creator portal</a>.
+          </p>
+        ) : null}
+
         {!isSignUp ? (
           <p className="landing-footnote">
             Your use of Tejdux is governed by our{' '}

@@ -79,6 +79,15 @@ output "shell_build_env" {
       VITE_USE_REMOTES = "true"
       VITE_BFF_URL     = local.public_base_url
       VITE_DPS_URL     = local.public_base_url
+
+      # Where the landing page sends a returning creator. The portal is NOT a federated remote --
+      # it is a separate app with its own sign-in -- so it carries no env_var in
+      # local.micro_frontends and the loop below skips it. Named here instead.
+      #
+      # Falls back to the distribution's own domain when no custom domain is aliased, matching how
+      # the remotes below resolve; an empty string would render a dead link rather than none,
+      # because the component only tests whether the value is set.
+      VITE_CREATOR_PORTAL_URL = local.static_aliased ? "https://portal.${var.root_domain}" : try("https://${aws_cloudfront_distribution.ui["creator-portal"].domain_name}", "")
     },
     {
       for k, cfg in local.micro_frontends :

@@ -359,6 +359,23 @@
   color: var(--fg);
 }
 
+/* The creator's way in, set apart from the legal footnote it sits above. Same tokens, one step
+   less subtle: it is a route somebody is looking for, not small print they are meant to skim.
+   `--border` and nothing else: it is defined in index.css for light and redefined under both the
+   dark media query and [data-theme=dark], so it follows the theme. A literal would be right in one
+   mode and wrong in the other, and an undefined token with a literal fallback is the same bug
+   wearing a token's clothes. */
+.landing-footnote--portal {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  color: var(--fg-muted);
+}
+
+.landing-footnote--portal a {
+  color: var(--fg);
+}
+
 /* The signup consent checkbox.
  *
  * Variables rather than literal colours throughout: literals in this file already override the
