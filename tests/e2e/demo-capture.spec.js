@@ -54,7 +54,11 @@ const DEMO = {
   email: `demo.${STAMP}@tejdux.test`,
   password: 'DemoPass123!',
   campaign: 'Autumn Layers',
+  creatorEmail: `creator.${STAMP}@tejdux.test`,
 }
+
+// The portal is a separate app on its own host, not a route of the brand app.
+const PORTAL = process.env.E2E_PORTAL_URL || 'https://portal.tejdux.com'
 
 // Measured from the rendered narration, not estimated -- demo-narrate.mjs prints the real
 // durations and flags any beat that outruns its hold.
@@ -73,9 +77,13 @@ const BEAT = {
   couponIntro: 10,
   couponDo: 16,
   boardIntro: 9,
-  boardDo: 14,
+  boardDo: 16,
   pageIntro: 10,
   pageDo: 25,
+  handoffIntro: 11,
+  handoffDo: 15,
+  creatorIntro: 10,
+  creatorDo: 19,
   numbers: 15,
   close: 17,
 }
@@ -161,7 +169,7 @@ async function typeIfPresent(page, locator, text, timeout = 20_000) {
 }
 
 test.describe('Demo', () => {
-  test('The free tier, feature by feature', async ({ page }) => {
+  test('The free tier, feature by feature', async ({ page, browser }) => {
     // Generous: thirteen beats plus real work against production. A timeout mid-capture wastes the
     // entire take, and there is no cheap way to resume one.
     test.setTimeout(20 * 60 * 1000)
@@ -225,9 +233,8 @@ test.describe('Demo', () => {
     await hold(page, BEAT.boardIntro)
 
     mark('board-do')
-    await page.mouse.wheel(0, 250)
+    await moveCardOnBoard(page)
     await hold(page, BEAT.boardDo)
-    await page.mouse.wheel(0, -250)
 
     // ---- the page, with the coupon on it -----------------------------------
     await gotoSection(page, /^Content$/i)
@@ -237,6 +244,34 @@ test.describe('Demo', () => {
     mark('page-do')
     await authorPage(page)
     await hold(page, BEAT.pageDo)
+
+    // ---- the handoff, and the creator's side of it -------------------------
+    mark('handoff-intro')
+    await hold(page, BEAT.handoffIntro)
+
+    mark('handoff-do')
+    const inviteUrl = await inviteCreator(page)
+    await hold(page, BEAT.handoffDo)
+
+    // A SECOND CONTEXT, not a second tab. The creator must not inherit the brand's session --
+    // that is the whole claim of the beat, and sharing storage would quietly make the portal
+    // look accessible to anyone already signed in as the brand.
+    const creatorContext = await browser.newContext({ viewport: page.viewportSize() })
+    const creatorPage = await creatorContext.newPage()
+    try {
+      mark('creator-intro')
+      await openInvite(creatorPage, inviteUrl)
+      await hold(creatorPage, BEAT.creatorIntro)
+
+      mark('creator-do')
+      await acceptAndEdit(creatorPage)
+      await hold(creatorPage, BEAT.creatorDo)
+    } finally {
+      // Closed before the last beats so the recording returns to the brand's window. Playwright
+      // writes one video per page; build-demo.mjs stitches on the marks, and a context left open
+      // would leave the final beats pointing at a page nothing is happening on.
+      await creatorContext.close().catch(() => {})
+    }
 
     // ---- the numbers -------------------------------------------------------
     await gotoSection(page, /^Revenue$/i)
@@ -253,7 +288,7 @@ test.describe('Demo', () => {
     // footage, and proving the product works is the job of every other spec in this directory.
     // The one check is that every beat was recorded, because a short marks file renders as silence
     // over a still frame and is worth failing on -- and it runs after the marks are safely written.
-    expect(marks.length).toBe(13)
+    expect(marks.length).toBe(17)
   })
 })
 
@@ -441,6 +476,121 @@ async function authorPage(page) {
     // Scroll the built page into shot: the brief form sits above the builder, so the sections and
     // their preview are below the fold when the beat starts.
     await page.mouse.wheel(0, 700)
+  } catch {
+    // Deliberately swallowed -- see runImport.
+  }
+}
+
+/**
+ * Pair an imported creator with the campaign, then move the card through the pipeline.
+ *
+ * <p>Importing creators does NOT put cards on the board -- a card is a campaign↔creator
+ * relationship and has to be made. That is the better shot anyway: the creator dropdown is
+ * populated straight from the spreadsheet, so the row visibly becomes something you can move.
+ *
+ * <p>Moved with the per-card "Move to…" select rather than by dragging. The board supports both,
+ * but synthetic drag events are unreliable across engines and a failed drag films a card twitching
+ * and snapping back -- worse than not moving it at all.
+ */
+async function moveCardOnBoard(page) {
+  try {
+    if (!(await clickIfPresent(page, page.getByRole('button', { name: /Add relationship card/i }), 2000))) {
+      return
+    }
+    const selects = page.locator('select')
+    await selects.first().selectOption({ label: DEMO.campaign }).catch(() => {})
+    await page.waitForTimeout(700)
+    await selects.nth(1).selectOption({ index: 1 }).catch(() => {})
+    await page.waitForTimeout(700)
+    await typeIfPresent(page, page.getByPlaceholder('e.g. Q3 gifting - Lena'),
+      `${DEMO.campaign} \u2014 Maya`)
+    await clickIfPresent(page, page.getByRole('button', { name: /^Create card$/i }), 4000)
+
+    // Two moves, not one: a single hop could be mistaken for the card having started there.
+    const move = page.locator('select').filter({ hasText: 'Move to' }).first()
+    for (const stage of ['Outreach', 'Negotiation']) {
+      if (await move.count()) {
+        await move.selectOption({ label: stage }).catch(() => {})
+        await page.waitForTimeout(2500)
+      }
+    }
+  } catch {
+    // Deliberately swallowed -- see runImport.
+  }
+}
+
+/**
+ * Invite a creator to the page and read back the one-time link.
+ *
+ * <p>The link is on SCREEN by design: the email provider defaults to `log` and SES is sandboxed, so
+ * the panel shows the token once because otherwise a brand could not invite anyone at all. That is
+ * also what makes this filmable without intercepting mail.
+ *
+ * @returns the invitation URL, or '' if the invite did not go through.
+ */
+async function inviteCreator(page) {
+  try {
+    await typeIfPresent(page, page.locator('#collab-invite-email'), DEMO.creatorEmail)
+    await clickIfPresent(page, page.getByRole('button', { name: /^Send invitation$/i }), 6000)
+
+    const link = page.locator('.collab-panel__link input')
+    if (!(await link.count())) {
+      return ''
+    }
+    return await link.first().inputValue()
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * Open the invitation as the creator.
+ *
+ * <p>The token is re-pointed at the portal host. Until OP-22b the panel built this link from the
+ * brand's own origin, where /invite is not a route and the SPA falls through to the marketing page;
+ * that is fixed, but rebuilding the URL from the token keeps the capture working against a
+ * deployment that predates the fix rather than filming a landing page.
+ */
+async function openInvite(creatorPage, inviteUrl) {
+  try {
+    if (!inviteUrl) {
+      return
+    }
+    const token = new URL(inviteUrl).searchParams.get('token')
+    await creatorPage.goto(`${PORTAL}/invite?token=${encodeURIComponent(token)}`,
+      { waitUntil: 'domcontentloaded' })
+    await creatorPage.waitForLoadState('networkidle').catch(() => {})
+  } catch {
+    // Deliberately swallowed -- see runImport.
+  }
+}
+
+/**
+ * Accept the invitation and open the page in the creator's editor.
+ *
+ * <p>Name, password AND consent: the accept button stays disabled without all three, and an
+ * earlier probe spent thirty seconds clicking a button that could never fire.
+ */
+async function acceptAndEdit(creatorPage) {
+  try {
+    await typeIfPresent(creatorPage, creatorPage.locator('input').first(), 'Maya Okonjo')
+    const pw = creatorPage.locator('input[type=password]')
+    if (await pw.count()) {
+      await pw.first().fill(DEMO.password)
+    }
+    const consent = creatorPage.locator('input[type=checkbox]')
+    if (await consent.count()) {
+      await consent.first().check().catch(() => {})
+    }
+    await creatorPage.waitForTimeout(800)
+    await clickIfPresent(creatorPage,
+      creatorPage.getByRole('button', { name: /Accept and get started/i }), 6000)
+
+    // Into the page they were handed. Named loosely because the portal's list is one row today and
+    // its label is the page's name, which the brand chose.
+    await clickIfPresent(creatorPage,
+      creatorPage.getByRole('button', { name: /Open|Edit|Autumn/i }), 4000)
+    await creatorPage.mouse.wheel(0, 400)
   } catch {
     // Deliberately swallowed -- see runImport.
   }

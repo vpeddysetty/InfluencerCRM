@@ -1,22 +1,30 @@
 {
   "_comment": [
-    "Voiceover for docs/Demo-Script-Two-Cut.md, restructured 2026-08-29.",
+    "Voiceover for docs/Demo-Script-Two-Cut.md, restructured 2026-08-29, extended 2026-08-30.",
     "",
-    "THE SHAPE CHANGED, and this is the important part. The first version narrated while the capture",
-    "browsed -- it moved between pages and held, so the words described features nobody was using.",
-    "That reads as a tour rather than a demonstration, and no amount of timing precision fixes it.",
+    "THE SHAPE. The first version narrated while the capture browsed -- it moved between pages and",
+    "held, so the words described features nobody was using. That reads as a tour rather than a",
+    "demonstration, and no amount of timing precision fixes it.",
     "",
-    "Every beat is now a PAIR: a short line naming what the feature is, then a longer one spoken",
-    "while it is actually performed on screen. The capture drives the app for real -- uploads the",
-    "spreadsheet, generates the coupon, moves the card -- so the narration has something to describe.",
+    "Every beat is a PAIR: a short line naming what the feature is, then a longer one spoken while",
+    "it is actually performed on screen. The capture drives the app for real.",
     "",
     "Kept as separate `-intro` and `-do` beats rather than one block, because the intro is spoken",
-    "over a still screen and the action beat has to start exactly when the click does. One block",
-    "would put the words for the action over the seconds before it.",
+    "over a still screen and the action beat has to start exactly when the click does.",
+    "",
+    "THE BOARD beat now performs instead of scrolling. A card is created from an imported creator",
+    "and moved between stages, which is the claim the words make -- the previous version narrated",
+    "'move a card and the page behind it moves' over a board nobody touched.",
+    "",
+    "THE CREATOR HALF is new. It is the differentiated part of the product and it was previously",
+    "only promised in the close; now it is shown. Two browser contexts: the creator must not",
+    "inherit the brand's session, and the handoff means nothing if it does.",
     "",
     "EVERY CLAIM CHECKED. Not said here: that Instagram publishing exists (no publish method; the",
     "live Meta token lacks instagram_content_publish), that payouts move money (ManualPayoutProvider",
-    "records a payment made out-of-band), or that the revenue is live (the orders are seeded)."
+    "records a payment made out-of-band), or that the revenue is live (the orders are seeded).",
+    "Not said either: that the creator is emailed. CreatorPublishedEmail is real code, but the email",
+    "provider defaults to `log` and SES is still sandboxed, so nothing is delivered today."
   ],
   "voice": {
     "_comment": [
@@ -85,8 +93,8 @@
     },
     {
       "id": "board-do",
-      "seconds": 14,
-      "text": "Move a card and the page behind it moves. Move the page and the card follows. One truth, two views — and nothing to reconcile on a Friday afternoon."
+      "seconds": 16,
+      "text": "Pair a creator with a campaign and you get a card. Then move it -- outreach, negotiation, contracted -- and the record moves with it. One truth, two views, and nothing to reconcile on a Friday afternoon."
     },
     {
       "id": "page-intro",
@@ -99,6 +107,26 @@
       "text": "Pick the shape, write the words, and watch the real page build as you type. Then drop the creator's coupon straight into it — the code they were given, on the page their audience lands on. Rewrite every line if you want; you can't break the layout, because nothing in here sets a colour or a position. Publish, and the link is live with the tracking already wired in."
     },
     {
+      "id": "handoff-intro",
+      "seconds": 11,
+      "text": "One more thing, and it is the part nobody else does. The creator knows their audience better than you do. So let them write their own bit."
+    },
+    {
+      "id": "handoff-do",
+      "seconds": 15,
+      "text": "Invite them by email, and hand them the page. You are not sending a document to be returned. You are handing over the turn -- and the board now shows you are waiting on them."
+    },
+    {
+      "id": "creator-intro",
+      "seconds": 10,
+      "text": "This is what they get. Their own sign-in, on their own portal -- not a login to your workspace, and not a file in their downloads."
+    },
+    {
+      "id": "creator-do",
+      "seconds": 19,
+      "text": "They accept, and there is the page, waiting. They can rewrite any section in their own voice, and see it as their audience will. What they cannot do is publish, or see your other campaigns, or touch anyone else's work. Then they hand it back."
+    },
+    {
       "id": "numbers",
       "seconds": 15,
       "text": "And it all lands here. What each creator brought in, what they're owed, and what you've already paid them. No guessing at the end of the month."
@@ -106,7 +134,7 @@
     {
       "id": "close",
       "seconds": 12,
-      "text": "That's the free tier — all of it. Paid adds more creators, your whole team, and several brands if you're an agency. Coming next: handing a page to a creator to write in their own voice, and a share kit that sizes the post for them."
+      "text": "That is the free tier -- all of it. Paid adds more creators, your whole team, and several brands if you are an agency. Everything you have just seen, you can do today, with the spreadsheet you already have."
     }
   ]
 }
