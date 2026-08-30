@@ -129,6 +129,16 @@ public class CreatorInviteController {
             // Null until they set one. A creator redeeming an invitation has not chosen a password
             // yet, and inventing a placeholder here would be a credential nobody meant to create.
             created.setPasswordHash(request.passwordHash());
+            // Set here, not left to the column default. `created_at` and `updated_at` are
+            // `not null default now()`, which reads as though the database fills them in -- but a
+            // Postgres default applies only when the column is OMITTED from the INSERT, and both
+            // are mapped fields Hibernate always names, so an unset field is written as an explicit
+            // NULL and rejected. Redeeming an invitation was the ONE identity path that did not do
+            // this; every other one (CreatorIdentityController, the portal session, email
+            // verification, tenancy) already called setCreatedAt, which is why nothing else broke.
+            Instant createdNow = Instant.now();
+            created.setCreatedAt(createdNow);
+            created.setUpdatedAt(createdNow);
             return identityRepository.save(created);
         });
 
@@ -141,6 +151,10 @@ public class CreatorInviteController {
                     fresh.setCreatorIdentityId(identity.getId());
                     fresh.setBrandId(invite.getBrandId());
                     fresh.setCreatorId(invite.getCreatorId());
+                    // Same reason as the identity above: creator_identity_links.created_at is
+                    // not-null with a default the ORM never lets the database apply. updatedAt is
+                    // stamped below for both the new and the existing row.
+                    fresh.setCreatedAt(Instant.now());
                     return fresh;
                 });
         link.setStatus("confirmed");
