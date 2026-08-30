@@ -386,10 +386,11 @@ async function generateCoupons(page) {
 /**
  * Build the campaign page on camera, coupon block included.
  *
- * <p>The BUILDER, not the section editor. `web-experience.landing.editor` defaults to `builder` and
- * is set nowhere in terraform, so that is what production serves and what this films; the section
- * editor's controls are different and would match none of the below. If the flag is ever turned on,
- * this function is what has to change.
+ * <p>The SECTION EDITOR, not the block builder. The property defaults to `builder`, but
+ * `prod.tfvars` sets `landing_editor = "sections"` -- and that file is gitignored, so grepping the
+ * repo for the flag finds only the default and gives the wrong answer. A take was spent filming a
+ * page that never appeared because this drove "Add block", which the section editor does not have;
+ * its controls are "Start from a template", "+ Offer" and the rewrite buttons.
  *
  * <p>The coupon block is the reason this beat exists -- the creator's own code, on the page their
  * audience lands on. It renders `{{coupon.code}}` per creator, which is the whole argument for
@@ -399,14 +400,14 @@ async function authorPage(page) {
   try {
     // Campaign first: the builder shows only "Pick a campaign above" until one is chosen.
     const campaign = page.locator('select').first()
-    await campaign.waitFor({ state: 'visible', timeout: 20_000 }).catch(() => {})
-    await campaign.selectOption({ label: DEMO.campaign }).catch(() => {})
-    await page.waitForTimeout(2000)
+    await campaign.waitFor({ state: 'visible', timeout: 20_000 })
+    await campaign.selectOption({ label: DEMO.campaign })
+    await page.waitForTimeout(3000)
 
     // The page-name input carries no id, name or placeholder -- only an unassociated <label> above
     // it, so getByLabel cannot reach it either. Anchored to that label instead. A plain
     // `input[type=text]` .first() picks up the campaign BRIEF's hashtag field, which renders above
-    // the builder once a campaign is chosen: the previous take typed the page title into
+    // the builder once a campaign is chosen: an earlier take typed the page title into
     // "Required hashtags" and left the page unnamed.
     const pageName = page.locator('label.auth-label', { hasText: /^Page name$/ })
       .locator('xpath=following-sibling::input[1]')
@@ -415,16 +416,31 @@ async function authorPage(page) {
       await typeInto(page, pageName, 'Autumn Layers — the linen everyone asks about')
     }
 
-    // Add the coupon block. The type select sits immediately before the "Add block" button, and
-    // both live in the same row-actions group at the foot of the block list -- so `.last()` is the
-    // block-type picker rather than any of the filters above it.
-    const blockType = page.locator('select').last()
-    await blockType.selectOption({ label: 'Coupon code' }).catch(() => {})
-    await page.waitForTimeout(800)
-    await clickIfPresent(page, page.getByRole('button', { name: /^Add block$/i }), 2000)
+    // Start from a template. The picker is the select whose first option is the "— choose —"
+    // placeholder; matched on that rather than by position, because five selects render here once
+    // a campaign is picked (campaign, brief status, brief template, page status, page template)
+    // and their order is not a contract.
+    const template = page.locator('select').filter({ hasText: '— choose —' }).first()
+    if (await template.count()) {
+      // "Coupon offer" for the obvious reason: this beat exists to put the creator's code on the
+      // page, and that template opens with the Offer section already in place.
+      await template.selectOption({ label: 'Coupon offer' }).catch(() => {})
+      await page.waitForTimeout(3500)
+    }
 
-    // Then see it: the preview renders the page as a creator would receive it, code and all.
-    await clickIfPresent(page, page.getByRole('button', { name: /Preview as creator/i }), 3500)
+    // Then write in it. Selecting a section opens its fields on the right, and the preview beside
+    // them is the real renderer rather than a mock -- which is the claim the narration makes.
+    await clickIfPresent(page, page.getByRole('button', { name: /^Offer/ }), 2000)
+    const headline = page.getByPlaceholder('20% off your first order')
+    if (await headline.count()) {
+      await headline.first().fill('')
+      await typeInto(page, headline.first(), '15% off, and it is her code')
+    }
+    await page.waitForTimeout(1500)
+
+    // Scroll the built page into shot: the brief form sits above the builder, so the sections and
+    // their preview are below the fold when the beat starts.
+    await page.mouse.wheel(0, 700)
   } catch {
     // Deliberately swallowed -- see runImport.
   }
