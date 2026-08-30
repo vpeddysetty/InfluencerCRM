@@ -29,6 +29,12 @@ export default function CollaboratorPanel({
   const [note, setNote] = useState('')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  // Build-time: .env.production is generated from terraform outputs, so this stays in step with
+  // where the portal is actually deployed. Falls back to this origin only so a local dev build
+  // still produces a link shaped like the real one.
+  const portalOrigin = import.meta.env?.VITE_CREATOR_PORTAL_URL?.replace(/\/$/, '')
+    || window.location.origin
+
   const [pendingLink, setPendingLink] = useState('')
 
   const turn = page?.turn || null
@@ -74,7 +80,13 @@ export default function CollaboratorPanel({
         // so delivery failure is the expected path today, and without the link in front of them the
         // brand has no way to invite anyone at all.
         if (result?.token) {
-          setPendingLink(`${window.location.origin}/invite?token=${encodeURIComponent(result.token)}`)
+          // The PORTAL's origin, not this app's. `window.location.origin` is the brand's host, and
+          // tejdux.com/invite is not a route -- the SPA falls through to the marketing landing
+          // page, so every link copied from here was silently dead while looking perfectly valid.
+          // The invitation EMAIL always built this correctly (creatorPortalBaseUrl in
+          // CreatorInvitationService); only the on-screen copy was wrong, which is the copy the
+          // brand actually uses while SES is sandboxed.
+          setPendingLink(`${portalOrigin}/invite?token=${encodeURIComponent(result.token)}`)
         }
         setNotice(result?.delivered
           ? 'Invitation sent.'
