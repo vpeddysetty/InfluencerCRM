@@ -3241,3 +3241,24 @@ a.ghost-btn:visited {
   color: var(--ink-4);
   font-size: 0.9rem;
 }
+
+/* How many AI drafts are left. Quiet by default -- it only appears past half the allowance, so it
+   should read as a note beside the button, not as a warning competing with it. Tokens only: a
+   literal colour here would be right in one theme and wrong in the other. */
+.cpg-allowance {
+  align-self: center;
+  color: var(--fg-muted);
+  font-size: 0.8rem;
+}
+
+/* Spent is the one state worth colouring: the button is about to refuse, and saying so in the
+   same grey as "3 left" would make the difference invisible at a glance.
+
+   `--fg` and not a warning colour. Running out is not an error -- pages can still be written by
+   hand -- and colouring it like one would overstate what happened. Full-contrast text against the
+   muted grey above is enough to mark the difference. (--warning-fg does not exist; only
+   --warning-bg and --warning-border do, and a token that resolves to nothing would silently fall
+   back to the literal here.) */
+.cpg-allowance--spent {
+  color: var(--fg);
+}

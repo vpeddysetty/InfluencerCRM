@@ -45,6 +45,7 @@ function ContentPage({
   onRewriteSection,
   onRegenerateVariant,
   onLoadEditorMode,
+  onLoadAiAllowance,
   onLoadPageTemplates,
   onSavePageTemplate,
   onDeletePageTemplate,
@@ -92,6 +93,10 @@ function ContentPage({
   // Starts as null (unknown) rather than 'builder' so the editor does not flash the old one and
   // then swap while the answer is in flight.
   const [serverEditor, setServerEditor] = useState(null)
+  // What is left of this month's AI drafts. Null until loaded and on any failure -- the counter
+  // renders nothing rather than a wrong number, because a wrong count here is worse than none:
+  // it either alarms someone with room to spare or promises room that is not there.
+  const [aiAllowance, setAiAllowance] = useState(null)
   const [sections, setSections] = useState([])
   const [savedTemplates, setSavedTemplates] = useState([])
   const [versions, setVersions] = useState([])
@@ -499,6 +504,19 @@ function ContentPage({
    * the server keeps both columns and renders whichever is present, so switching editors
    * never destroys the other representation.
    */
+  // Refreshed after every generation, not only on mount: the count is stale the moment one is
+  // spent, and a counter that says "3 left" after the third of three is worse than silence.
+  const refreshAiAllowance = useCallback(async () => {
+    if (typeof onLoadAiAllowance !== 'function') return
+    try {
+      setAiAllowance(await onLoadAiAllowance())
+    } catch {
+      setAiAllowance(null)
+    }
+  }, [onLoadAiAllowance])
+
+  useEffect(() => { refreshAiAllowance() }, [refreshAiAllowance])
+
   useEffect(() => {
     let cancelled = false
     if (typeof onLoadEditorMode !== 'function') return undefined
@@ -899,7 +917,14 @@ function ContentPage({
                 in the builder below before anything is saved.
               </MdsNote>
               <CampaignPageGenerator
-                onGenerate={onGeneratePage}
+                allowance={aiAllowance}
+                onGenerate={async (brief) => {
+                  const result = await onGeneratePage(brief)
+                  // After, not before: the call that was just billed is the one that has to be
+                  // reflected, and refreshing first would show a number one generation out of date.
+                  refreshAiAllowance()
+                  return result
+                }}
                 onUseDraft={useGeneratedDraft}
                 onRewriteSection={onRewriteSection}
                 onRegenerate={onRegenerateVariant}

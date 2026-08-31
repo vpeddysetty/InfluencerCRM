@@ -5,11 +5,13 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.influencer.webe.content.application.CampaignPageGenerationService;
 import com.influencer.webe.identity.application.AiGenerationAllowance;
 import com.influencer.webe.shared.application.RequestUserResolver;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -116,6 +118,20 @@ public class CampaignPageGenerationController {
         allowance.record(caller.accountId(), caller.brandId(), "regenerate",
                 result == null ? null : result.path("generator").asText(null));
         return result;
+    }
+
+    /**
+     * How many AI drafts this account has used this month, and how many it may.
+     *
+     * <p>Exists so the UI can say "4 of 20 left" BEFORE someone is refused. A ceiling a user only
+     * discovers by hitting it reads as the product breaking; the same limit shown while there is
+     * still room reads as information. Same reasoning as the plan meters elsewhere.
+     */
+    @GetMapping("/api/campaign-pages/ai-allowance")
+    public Map<String, Object> aiAllowance(
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
+        var context = requestUserResolver.requireTenantContext(authorization);
+        return allowance.summary(context.accountId());
     }
 
     /**

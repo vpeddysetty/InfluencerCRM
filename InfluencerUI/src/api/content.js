@@ -39,6 +39,21 @@ export async function loadLandingEditorMode(token) {
   return payload?.editor === 'sections' ? 'sections' : 'builder'
 }
 
+/**
+ * This month's AI draft allowance.
+ *
+ * <p>Returns null rather than throwing on any failure: the counter is an affordance, and a page
+ * that will not load because a usage number could not be read would be a much worse trade than a
+ * counter that is quietly absent.
+ */
+export async function loadAiAllowance(token) {
+  try {
+    return await request('/api/campaign-pages/ai-allowance', { token })
+  } catch {
+    return null
+  }
+}
+
 export async function listPageTemplates(token) {
   return unwrapList(await request('/api/brand-page-templates', { token }))
 }

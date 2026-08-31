@@ -46,7 +46,7 @@ const EMPTY_BRIEF = {
   proofPoints: '',
 }
 
-function CampaignPageGenerator({ onGenerate, onUseDraft, onRewriteSection, onRegenerate, busy = false, can = () => true }) {
+function CampaignPageGenerator({ onGenerate, onUseDraft, onRewriteSection, onRegenerate, busy = false, can = () => true, allowance = null }) {
   const [brief, setBrief] = useState(EMPTY_BRIEF)
   const [result, setResult] = useState(null)
   const [generating, setGenerating] = useState(false)
@@ -333,6 +333,7 @@ function CampaignPageGenerator({ onGenerate, onUseDraft, onRewriteSection, onReg
           <button type="submit" className="primary-btn" disabled={!canGenerate}>
             {generating ? 'Writing drafts…' : 'Generate page drafts'}
           </button>
+          <RemainingDrafts allowance={allowance} />
         </div>
       </form>
 
@@ -493,3 +494,33 @@ function CampaignPageGenerator({ onGenerate, onUseDraft, onRewriteSection, onReg
 }
 
 export default CampaignPageGenerator
+
+/**
+ * How many drafts are left, when that is worth saying.
+ *
+ * <p><b>Deliberately quiet until it is not.</b> Shown only past half the allowance, and never on an
+ * uncapped plan. A counter that starts at "20 of 20" turns a generous allowance into a metered one
+ * the moment somebody reads it — the number is reassurance while there is room and a warning only
+ * near the end, and showing it early gets the tone exactly backwards.
+ *
+ * <p>The alternative is saying nothing and letting a user discover the ceiling by being refused
+ * mid-campaign, which reads as the product breaking rather than as a limit they were told about.
+ */
+function RemainingDrafts({ allowance }) {
+  if (!allowance || typeof allowance.limit !== 'number' || allowance.limit < 0) {
+    // No allowance loaded, or an uncapped plan. Nothing useful to say either way.
+    return null
+  }
+  const used = Number(allowance.used) || 0
+  const left = Math.max(0, allowance.limit - used)
+  if (left > allowance.limit / 2) {
+    return null
+  }
+  return (
+    <span className={left === 0 ? 'cpg-allowance cpg-allowance--spent' : 'cpg-allowance'}>
+      {left === 0
+        ? 'No AI drafts left this month — they reset on the 1st. You can still write pages by hand.'
+        : `${left} AI ${left === 1 ? 'draft' : 'drafts'} left this month`}
+    </span>
+  )
+}
