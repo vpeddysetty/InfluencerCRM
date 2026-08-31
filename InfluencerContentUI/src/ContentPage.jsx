@@ -530,10 +530,25 @@ function ContentPage({
   //
   // Found in production on the first real page. A local harness never showed it because nothing
   // was re-rendering the parent.
+  //
+  // KEYED ON THE PAGE'S VERSION, NOT JUST THE CAMPAIGN. Keying on campaignId alone meant the
+  // editor seeded once and then ignored every later fetch of the same campaign -- so when a
+  // creator handed their work back and the brand took the page, refreshTemplates() loaded the new
+  // content into `currentTemplate` and the editor kept rendering what it had seeded minutes
+  // earlier. The creator's edits were saved, returned by the API and sitting in state; they were
+  // simply never shown, which reads exactly like losing them.
+  //
+  // Keyed on `turnChangedAt` and NOT on `updatedAt`. updatedAt moves on every save including the
+  // brand's own -- and saveSections puts the returned row straight into `templates` -- so keying on
+  // it would re-seed the editor from the server in the middle of someone typing, which is the very
+  // thing the original guard was written to prevent. turnChangedAt moves only when the page
+  // actually changes hands, which is exactly when the content on screen is stale.
   const seededFor = useRef(null)
   useEffect(() => {
-    if (!campaignId || seededFor.current === campaignId) return
-    seededFor.current = campaignId
+    if (!campaignId) return
+    const seedKey = `${campaignId}:${currentTemplate?.turnChangedAt || ''}`
+    if (seededFor.current === seedKey) return
+    seededFor.current = seedKey
 
     const stored = currentTemplate?.sections
     if (Array.isArray(stored) && stored.length > 0) {
