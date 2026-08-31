@@ -39,6 +39,8 @@ class CreatorInvitationServiceTest {
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final UUID BRAND = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
     private static final UUID INVITER = UUID.fromString("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+    private static final UUID TEMPLATE = UUID.fromString("cccccccc-cccc-cccc-cccc-cccccccccccc");
+    private static final UUID IDENTITY = UUID.fromString("dddddddd-dddd-dddd-dddd-dddddddddddd");
 
     /** Records what was sent, and serves a configurable invitation back. */
     private static class RecordingDao extends DaoGatewayClient {
@@ -83,6 +85,18 @@ class CreatorInvitationServiceTest {
             }
             postPaths.add(path);
             posts.add((ObjectNode) body);
+            // Redemption is the one call whose response is NOT the request echoed back: the DAO
+            // returns the confirmed creator_identity_links row, which carries the brand and the
+            // identity but NOT the page the invitation was sent from. Faking the echo hid that,
+            // and hid the bug that came with it.
+            if (path.endsWith("/redeem")) {
+                ObjectNode link = MAPPER.createObjectNode();
+                link.put("id", UUID.randomUUID().toString());
+                link.put("creatorIdentityId", IDENTITY.toString());
+                link.put("brandId", BRAND.toString());
+                link.put("status", "confirmed");
+                return link;
+            }
             return body;
         }
     }
@@ -109,6 +123,51 @@ class CreatorInvitationServiceTest {
         public String provider() {
             return "test";
         }
+    }
+
+
+    @Test
+    @DisplayName("redeeming reports the page the invitation was sent from")
+    void redeemCarriesThePageForward() {
+        RecordingDao dao = new RecordingDao();
+        ObjectNode invite = MAPPER.createObjectNode();
+        invite.put("status", "pending");
+        invite.put("email", "maya@example.com");
+        invite.put("brandId", BRAND.toString());
+        invite.put("landingTemplateId", TEMPLATE.toString());
+        invite.put("invitedByUserId", INVITER.toString());
+        dao.storedInvite = invite;
+
+        JsonNode redeemed = service(dao, new CapturingEmail()).redeem("a-token", "Maya Okonjo", "DemoPass123!");
+
+        // The DAO answers with the LINK row, which knows nothing about the page. Without carrying
+        // this forward the caller cannot put the creator on the page they were invited from, and
+        // the grant it would have created is simply never attempted -- silently, because there is
+        // no error to report. That is exactly how this shipped and reached production.
+        assertEquals(TEMPLATE.toString(), redeemed.path("landingTemplateId").asText());
+        assertEquals(INVITER.toString(), redeemed.path("invitedByUserId").asText());
+
+        // Still the link row it was, with nothing lost.
+        assertEquals(IDENTITY.toString(), redeemed.path("creatorIdentityId").asText());
+        assertEquals("confirmed", redeemed.path("status").asText());
+    }
+
+    @Test
+    @DisplayName("an invitation with no page still redeems")
+    void redeemWithoutAPageIsFine() {
+        RecordingDao dao = new RecordingDao();
+        ObjectNode invite = MAPPER.createObjectNode();
+        invite.put("status", "pending");
+        invite.put("email", "maya@example.com");
+        invite.put("brandId", BRAND.toString());
+        dao.storedInvite = invite;
+
+        JsonNode redeemed = service(dao, new CapturingEmail()).redeem("a-token", "Maya Okonjo", "DemoPass123!");
+
+        // Inviting a creator to the BRAND rather than to a particular page is a legitimate use of
+        // the same endpoint, so an absent page must not be treated as a failure.
+        assertFalse(redeemed.has("landingTemplateId"), "no page was named");
+        assertEquals("confirmed", redeemed.path("status").asText());
     }
 
     @Test

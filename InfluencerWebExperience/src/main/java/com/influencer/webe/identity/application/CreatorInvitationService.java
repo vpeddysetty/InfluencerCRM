@@ -162,8 +162,23 @@ public class CreatorInvitationService {
         if (rawPassword != null && !rawPassword.isBlank()) {
             body.put("passwordHash", passwordEncoder.encode(rawPassword));
         }
+        // Read the invitation BEFORE redeeming it: the DAO returns the confirmed LINK row, which
+        // carries the brand and the identity but not the page the invitation was sent from. The
+        // caller needs that page id to put the creator on it, and after redemption the token is
+        // spent -- so this is the last moment it can be looked up.
+        //
+        // Best-effort: a failure here must not stop a redemption that would otherwise work. The
+        // page grant is a convenience on top of the identity and the link, not a precondition.
+        JsonNode invited = null;
         try {
-            return dao.post("/creator-invites/by-token/" + hash(token) + "/redeem", body);
+            invited = fetchByToken(token);
+        } catch (RuntimeException ignored) {
+            // Falls through: redeem below reports the real problem with a message meant for a user.
+        }
+
+        try {
+            JsonNode result = dao.post("/creator-invites/by-token/" + hash(token) + "/redeem", body);
+            return withInvitationContext(result, invited);
         } catch (RuntimeException e) {
             // Expired, already used, revoked, or never existed. Deliberately one message: telling
             // a caller which of those applies lets someone probing tokens learn that one was real.
@@ -200,6 +215,30 @@ public class CreatorInvitationService {
     }
 
     // ---- internals -----------------------------------------------------
+
+    /**
+     * Add the page and the inviter to the link row the DAO hands back.
+     *
+     * <p>Copied rather than re-fetched because the token is spent by now, and returned as extra
+     * fields rather than a new shape so existing callers see exactly what they saw before.
+     *
+     * <p>Only these two. The invitation also holds the email and the status, which the redeemed
+     * link already implies, and there is no reason to widen a public endpoint's response beyond
+     * what its caller has to act on.
+     */
+    private JsonNode withInvitationContext(JsonNode redeemed, JsonNode invite) {
+        if (redeemed == null || !redeemed.isObject() || invite == null) {
+            return redeemed;
+        }
+        ObjectNode merged = ((ObjectNode) redeemed);
+        if (invite.hasNonNull("landingTemplateId")) {
+            merged.put("landingTemplateId", invite.get("landingTemplateId").asText());
+        }
+        if (invite.hasNonNull("invitedByUserId")) {
+            merged.put("invitedByUserId", invite.get("invitedByUserId").asText());
+        }
+        return merged;
+    }
 
     private JsonNode fetchByToken(String token) {
         JsonNode invite;
