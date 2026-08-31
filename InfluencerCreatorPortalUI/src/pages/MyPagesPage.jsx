@@ -92,9 +92,13 @@ export default function MyPagesPage({ onOpen, onSignOut }) {
         onOpen={onOpen}
         emphasis
       />
+      {/* "With the brand", not "you have sent these back". This group holds every page whose turn
+          is `brand`, which includes ones the creator has never opened — a page granted but not yet
+          handed over sits here too. Telling someone they sent back work they have never seen is
+          worse than saying nothing about how it got there. */}
       <PageGroup
         title="In progress"
-        description="You have sent these back. The brand is reviewing them."
+        description="These are with the brand right now. Nothing for you to do until they come back."
         entries={groups.inProgress}
         onOpen={onOpen}
       />

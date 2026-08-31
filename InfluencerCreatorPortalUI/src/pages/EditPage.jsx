@@ -32,7 +32,16 @@ export default function EditPage({ entry, onClose, onSignOut }) {
   const [feedback, setFeedback] = useState({ type: '', message: '' })
   const [sendingBack, setSendingBack] = useState(false)
   const [note, setNote] = useState('')
+  // Sent back in THIS session. Local on purpose -- it drives the thank-you screen, which should
+  // appear the moment the creator clicks rather than after a refetch.
   const [returned, setReturned] = useState(false)
+
+  // Already with the brand, whatever happened this session. `returned` alone starts false on every
+  // mount, so signing out and back in offered "Send back" on a page that had already gone -- and
+  // pressing it answered 409 "This page is already back with the brand", which reads as the earlier
+  // send having failed. The turn is the server's answer and it survives a logout; this is the one
+  // that decides whether the button belongs on screen.
+  const withBrand = (entry.page?.turn || page.turn) === 'brand'
 
   // Seeded once per page, never on re-render. See the note above.
   const seededFor = useRef(null)
@@ -129,13 +138,16 @@ export default function EditPage({ entry, onClose, onSignOut }) {
     [entry.brandName, page.brandName],
   )
 
-  if (returned) {
+  if (returned || withBrand) {
     return (
       <main className="cp-shell">
-        <h1>Sent back to {brandName}</h1>
+        <h1>{returned ? `Sent back to ${brandName}` : `This page is with ${brandName}`}</h1>
         <p className="cp-lede">
-          Thanks — your changes are with them now. They will let you know if they need anything
-          else, and the page will show up here again if it comes back to you.
+          {returned
+            ? 'Thanks — your changes are with them now. They will let you know if they need '
+              + 'anything else, and the page will show up here again if it comes back to you.'
+            : 'You have already sent this one back, so there is nothing to do here for now. It '
+              + 'will open again if they pass it to you.'}
         </p>
         <button type="button" className="cp-btn cp-btn--primary" onClick={onClose}>
           Back to your pages
