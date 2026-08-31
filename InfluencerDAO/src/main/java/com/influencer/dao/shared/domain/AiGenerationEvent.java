@@ -2,6 +2,8 @@ package com.influencer.dao.shared.domain;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
@@ -19,7 +21,21 @@ import java.util.UUID;
 @Table(name = "ai_generation_events")
 public class AiGenerationEvent {
 
+    // @GeneratedValue, and the reason is Hibernate rather than Postgres. With a bare @Id,
+    // `persist()` on a new entity throws IdentifierGenerationException -- "must be manually
+    // assigned" -- before any SQL is attempted at all. The column's `default gen_random_uuid()`
+    // never gets a chance to apply, because there is no INSERT.
+    //
+    // The other entities here get away with a bare @Id because they reach the database through
+    // `save()` on rows whose ids are already set. This one is created fresh inside the controller,
+    // so it needs the generator.
+    //
+    // How it presented: the DAO answered 500, the BFF turned it into 502, and
+    // AiGenerationAllowance.record() swallowed it by design -- so the ceiling was deployed and
+    // counting nothing, which is indistinguishable from a working one until a bill arrives. The
+    // warning it logs is what made it findable.
     @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
     @Column(name = "id", nullable = false, updatable = false)
     private UUID id;
 

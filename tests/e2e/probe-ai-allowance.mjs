@@ -19,7 +19,12 @@ const ok = (m, v) => console.log((v ? 'PASS ' : 'FAIL ') + m)
 const p = await (await b.newContext()).newPage()
 
 let generations = 0
+let allowanceBody = null
 p.on('response', async (r) => {
+  if (/campaign-pages\/ai-allowance/.test(r.url()) && r.status() === 200) {
+    try { allowanceBody = await r.text() } catch { /* ignore */ }
+    console.log('  [allowance]', allowanceBody)
+  }
   const u = r.url()
   if (/campaign-pages\/(generate|variants\/regenerate|sections\/rewrite)/.test(u)) {
     generations += 1
@@ -93,14 +98,16 @@ if (await summary.count()) {
 
 ok('a generation request was made', generations > 0)
 
-// The point of the whole exercise: was it COUNTED? Asked through the app's own session so the
-// answer comes from the same tenancy the generation was billed against.
-const usage = await p.evaluate(async () => {
-  try {
-    const r = await fetch('/api/ai-generation-usage/summary', { headers: { Accept: 'application/json' } })
-    return { status: r.status, body: (await r.text()).slice(0, 200) }
-  } catch (e) { return { status: 0, body: e.message } }
-})
-console.log('  usage summary:', JSON.stringify(usage))
+// The point of the whole exercise: was it COUNTED? A bare fetch() 401s -- the SPA holds its
+// bearer token in memory, not in a cookie -- so watch the request the APP makes instead. The
+// counter refreshes after every generation, which is exactly the call worth reading.
+// Nudge the page to refetch: leaving Content and returning re-runs the allowance effect.
+await p.getByRole('link', { name: /^Board$/i }).first().click().catch(() => {})
+await p.waitForTimeout(2500)
+await p.getByRole('link', { name: /^Content$/i }).first().click().catch(() => {})
+await p.waitForTimeout(6000)
+
+console.log('  allowance allowanceBody:', allowanceBody || '(not observed)')
+ok('the generation was counted', Boolean(allowanceBody) && /"used":\s*[1-9]/.test(allowanceBody))
 
 await b.close()
