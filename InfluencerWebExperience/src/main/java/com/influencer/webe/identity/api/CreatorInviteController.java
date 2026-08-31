@@ -3,6 +3,7 @@ package com.influencer.webe.identity.api;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.influencer.webe.content.application.PageCollaborationService;
 import com.influencer.webe.identity.application.ConsentService;
 import com.influencer.webe.identity.application.CreatorInvitationService;
 import com.influencer.webe.security.Permission;
@@ -11,6 +12,8 @@ import com.influencer.webe.shared.application.RequestUserResolver;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -38,16 +41,21 @@ import java.util.UUID;
 @RequestMapping("/api")
 public class CreatorInviteController {
 
+    private static final Logger LOG = LoggerFactory.getLogger(CreatorInviteController.class);
+
     private final CreatorInvitationService invitations;
     private final ConsentService consentService;
+    private final PageCollaborationService collaboration;
     private final RequestUserResolver requestUserResolver;
 
     public CreatorInviteController(CreatorInvitationService invitations,
                                    RequestUserResolver requestUserResolver,
-                                   ConsentService consentService) {
+                                   ConsentService consentService,
+                                   PageCollaborationService collaboration) {
         this.invitations = invitations;
         this.requestUserResolver = requestUserResolver;
         this.consentService = consentService;
+        this.collaboration = collaboration;
     }
 
     // ---- brand side ----------------------------------------------------
@@ -145,6 +153,31 @@ public class CreatorInviteController {
         // was stopped on the last step, after the link was already confirmed.
         JsonNode redeemed = invitations.redeem(
                 request.token(), request.displayName(), request.password());
+
+        // An invitation sent FROM a page carries that page's id, and accepting it should put the
+        // creator on that page. Without this the two invitations never met: redeeming created the
+        // identity and the confirmed link, but no landing_page_collaborators grant -- so the panel
+        // showed "No creator on this page yet" for a creator who had accepted, and the handoff
+        // button (which needs a grant AND a stage) could never appear. The brand's one action had
+        // produced half a relationship.
+        //
+        // Deliberately not fatal. The identity, the link and the consent are all written by this
+        // point, and failing the whole redemption because a page grant could not be added would
+        // burn a single-use token over something the brand can fix by inviting again from the page.
+        if (redeemed != null && redeemed.hasNonNull("landingTemplateId")
+                && redeemed.hasNonNull("creatorIdentityId") && redeemed.hasNonNull("brandId")) {
+            try {
+                collaboration.grantOnRedeem(
+                        UUID.fromString(redeemed.get("brandId").asText()),
+                        UUID.fromString(redeemed.get("landingTemplateId").asText()),
+                        UUID.fromString(redeemed.get("creatorIdentityId").asText()),
+                        redeemed.hasNonNull("invitedByUserId")
+                                ? UUID.fromString(redeemed.get("invitedByUserId").asText()) : null);
+            } catch (RuntimeException e) {
+                LOG.warn("[creator-invite] redeemed, but the page grant failed for template {}: {}",
+                        redeemed.path("landingTemplateId").asText(), e.toString());
+            }
+        }
 
         // Recorded after the redemption succeeds, not before: consent to terms by someone whose
         // invitation turned out to be expired is not a record worth keeping, and writing it first

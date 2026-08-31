@@ -76,6 +76,29 @@ public class PageCollaborationService {
     }
 
     /**
+     * Put a creator on the page their invitation named, at the moment they accept it.
+     *
+     * <p>Called from the PUBLIC redemption endpoint, which has no operator session -- so the brand
+     * is taken from the invitation row rather than from a tenant context. That is not a weakening:
+     * the invitation was created by an authenticated brand user against its own page, and the token
+     * proving it is single-use and 256 bits.
+     *
+     * <p>Everything else is the ordinary path. It delegates to {@link #invite} rather than posting
+     * the grant itself, so both of that method's guards still apply -- the page must belong to the
+     * brand, and the creator must hold a confirmed link to it. Duplicating the insert here would
+     * mean a second way to create a grant, and only one of them would have the checks.
+     *
+     * <p>Idempotent, though not here: this posts unconditionally and the DAO reuses an existing
+     * unrevoked grant rather than adding a second, backed by a partial unique index on
+     * (template, identity) where revoked_at is null. That matters because a creator can be invited
+     * to the same page twice, and because this runs on a path the caller cannot easily retry.
+     */
+    public JsonNode grantOnRedeem(UUID brandId, UUID templateId, UUID creatorIdentityId,
+                                  UUID invitedByUserId) {
+        return invite(brandId, templateId, creatorIdentityId, "edit", invitedByUserId);
+    }
+
+    /**
      * Invite a creator to co-edit (G.2).
      *
      * <p>Refused unless the creator holds a confirmed link to this brand. That check is the
