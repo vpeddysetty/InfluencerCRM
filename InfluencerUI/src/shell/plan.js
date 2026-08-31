@@ -342,6 +342,11 @@ export const PUBLIC_TIERS = Object.freeze([
       '1 brand workspace',
       '25 creators',
       '3 landing pages',
+      // Stated as a benefit with its ceiling attached, not as a restriction. Twenty is more than
+      // authoring a campaign takes, so the number reassures rather than warns -- and a visitor who
+      // reads "AI drafts" with no figure assumes it is either unlimited or a trial, and both of
+      // those are worse to discover later. Must track PlanPolicy.FREE's allowance in the BFF.
+      '20 AI page drafts a month',
     ]),
     // Says what free IS rather than what it withholds. "Single user" is a shape, not a
     // restriction, and the tier reads better as the honest answer to "can I try this alone?"
@@ -358,6 +363,7 @@ export const PUBLIC_TIERS = Object.freeze([
       'Roles and permissions for each of them',
       '250 creators',
       '25 landing pages',
+      '500 AI page drafts a month',
     ]),
     note: 'Pricing is not published yet.',
   }),
@@ -369,6 +375,7 @@ export const PUBLIC_TIERS = Object.freeze([
       'Unlimited brands',
       'Unlimited creators',
       'Unlimited team members',
+      'Unlimited AI page drafts',
       'Per-brand data isolation',
     ]),
     note: 'Pricing is not published yet.',

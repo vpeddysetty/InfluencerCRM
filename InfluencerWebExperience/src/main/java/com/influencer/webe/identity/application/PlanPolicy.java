@@ -45,10 +45,10 @@ public enum PlanPolicy {
      * account keeps its people and simply cannot invite more; its roles also keep working, because
      * {@link #allowsRoleBasedAccess()} is checked when assigning a role, not when honouring one.
      */
-    FREE("free", 1, 25, 1, 3, 2),
+    FREE("free", 1, 25, 1, 3, 2, 20),
 
     /** Creator cap in the same range competitors meter at — see MARKET-ANALYSIS.md §2. */
-    PRO("pro", 1, 250, 10, 25, 20),
+    PRO("pro", 1, 250, 10, 25, 20, 500),
 
     /**
      * The multi-brand tier. Mirrors {@code account_type = 'agency'}, which already exists in the
@@ -56,7 +56,7 @@ public enum PlanPolicy {
      */
     // -1 is UNLIMITED. Written as a literal only because Java forbids an enum constant from
     // referring to a static field declared after it, and the field must follow the constants.
-    AGENCY("agency", -1, -1, -1, -1, -1);
+    AGENCY("agency", -1, -1, -1, -1, -1, -1);
 
     /** Sentinel for "no limit". -1 rather than MAX_VALUE so an accidental increment cannot wrap. */
     public static final int UNLIMITED = -1;
@@ -81,14 +81,29 @@ public enum PlanPolicy {
      */
     private final int maxSavedTemplates;
 
+    /**
+     * Billed AI calls allowed per calendar month.
+     *
+     * <p><b>A cost ceiling, not a paywall.</b> Every generation and rewrite is a billed Anthropic
+     * request, and nothing counted them — one account in a retry loop could run up spend with no
+     * limit. Twenty is far more than authoring a campaign in good faith takes, deliberately: the
+     * blank canvas is the problem this feature exists to remove, and metering it into uselessness
+     * would trade the activation the product needs for revenue it does not yet have.
+     *
+     * <p>Unlike the capacity limits, this one resets. It is counted from rows since the start of
+     * the month rather than from a stored counter, so nothing has to run to reset it.
+     */
+    private final int maxAiGenerationsPerMonth;
+
     PlanPolicy(String key, int maxBrands, int maxCreators, int maxMembers, int maxLandingPages,
-               int maxSavedTemplates) {
+               int maxSavedTemplates, int maxAiGenerationsPerMonth) {
         this.key = key;
         this.maxBrands = maxBrands;
         this.maxCreators = maxCreators;
         this.maxMembers = maxMembers;
         this.maxLandingPages = maxLandingPages;
         this.maxSavedTemplates = maxSavedTemplates;
+        this.maxAiGenerationsPerMonth = maxAiGenerationsPerMonth;
     }
 
     public String key() {
@@ -179,6 +194,21 @@ public enum PlanPolicy {
     }
 
     /** A metered resource. */
+    /** Billed AI calls this plan allows per calendar month; {@link #UNLIMITED} for none. */
+    public int maxAiGenerationsPerMonth() {
+        return maxAiGenerationsPerMonth;
+    }
+
+    /**
+     * Is another AI generation within this plan's monthly allowance?
+     *
+     * <p>Takes the count SO FAR, like {@link #allows}: the caller counts, this decides. Keeping the
+     * query out of here is what lets the limit be unit-tested without a database.
+     */
+    public boolean allowsAiGeneration(long usedThisMonth) {
+        return maxAiGenerationsPerMonth == UNLIMITED || usedThisMonth < maxAiGenerationsPerMonth;
+    }
+
     public enum Resource {
         BRAND("brand", "brands"),
         CREATOR("creator", "creators"),

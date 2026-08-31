@@ -47,9 +47,17 @@ public class LandingStageMachine {
 
     static {
         // CREATOR_ASSIGNED is reachable from DRAFT because handing a page to a creator is how a
-        // draft leaves draft in practice. Nothing in the UI calls this endpoint directly, so
+        // draft leaves draft in practice. Nothing in the UI calls the stage endpoint directly, so
         // without this the transition the handoff performs is refused and the feature is dead.
-        ALLOWED.put(DRAFT, Set.of(REVIEW, APPROVED, CREATOR_ASSIGNED));
+        //
+        // ORDERED, and the order is load-bearing. `shortestPathTo` is a breadth-first search over
+        // these edges, and DRAFT now has two routes to PUBLISHED of equal length -- through
+        // APPROVED, and through CREATOR_ASSIGNED. BFS returns whichever it reaches first, so with
+        // an unordered Set.of the winner is arbitrary and "publish now" silently stopped walking
+        // through APPROVED the moment the creator edge was added. Approval is the meaningful hop:
+        // it is the one a brand would expect a publish to pass through, and the one worth auditing.
+        // LinkedHashSet keeps it first.
+        ALLOWED.put(DRAFT, new LinkedHashSet<>(List.of(APPROVED, REVIEW, CREATOR_ASSIGNED)));
         // Review can approve or bounce back. Both are ordinary.
         ALLOWED.put(REVIEW, Set.of(DRAFT, APPROVED));
         ALLOWED.put(APPROVED, Set.of(REVIEW, CREATOR_ASSIGNED, CONTENT_NEEDED, READY_TO_PUBLISH));

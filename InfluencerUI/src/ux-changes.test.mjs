@@ -1376,6 +1376,22 @@ test('the public tier table matches the limits the server enforces', () => {
   assert.ok(pro.highlights.some((line) => line.includes('250 creators')))
   assert.ok(agency.highlights.some((line) => line.includes('Unlimited brands')))
 
+  // The AI allowance (V48). Every generation is a billed Anthropic call, so this number is the one
+  // where drift costs actual money in one direction and trust in the other: advertising more than
+  // PlanPolicy allows means a user is refused mid-campaign having been promised otherwise.
+  assert.ok(
+    free.highlights.some((line) => line.includes('20 AI page drafts')),
+    'free must state its AI allowance — PlanPolicy.FREE allows 20 a month',
+  )
+  assert.ok(
+    pro.highlights.some((line) => line.includes('500 AI page drafts')),
+    'pro must state its AI allowance — PlanPolicy.PRO allows 500 a month',
+  )
+  assert.ok(
+    agency.highlights.some((line) => /unlimited ai/i.test(line)),
+    'agency is uncapped, and must say so rather than naming a number',
+  )
+
   // Free is single-user: PlanPolicy.FREE caps members at 1, so the page must not imply a team.
   // This is the pairing that would otherwise drift — the page advertising seats the server
   // refuses is exactly the failure this test exists for.

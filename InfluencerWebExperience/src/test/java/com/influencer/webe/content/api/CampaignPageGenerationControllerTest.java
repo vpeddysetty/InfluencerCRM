@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.influencer.webe.content.application.BriefEnricher;
 import com.influencer.webe.content.application.CampaignPageGenerationService;
+import com.influencer.webe.identity.application.AiGenerationAllowance;
 import com.influencer.webe.content.application.PageGeneratorRegistry;
 import com.influencer.webe.security.TenantContext;
 import com.influencer.webe.shared.application.RequestUserResolver;
@@ -188,6 +189,40 @@ class CampaignPageGenerationControllerTest {
         @Primary
         StubRequestUserResolver resolver() {
             return new StubRequestUserResolver();
+        }
+
+        @Bean
+        @Primary
+        PermissiveAllowance allowance() {
+            return new PermissiveAllowance();
+        }
+    }
+
+    /**
+     * An allowance that never refuses, so these tests stay about routing and binding.
+     *
+     * <p>Hand-written for the same reason as the two above: Mockito's Byte Buddy does not support
+     * this JDK, and {@code @MockBean} fails the whole context with "Java 26 is not supported".
+     *
+     * <p>What the allowance actually decides is tested in {@code AiGenerationAllowanceTest}, which
+     * needs no Spring context at all -- the policy takes a count and returns a boolean.
+     */
+    static class PermissiveAllowance extends AiGenerationAllowance {
+
+        PermissiveAllowance() {
+            // Never dereferenced: both methods are overridden.
+            super(null, null);
+        }
+
+        @Override
+        public void require(java.util.UUID accountId) {
+            // Always within allowance.
+        }
+
+        @Override
+        public void record(java.util.UUID accountId, java.util.UUID brandId,
+                           String kind, String generator) {
+            // Nothing to record against.
         }
     }
 

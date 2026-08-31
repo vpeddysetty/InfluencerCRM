@@ -3,6 +3,7 @@ package com.influencer.webe.content.api;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.influencer.webe.content.application.CampaignPageGenerationService;
+import com.influencer.webe.identity.application.AiGenerationAllowance;
 import com.influencer.webe.shared.application.RequestUserResolver;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -28,11 +29,24 @@ public class CampaignPageGenerationController {
 
     private final CampaignPageGenerationService generation;
     private final RequestUserResolver requestUserResolver;
+    private final AiGenerationAllowance allowance;
+
+    /**
+     * The last account and brand {@link #tenantScoped} resolved, for recording the call afterwards.
+     *
+     * <p>Request-scoped by being read and used within one method call. It is deliberately NOT a
+     * field: a controller is a singleton and two concurrent generations would overwrite each
+     * other's tenancy, charging one account for the other's spend.
+     */
+    private record Caller(java.util.UUID accountId, java.util.UUID brandId) {
+    }
 
     public CampaignPageGenerationController(CampaignPageGenerationService generation,
-                                            RequestUserResolver requestUserResolver) {
+                                            RequestUserResolver requestUserResolver,
+                                            AiGenerationAllowance allowance) {
         this.generation = generation;
         this.requestUserResolver = requestUserResolver;
+        this.allowance = allowance;
     }
 
     /**
@@ -45,7 +59,17 @@ public class CampaignPageGenerationController {
     @PostMapping("/api/campaign-pages/generate")
     public JsonNode generate(@RequestHeader(value = "Authorization", required = false) String authorization,
                              @RequestBody ObjectNode payload) {
-        return generation.generate(tenantScoped(authorization, payload));
+        Caller caller = tenantScoped(authorization, payload);
+        // BEFORE the generator runs. A check that ran afterwards would already have spent the
+        // money it exists to save.
+        allowance.require(caller.accountId());
+        JsonNode result = generation.generate(payload);
+        // Recorded from what the RESULT says served it, not from configuration: the service falls
+        // back to the template generator when the model is unavailable, and a fallback the user did
+        // not choose must not consume their allowance.
+        allowance.record(caller.accountId(), caller.brandId(), "generate",
+                result == null ? null : result.path("generator").asText(null));
+        return result;
     }
 
     /**
@@ -58,7 +82,17 @@ public class CampaignPageGenerationController {
     @PostMapping("/api/campaign-pages/sections/rewrite")
     public JsonNode rewriteSection(@RequestHeader(value = "Authorization", required = false) String authorization,
                                    @RequestBody ObjectNode payload) {
-        return generation.rewriteSection(tenantScoped(authorization, payload));
+        Caller caller = tenantScoped(authorization, payload);
+        // BEFORE the generator runs. A check that ran afterwards would already have spent the
+        // money it exists to save.
+        allowance.require(caller.accountId());
+        JsonNode result = generation.rewriteSection(payload);
+        // Recorded from what the RESULT says served it, not from configuration: the service falls
+        // back to the template generator when the model is unavailable, and a fallback the user did
+        // not choose must not consume their allowance.
+        allowance.record(caller.accountId(), caller.brandId(), "rewrite",
+                result == null ? null : result.path("generator").asText(null));
+        return result;
     }
 
     /**
@@ -71,7 +105,17 @@ public class CampaignPageGenerationController {
     @PostMapping("/api/campaign-pages/variants/regenerate")
     public JsonNode regenerateVariant(@RequestHeader(value = "Authorization", required = false) String authorization,
                                       @RequestBody ObjectNode payload) {
-        return generation.regenerateVariant(tenantScoped(authorization, payload));
+        Caller caller = tenantScoped(authorization, payload);
+        // BEFORE the generator runs. A check that ran afterwards would already have spent the
+        // money it exists to save.
+        allowance.require(caller.accountId());
+        JsonNode result = generation.regenerateVariant(payload);
+        // Recorded from what the RESULT says served it, not from configuration: the service falls
+        // back to the template generator when the model is unavailable, and a fallback the user did
+        // not choose must not consume their allowance.
+        allowance.record(caller.accountId(), caller.brandId(), "regenerate",
+                result == null ? null : result.path("generator").asText(null));
+        return result;
     }
 
     /**
@@ -85,8 +129,9 @@ public class CampaignPageGenerationController {
      *
      * <p>Called before any generator runs, so an unauthenticated caller costs no model spend.
      */
-    private ObjectNode tenantScoped(String authorization, ObjectNode payload) {
-        UUID brandId = requestUserResolver.requireTenantContext(authorization).brandId();
+    private Caller tenantScoped(String authorization, ObjectNode payload) {
+        var context = requestUserResolver.requireTenantContext(authorization);
+        UUID brandId = context.brandId();
         if (brandId != null) {
             payload.put("brandId", brandId.toString());
         } else {
@@ -94,6 +139,6 @@ public class CampaignPageGenerationController {
             // record enrichment. Removed rather than left, so a stale value cannot leak through.
             payload.remove("brandId");
         }
-        return payload;
+        return new Caller(context.accountId(), brandId);
     }
 }
