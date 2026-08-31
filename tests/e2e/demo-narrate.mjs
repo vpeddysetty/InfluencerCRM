@@ -108,13 +108,21 @@ async function synthesise(beat) {
 // unreadable means "unknown", which re-renders rather than trusting them -- the cost of a needless
 // re-render is a few thousand characters, and the cost of trusting a stale file is a wrong-voice
 // video that looks finished.
-const previousVoice = (() => {
+const previousManifest = (() => {
   try {
-    return JSON.parse(readFileSync(join(OUT, 'manifest.json'), 'utf8')).voice
+    return JSON.parse(readFileSync(join(OUT, 'manifest.json'), 'utf8'))
   } catch {
     return null
   }
 })()
+const previousVoice = previousManifest?.voice ?? null
+
+// What each mp3 on disk was rendered FROM. Absent means "unknown", which re-renders rather than
+// trusting it: a few thousand characters is cheap next to a video that says the wrong thing.
+const previousTexts = Object.fromEntries(
+  (previousManifest?.beats ?? [])
+    .filter((b) => typeof b?.text === 'string')
+    .map((b) => [b.id, b.text]))
 
 if (previousVoice && previousVoice !== voice.voiceId) {
   console.log(`  voice changed ${previousVoice} -> ${voice.voiceId}; re-rendering every beat
@@ -132,10 +140,17 @@ for (const beat of beats) {
   // Changing voiceId and re-running skipped all thirteen beats as "already rendered" and left the
   // manifest claiming the NEW voice over audio in the old one -- the video would have shipped in
   // the wrong voice with nothing on screen or in the logs to say so.
-  if (existsSync(path) && !FORCE && previousVoice === voice.voiceId) {
+  // The TEXT as well as the voice. The comment above said both could change under a stable id and
+  // then only the voice was checked -- so rewriting the closing line kept its old recording, and
+  // the video shipped promising the creator handoff as "coming next" over footage that had just
+  // shown it. The script was right, the audio was three weeks old, and nothing said so.
+  const cachedText = previousTexts[beat.id]
+  if (existsSync(path) && !FORCE
+      && previousVoice === voice.voiceId
+      && cachedText === beat.text) {
     const actual = measureSeconds(path)
     console.log(`  skip   ${beat.id.padEnd(12)} ${actual.toFixed(1)}s (already rendered)`)
-    manifest.push({ id: beat.id, file: `narration/${beat.id}.mp3`, seconds: actual, target: beat.seconds })
+    manifest.push({ id: beat.id, file: `narration/${beat.id}.mp3`, seconds: actual, target: beat.seconds, text: beat.text })
     continue
   }
 
@@ -151,7 +166,7 @@ for (const beat of beats) {
     const over = actual - beat.seconds
     const flag = over > 1.5 ? `  OVER by ${over.toFixed(1)}s` : ''
     console.log(`${actual.toFixed(1)}s${flag}`)
-    manifest.push({ id: beat.id, file: `narration/${beat.id}.mp3`, seconds: actual, target: beat.seconds })
+    manifest.push({ id: beat.id, file: `narration/${beat.id}.mp3`, seconds: actual, target: beat.seconds, text: beat.text })
   } catch (e) {
     console.log(`FAILED — ${e.message}`)
     // Carry on. One failed beat should not cost the six that already rendered, and re-running
