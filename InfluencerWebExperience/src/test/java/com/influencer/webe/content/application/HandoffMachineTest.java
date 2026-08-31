@@ -43,14 +43,20 @@ class HandoffMachineTest {
     }
 
     @Test
-    @DisplayName("a page can only be handed off from a stage where that makes sense")
+    @DisplayName("a page can be handed off from any stage before it is live")
     void handoffIsRestrictedToCollaborationStages() {
         assertThat(machine.canHandOff(LandingStageMachine.APPROVED)).isTrue();
         assertThat(machine.canHandOff(LandingStageMachine.CREATOR_ASSIGNED)).isTrue();
         assertThat(machine.canHandOff(LandingStageMachine.CONTENT_NEEDED)).isTrue();
 
-        // Handing off a first draft or a live page is a mis-click, not a workflow.
-        assertThat(machine.canHandOff(LandingStageMachine.DRAFT)).isFalse();
+        // DRAFT is allowed, and this assertion is the reverse of what it used to be. The original
+        // rule read "a first draft is too early to involve a creator", which assumed the brand
+        // could move the page to APPROVED first. Nothing in any UI calls the stage endpoint, so
+        // every page stays at DRAFT and the handoff button never rendered for anyone -- the whole
+        // collaboration feature was gated on a state the product cannot leave.
+        assertThat(machine.canHandOff(LandingStageMachine.DRAFT)).isTrue();
+
+        // A live page is still a mis-click, and an unknown stage is still refused.
         assertThat(machine.canHandOff(LandingStageMachine.PUBLISHED)).isFalse();
         assertThat(machine.canHandOff(null)).isFalse();
     }

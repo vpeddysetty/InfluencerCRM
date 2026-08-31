@@ -121,7 +121,11 @@ class PageHandoffTest {
     void refusedHandoffLeavesNoGrant() {
         // An orphaned grant would give a creator access to a page nobody handed them -- so the
         // stage check runs before the grant rather than after.
-        RecordingDao dao = new RecordingDao(page(LandingStageMachine.DRAFT, null));
+        //
+        // PUBLISHED rather than DRAFT: draft is now a legal handoff stage, because nothing in the
+        // UI can move a page out of it. The property under test is unchanged -- a refused handoff
+        // writes nothing -- so it just needs a stage that is still genuinely refused.
+        RecordingDao dao = new RecordingDao(page(LandingStageMachine.PUBLISHED, null));
 
         assertThrows(ResponseStatusException.class,
                 () -> service(dao).handOff(BRAND, UUID.randomUUID(), CREATOR, USER, null));

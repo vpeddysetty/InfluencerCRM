@@ -46,7 +46,10 @@ public class LandingStageMachine {
     private static final Map<String, Set<String>> ALLOWED = new LinkedHashMap<>();
 
     static {
-        ALLOWED.put(DRAFT, Set.of(REVIEW, APPROVED));
+        // CREATOR_ASSIGNED is reachable from DRAFT because handing a page to a creator is how a
+        // draft leaves draft in practice. Nothing in the UI calls this endpoint directly, so
+        // without this the transition the handoff performs is refused and the feature is dead.
+        ALLOWED.put(DRAFT, Set.of(REVIEW, APPROVED, CREATOR_ASSIGNED));
         // Review can approve or bounce back. Both are ordinary.
         ALLOWED.put(REVIEW, Set.of(DRAFT, APPROVED));
         ALLOWED.put(APPROVED, Set.of(REVIEW, CREATOR_ASSIGNED, CONTENT_NEEDED, READY_TO_PUBLISH));

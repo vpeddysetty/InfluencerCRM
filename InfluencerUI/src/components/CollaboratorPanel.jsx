@@ -47,7 +47,10 @@ export default function CollaboratorPanel({
     [collaborators],
   )
 
-  const canHandOff = ['approved', 'creator_assigned', 'content_needed'].includes(stage)
+  // Mirrors HandoffMachine.HANDOFF_STAGES on the server, INCLUDING draft -- see the note
+  // there. Nothing in the UI can move a page out of draft, so gating on `approved` meant
+  // this button never rendered for anyone and the collaboration feature was unreachable.
+  const canHandOff = ['draft', 'approved', 'creator_assigned', 'content_needed'].includes(stage)
 
   useEffect(() => {
     // Clear the one-time link when the page changes: it belongs to one invitation, and leaving it

@@ -44,11 +44,23 @@ public class HandoffMachine {
     /**
      * Stages at which a page can be handed to a creator.
      *
-     * <p>Narrower than "any stage", because handing off a page that is already published, or one
-     * still in first draft, is not a workflow anybody asked for — it is a mis-click. The set
-     * matches the stages the collaboration design actually walks through.
+     * <p>Narrower than "any stage": handing off a page that is already PUBLISHED is not a workflow
+     * anybody asked for, it is a mis-click, and the set otherwise matches the stages the
+     * collaboration design walks through.
+     *
+     * <p><b>{@code draft} is included, and that is a correction rather than a widening.</b> This
+     * set originally excluded it on the reasoning that a first draft is too early to involve a
+     * creator — which assumed the brand could move the page to {@code approved} first. It cannot:
+     * nothing in any UI calls the stage endpoint, so every page sits at {@code draft} forever and
+     * the handoff button could never appear at all. The whole creator collaboration feature was
+     * unreachable because of a gate on a state the product has no way to leave.
+     *
+     * <p>Handing off is also not an accident-prone action: it takes an invited creator who has
+     * accepted, then a deliberate button with a note field. The brand can take the page back at any
+     * time, which {@code canTakeBack} allows unconditionally for exactly this reason.
      */
     private static final Set<String> HANDOFF_STAGES = Set.of(
+            LandingStageMachine.DRAFT,
             LandingStageMachine.APPROVED,
             LandingStageMachine.CREATOR_ASSIGNED,
             LandingStageMachine.CONTENT_NEEDED);
