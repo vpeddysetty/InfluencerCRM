@@ -251,26 +251,51 @@ test.describe('Demo', () => {
 
     mark('handoff-do')
     const inviteUrl = await inviteCreator(page)
+    // Announced because the creator beats depend on it and their failure is otherwise invisible:
+    // the run passes, the marks are written, and only the footage is empty.
+    if (!inviteUrl) {
+      console.warn('  WARNING: no invitation link — the creator beats will film a blank page')
+    }
     await hold(page, BEAT.handoffDo)
 
     // A SECOND CONTEXT, not a second tab. The creator must not inherit the brand's session --
     // that is the whole claim of the beat, and sharing storage would quietly make the portal
     // look accessible to anyone already signed in as the brand.
-    const creatorContext = await browser.newContext({ viewport: page.viewportSize() })
+    // recordVideo EXPLICITLY: `video` in playwright.config.js applies to the fixture-provided
+    // context, and a context made by hand inherits none of it. Without this the creator's ninety
+    // seconds were simply never filmed -- the run passed, seventeen marks were written, and the
+    // narration for two beats played over the brand's idle screen.
+    const creatorContext = await browser.newContext({
+      viewport: page.viewportSize(),
+      recordVideo: { dir: OUT_DIR, size: page.viewportSize() },
+    })
     const creatorPage = await creatorContext.newPage()
     try {
-      mark('creator-intro')
+      // Navigate BEFORE marking, unlike every other beat. The mark is where the render starts
+      // cutting, and a fresh context opens on a blank page: marking first put ten seconds of empty
+      // white under the narration, because the portal had not loaded yet. Elsewhere the mark
+      // precedes the action deliberately -- the words describe something about to happen -- but
+      // here the intro is spoken over a screen that has to already be there.
       await openInvite(creatorPage, inviteUrl)
+      mark('creator-intro')
       await hold(creatorPage, BEAT.creatorIntro)
 
       mark('creator-do')
       await acceptAndEdit(creatorPage)
       await hold(creatorPage, BEAT.creatorDo)
     } finally {
-      // Closed before the last beats so the recording returns to the brand's window. Playwright
-      // writes one video per page; build-demo.mjs stitches on the marks, and a context left open
-      // would leave the final beats pointing at a page nothing is happening on.
+      // Closed before the last beats so the recording returns to the brand's window -- and closing
+      // is also what FLUSHES the video: Playwright finalises the file on context close, so the path
+      // is only resolvable afterwards. Recorded here for build-demo.mjs, which needs two sources
+      // rather than one and cuts between them on the marks.
+      const creatorVideo = creatorPage.video()
       await creatorContext.close().catch(() => {})
+      if (creatorVideo) {
+        const path = await creatorVideo.path().catch(() => null)
+        if (path) {
+          writeFileSync(join(OUT_DIR, 'creator-video.txt'), path)
+        }
+      }
     }
 
     // ---- the numbers -------------------------------------------------------
@@ -473,6 +498,12 @@ async function authorPage(page) {
     }
     await page.waitForTimeout(1500)
 
+    // SAVE it, and not only so the work persists: the collaborator panel is gated on
+    // `currentTemplate`, which exists only once the page has been saved. Without this the handoff
+    // beat films a page with no invite field at all -- which is exactly what happened, silently,
+    // because every step in that beat is wrapped in a swallowing catch.
+    await clickIfPresent(page, page.getByRole('button', { name: /^Save page$/i }), 5000)
+
     // Scroll the built page into shot: the brief form sits above the builder, so the sections and
     // their preview are below the fold when the beat starts.
     await page.mouse.wheel(0, 700)
@@ -533,8 +564,15 @@ async function inviteCreator(page) {
     await typeIfPresent(page, page.locator('#collab-invite-email'), DEMO.creatorEmail)
     await clickIfPresent(page, page.getByRole('button', { name: /^Send invitation$/i }), 6000)
 
+    // WAIT for the link, do not glance at it. It renders only once the invite POST returns, so a
+    // bare count() races the request -- the same mistake clickIfPresent was fixed for. Here it cost
+    // the creator's half of the video: openInvite returns early on an empty url, the swallowing
+    // catch says nothing, and the run passed with ninety seconds of blank white where the portal
+    // should have been.
     const link = page.locator('.collab-panel__link input')
-    if (!(await link.count())) {
+    try {
+      await link.first().waitFor({ state: 'visible', timeout: 30_000 })
+    } catch {
       return ''
     }
     return await link.first().inputValue()

@@ -119,6 +119,26 @@ No capture found in ${ARTIFACTS}.
 recordings.sort((a, b) => b.bytes - a.bytes)
 const footage = recordings[0].path
 
+// The creator's half is filmed in a SECOND browser context -- it has to be, because the creator
+// must not inherit the brand's session -- and Playwright writes one video per context. The capture
+// records that file's path on close, which is the only moment it is knowable: the video is
+// finalised by the close, and the path resolves to nothing before it.
+//
+// Its clock starts when that context opens, NOT when the recording did, so marks taken from the
+// brand's timeline mean nothing in it. Those beats are cut from the creator's own start instead --
+// which is close enough because the context is created immediately before them.
+const creatorPointer = join(ARTIFACTS, 'creator-video.txt')
+const creatorFootage = existsSync(creatorPointer)
+  ? readFileSync(creatorPointer, 'utf8').trim()
+  : ''
+const CREATOR_BEATS = new Set(['creator-intro', 'creator-do'])
+const hasCreatorFootage = Boolean(creatorFootage) && existsSync(creatorFootage)
+if (hasCreatorFootage) {
+  console.log(`  creator    ${creatorFootage}  (${durationOf(creatorFootage).toFixed(1)}s)`)
+} else if (creatorFootage) {
+  console.log('  NOTE   creator video named but missing; those beats fall back to the brand window')
+}
+
 console.log(`  ffmpeg     ${FFMPEG === 'ffmpeg' ? 'system' : 'ffmpeg-static'}`)
 const footageSeconds = durationOf(footage)
 console.log(`  footage    ${footage}  (${footageSeconds.toFixed(1)}s)`)
@@ -171,14 +191,23 @@ for (const [index, beat] of manifest.beats.entries()) {
   // Seeking to just before the end instead gives tpad a frame to hold, so a beat past the footage
   // becomes a still under the narration rather than a broken segment. That is also the honest
   // failure mode for a capture that is shorter than its script.
-  // The recorded mark when there is one, the running cursor otherwise.
-  const from = marks && marks[beat.id] !== undefined ? marks[beat.id] : cursor
-  const start = Math.max(0, Math.min(from, Math.max(0, footageSeconds - 0.5)))
+  // Which window this beat was filmed in, and where in it.
+  const fromCreator = hasCreatorFootage && CREATOR_BEATS.has(beat.id)
+  const source = fromCreator ? creatorFootage : footage
+  const sourceSeconds = fromCreator ? durationOf(creatorFootage) : footageSeconds
+
+  // The recorded mark when there is one, the running cursor otherwise. Creator beats are offset
+  // from the creator video's OWN start: its marks were taken on the brand's clock, which that file
+  // knows nothing about.
+  const from = fromCreator
+    ? (marks && marks['creator-intro'] !== undefined ? marks[beat.id] - marks['creator-intro'] : 0)
+    : (marks && marks[beat.id] !== undefined ? marks[beat.id] : cursor)
+  const start = Math.max(0, Math.min(from, Math.max(0, sourceSeconds - 0.5)))
 
   run([
     '-y',
     // The video, from where this beat starts. `-t` after `-ss` trims to the audio's length.
-    '-ss', start.toFixed(3), '-t', seconds.toFixed(3), '-i', footage,
+    '-ss', start.toFixed(3), '-t', seconds.toFixed(3), '-i', source,
     '-i', audio,
     // If the footage runs out before the narration does, hold the last frame rather than cutting
     // to black -- a still screen under a finishing sentence reads as deliberate; black does not.
