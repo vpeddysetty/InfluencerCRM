@@ -918,7 +918,14 @@ function ContentPage({
                     ...payload,
                     landingTemplateId: currentTemplate.id,
                   })}
-                  onRefresh={refreshCollaborators}
+                  onRefresh={async () => {
+                    // BOTH, and the templates matter more. The panel shows whose turn it is from
+                    // page.turn, and a handoff changes that on the SERVER -- so refreshing only the
+                    // collaborator list left the button still reading "Hand over to creator" after
+                    // a handoff that had returned 200. The state was right and the screen was a
+                    // version behind, until the user navigated away and back.
+                    await Promise.all([refreshCollaborators(), refreshTemplates()])
+                  }}
                 />
               ) : null}
               <label className="auth-label">Status</label>
