@@ -185,4 +185,90 @@ class BriefEnricherTest {
         assertEquals("Launch the winter collection", payload.get("goal").asText());
         assertFalse(payload.has("campaignName"));
     }
+
+    // ---- brand tone, from custom_attributes (roadmap OP-23) ------------------
+    //
+    // These exist because the enricher read `brand.tone` for its whole life and no such column has
+    // ever existed. Nothing failed — the field was simply absent, which is indistinguishable from a
+    // brand that set no tone. A test naming the real source is the only thing that would have
+    // caught it, and is the only thing that keeps it caught.
+
+    private ObjectNode brandWithAttributes(String name, String attributesJson) {
+        ObjectNode node = brand(name);
+        node.put("customAttributes", attributesJson);
+        return node;
+    }
+
+    @Test
+    @DisplayName("brand tone comes from custom_attributes, not a column that does not exist")
+    void fillsToneFromCustomAttributes() {
+        StubDao dao = new StubDao()
+                .with("/tenancy/brands/" + BRAND, brandWithAttributes("Trailhead", "{\"tone\":\"Warm\"}"));
+
+        ObjectNode payload = MAPPER.createObjectNode();
+        payload.put("goal", "Launch the winter collection");
+
+        new BriefEnricher(dao).enrich(BRAND, payload);
+
+        assertEquals("Warm", payload.get("brandTone").asText());
+    }
+
+    @Test
+    @DisplayName("a tone the user typed wins over the brand's default")
+    void userToneWins() {
+        StubDao dao = new StubDao()
+                .with("/tenancy/brands/" + BRAND, brandWithAttributes("Trailhead", "{\"tone\":\"Warm\"}"));
+
+        ObjectNode payload = MAPPER.createObjectNode();
+        payload.put("goal", "Launch the winter collection");
+        payload.put("brandTone", "Bold");
+
+        new BriefEnricher(dao).enrich(BRAND, payload);
+
+        assertEquals("Bold", payload.get("brandTone").asText());
+    }
+
+    @Test
+    @DisplayName("a brand with no tone set is left alone rather than given an empty one")
+    void noToneSet() {
+        StubDao dao = new StubDao()
+                .with("/tenancy/brands/" + BRAND, brandWithAttributes("Trailhead", "{\"industry\":\"outdoor\"}"));
+
+        ObjectNode payload = MAPPER.createObjectNode();
+        payload.put("goal", "Launch the winter collection");
+
+        new BriefEnricher(dao).enrich(BRAND, payload);
+
+        assertFalse(payload.has("brandTone"));
+    }
+
+    @Test
+    @DisplayName("unparseable custom_attributes costs the tone, not the generation")
+    void malformedAttributes() {
+        // The bag is user-writable, so malformed JSON is an ordinary thing to meet. Failing a page
+        // generation over it would be a worse outcome than the missing adjective it protects.
+        StubDao dao = new StubDao()
+                .with("/tenancy/brands/" + BRAND, brandWithAttributes("Trailhead", "{not json"));
+
+        ObjectNode payload = MAPPER.createObjectNode();
+        payload.put("goal", "Launch the winter collection");
+
+        new BriefEnricher(dao).enrich(BRAND, payload);
+
+        assertEquals("Launch the winter collection", payload.get("goal").asText());
+        assertFalse(payload.has("brandTone"));
+    }
+
+    @Test
+    @DisplayName("a brand with no custom_attributes at all does not throw")
+    void absentAttributes() {
+        StubDao dao = new StubDao().with("/tenancy/brands/" + BRAND, brand("Trailhead"));
+
+        ObjectNode payload = MAPPER.createObjectNode();
+        payload.put("goal", "Launch the winter collection");
+
+        new BriefEnricher(dao).enrich(BRAND, payload);
+
+        assertFalse(payload.has("brandTone"));
+    }
 }

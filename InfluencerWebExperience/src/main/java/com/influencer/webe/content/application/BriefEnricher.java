@@ -42,6 +42,16 @@ public class BriefEnricher {
 
     private static final Logger log = LoggerFactory.getLogger(BriefEnricher.class);
 
+    /**
+     * For reading `custom_attributes`, which is jsonb on the column and a String on the entity.
+     *
+     * <p>Static rather than injected: {@code ObjectMapper} is thread-safe once configured, this one
+     * only ever parses, and taking it as a constructor argument would change the signature of a
+     * bean four tests construct by hand for the sake of a default instance.
+     */
+    private static final com.fasterxml.jackson.databind.ObjectMapper objectMapper =
+            new com.fasterxml.jackson.databind.ObjectMapper();
+
     private final DaoGatewayClient dao;
 
     public BriefEnricher(DaoGatewayClient dao) {
@@ -93,8 +103,45 @@ public class BriefEnricher {
         }
         // The brand's own tone setting, when it has one, is a better default than asking every
         // campaign to restate it.
-        if (fillIfBlank(payload, "brandTone", text(brand, "tone"))) {
+        //
+        // OP-23: this read `brand.tone` for its whole life and there has never been such a column.
+        // `V11__accounts_brands_memberships.sql` creates brands with id, account_id, name, status,
+        // custom_attributes, created_at, updated_at; no migration since adds `tone`, and the DAO
+        // returns the raw entity. So the line above always no-opped, silently, and the comment
+        // described behaviour that had never once occurred — brand tone reached the model ONLY when
+        // a user retyped it into the form for every campaign, which is the exact thing this is
+        // supposed to prevent. Nothing logs or fails when an enrichment field is absent, which is
+        // why it survived: the feature degrades by design, so its failure looks like its success.
+        //
+        // Read from `custom_attributes` rather than adding a column. It is the untyped bag the
+        // schema already provides for exactly this, and a migration for one optional free-text
+        // field that only this call site reads would be the heavier answer to the same problem.
+        if (fillIfBlank(payload, "brandTone", brandTone(brand))) {
             filled.add("brand tone");
+        }
+    }
+
+    /**
+     * The brand's tone, from `custom_attributes.tone`.
+     *
+     * <p>`custom_attributes` is a jsonb column mapped to a String on the entity, so it arrives as
+     * JSON *text* rather than as an object and has to be parsed. Best-effort throughout: the bag is
+     * user-writable, so a malformed value is an ordinary thing to meet rather than an error worth
+     * failing a page generation over — the brief simply goes to the model without a tone, which is
+     * what happened for every generation before this worked at all.
+     */
+    private String brandTone(JsonNode brand) {
+        String raw = text(brand, "customAttributes");
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            JsonNode attributes = objectMapper.readTree(raw);
+            return attributes.isObject() ? text(attributes, "tone") : null;
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            log.info("Brand {} has unparseable custom_attributes; skipping tone enrichment",
+                    text(brand, "id"));
+            return null;
         }
     }
 
