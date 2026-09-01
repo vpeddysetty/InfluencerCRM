@@ -286,6 +286,15 @@ class CreatorClassifyRequest(BaseModel):
     platform: str = ""
     display_name: str = ""
     recent_captions: str = ""
+    # Ask for the deterministic classifier even when a model is configured (roadmap OP-25).
+    #
+    # Set by the BFF for submissions from the PUBLIC landing-page form, which is reachable
+    # without authentication and therefore by people who are not customers. Past a per-page
+    # hourly ceiling the caller keeps the lead and takes a keyword niche rather than buying an
+    # unbounded number of model calls. It is a request, not a promise of quality -- the result
+    # is stamped `heuristic` exactly as any other fallback is, so nothing downstream has to
+    # guess which classifier ran.
+    prefer_heuristic: bool = False
     # Passed for context only — so "fitness creator, mid-tier audience" is available to the
     # classifier. It is never echoed back as an output.
     follower_count: Optional[int] = None
@@ -431,6 +440,10 @@ def creators_classify(request: CreatorClassifyRequest) -> Dict[str, Any]:
     """
     if not request.handle and not request.recent_captions:
         raise HTTPException(status_code=400, detail="handle or recent_captions is required")
+    # `prefer_heuristic` short-circuits BEFORE the model call rather than discarding its answer
+    # afterwards -- the whole point is not to spend the money, so the order matters.
+    if request.prefer_heuristic:
+        return {"classification": _heuristic_classify(request)}
     result = _llm_classify(request) or _heuristic_classify(request)
     return {"classification": result}
 

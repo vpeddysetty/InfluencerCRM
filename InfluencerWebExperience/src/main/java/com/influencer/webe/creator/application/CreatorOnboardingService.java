@@ -109,6 +109,21 @@ public class CreatorOnboardingService {
      * another's rate, notes or score.
      */
     public JsonNode captureLead(UUID brandId, UUID createdByUserId, ObjectNode payload) {
+        // Authenticated callers are already bounded by their own session and by permissions, so
+        // they keep the model. Only the public form pays the rate limit — see the overload.
+        return captureLead(brandId, createdByUserId, payload, true);
+    }
+
+    /**
+     * As above, but able to decline the billed classifier (roadmap OP-25).
+     *
+     * <p>{@code allowAiClassification=false} still captures the lead and still classifies it — the
+     * agent falls back to its keyword matcher and stamps the result {@code heuristic}. The lead is
+     * never the thing dropped: somebody handed a brand their details, and refusing that to save a
+     * fraction of a cent would be the expensive mistake. What is dropped is the model's opinion.
+     */
+    public JsonNode captureLead(UUID brandId, UUID createdByUserId, ObjectNode payload,
+                                boolean allowAiClassification) {
         String handle = text(payload, "handle");
         if (handle == null || handle.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "handle is required");
@@ -136,7 +151,7 @@ public class CreatorOnboardingService {
             if (body.path("name").asText("").isBlank() && profile.displayName() != null) {
                 body.put("name", profile.displayName());
             }
-            JsonNode classification = classify(profile);
+            JsonNode classification = classify(profile, allowAiClassification);
             if (classification != null) {
                 applyClassification(body, classification);
             }
@@ -211,7 +226,23 @@ public class CreatorOnboardingService {
 
     /** Ask the agent to classify. Returns null when it is unavailable — never throws. */
     private JsonNode classify(SocialProfileGateway.Profile profile) {
+        return classify(profile, true);
+    }
+
+    /**
+     * As above, but able to ask for the deterministic classifier instead of the model (OP-25).
+     *
+     * <p>{@code allowAi=false} sets {@code prefer_heuristic}, which the agent honours by running
+     * its keyword matcher and stamping {@code source: "heuristic"}. Asking the agent rather than
+     * skipping the call keeps ONE classifier in one place: the niche vocabulary and the risk flags
+     * are closed sets defined there, and a second implementation here to avoid one HTTP hop would
+     * be the thing that silently drifts out of step with the vetting rules written against them.
+     */
+    private JsonNode classify(SocialProfileGateway.Profile profile, boolean allowAi) {
         ObjectNode ask = shape.objectMapper().createObjectNode();
+        if (!allowAi) {
+            ask.put("prefer_heuristic", true);
+        }
         ask.put("handle", profile.handle());
         ask.put("platform", profile.platform());
         ask.put("display_name", profile.displayName() == null ? "" : profile.displayName());

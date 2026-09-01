@@ -67,7 +67,15 @@ public class ImportBatchesController {
     }
 
     @PostMapping("/{id}/agent-column-mapping")
-    public JsonNode generateAgentColumnMapping(@PathVariable UUID id) {
+    public JsonNode generateAgentColumnMapping(@RequestHeader(value = "Authorization", required = false) String authorization,
+                                               @RequestParam(required = false) UUID brandId,
+                                               @PathVariable UUID id) {
+        // OP-26. This was the one route in the file that read a batch without proving it belonged
+        // to the caller, and the omission cost two things at once: another tenant's column headers
+        // came back in the response, and the mapping call below spends OpenAI budget, so an
+        // unowned id billed us to leak. `columns` above already states the rule these headers fall
+        // under — they describe a customer's own spreadsheet and are not harmless metadata.
+        requireOwnedImportBatch(authorization, brandId, id);
         JsonNode storedColumnsResult = daoGatewayClient.get("/import-batches/" + id + "/columns", null);
         ArrayNode columnsNode = storedColumnsResult != null && storedColumnsResult.has("columns") && storedColumnsResult.get("columns").isArray()
                 ? (ArrayNode) storedColumnsResult.get("columns")

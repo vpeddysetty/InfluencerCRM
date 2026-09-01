@@ -3,6 +3,7 @@ package com.influencer.webe.creator.api;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.influencer.webe.creator.application.CreatorOnboardingService;
+import com.influencer.webe.creator.application.PublicSignupRateLimiter;
 // Consent capture lives in the identity context. Reaching it from here is allowed because
 // `application` is the published-port package — see ServiceBoundaryTest; its entities and
 // repositories are not reachable and are not used.
@@ -38,12 +39,15 @@ public class CreatorOnboardingController {
     private final RequestUserResolver requestUserResolver;
     private final DaoGatewayClient dao;
     private final ConsentService consentService;
+    private final PublicSignupRateLimiter publicSignupRateLimiter;
 
     public CreatorOnboardingController(CreatorOnboardingService onboarding,
                                        RequestUserResolver requestUserResolver,
                                        DaoGatewayClient dao,
-                                       ConsentService consentService) {
+                                       ConsentService consentService,
+                                       PublicSignupRateLimiter publicSignupRateLimiter) {
         this.consentService = consentService;
+        this.publicSignupRateLimiter = publicSignupRateLimiter;
         this.onboarding = onboarding;
         this.requestUserResolver = requestUserResolver;
         this.dao = dao;
@@ -136,7 +140,13 @@ public class CreatorOnboardingController {
         consentService.requireAccepted(
                 payload.hasNonNull("acceptedTerms") ? payload.get("acceptedTerms").asBoolean() : null);
 
-        JsonNode created = onboarding.captureLead(brandId, null, safe);
+        // OP-25. This endpoint is unauthenticated by design, and the enrichment behind it is a
+        // billed model call, so a loop against one published page bills us for as long as it runs.
+        // Past the per-page ceiling the lead is still captured and still classified — by the
+        // keyword matcher, stamped `heuristic`. Dropping the lead to save a fraction of a cent
+        // would be the expensive mistake; dropping the model's opinion of their niche is not.
+        boolean allowAiClassification = publicSignupRateLimiter.allowEnrichment(slug);
+        JsonNode created = onboarding.captureLead(brandId, null, safe, allowAiClassification);
 
         // Only when an email was supplied: a consent record whose only identifier is blank cannot be
         // produced on request, and would be evidence of nothing. The handle is kept in metadata so
