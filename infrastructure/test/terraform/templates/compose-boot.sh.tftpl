@@ -261,9 +261,50 @@ WantedBy=multi-user.target
 UNIT
 
 systemctl daemon-reload
-systemctl enable --now influencrm.service \
-  && echo "  influencrm.service started" \
-  || echo "  WARNING: influencrm.service failed; check journalctl -u influencrm"
+
+# RETRIED, because the failure this recovers from is transient and its consequence is total.
+#
+# On 2026-08-31 an instance refresh reported Successful, the ASG health check passed, and the
+# platform was down for two hours: ExecStartPre's `docker compose pull` had timed out reaching ECR
+# ("Client.Timeout exceeded while awaiting headers"), systemd marked the unit failed, and this line
+# printed a warning and carried on to "boot complete". Nothing downstream looks at that warning --
+# the ASG checks the INSTANCE, not the stack -- so a passing deploy and a dead site are identical
+# from outside the box. Starting the unit by hand afterwards worked first time, which is what
+# confirms it was a network blip rather than a broken image.
+#
+# Three attempts with a widening pause. A cold instance pulling twelve images is exactly when a
+# registry timeout is most likely, and exactly when retrying costs least.
+start_platform() {
+  attempt=1
+  while [ "$attempt" -le 3 ]; do
+    if systemctl start influencrm.service; then
+      echo "  influencrm.service started (attempt $attempt)"
+      return 0
+    fi
+    echo "  attempt $attempt to start influencrm.service failed"
+    if [ "$attempt" -lt 3 ]; then
+      sleep $((attempt * 20))
+      # Re-authenticate before retrying: a token that expired mid-boot fails identically to a
+      # network timeout, and re-running the login is cheap next to another failed pull.
+      aws ecr get-login-password --region "$REGION" \
+        | docker login --username AWS --password-stdin "${ecr_registry}" >/dev/null 2>&1 || true
+    fi
+    attempt=$((attempt + 1))
+  done
+  return 1
+}
+
+systemctl enable influencrm.service >/dev/null 2>&1 || true
+if start_platform; then
+  :
+else
+  # LOUD, and on the console. This is the one failure that means the box is up and serving nothing,
+  # and the previous version's single warning line was indistinguishable from routine noise in a log
+  # nobody reads unless already suspicious.
+  echo "FATAL: influencrm.service did not start after 3 attempts." >&2
+  echo "The instance is healthy and the platform is DOWN. Check: journalctl -u influencrm" >&2
+  journalctl -u influencrm --no-pager -n 20 >&2 || true
+fi
 
 # ---------------------------------------------------------------------------
 # 5. Spot interruption handling
