@@ -73,19 +73,42 @@ locals {
 }
 
 # Fails the plan on a combination CloudFront would reject at apply time, after it had already spent
-# fifteen minutes deploying. The shell cannot claim app.tejdux.com under the apex certificate unless
-# that certificate also covers app. — so the two alias sets are mutually exclusive here until a
-# certificate covering both exists.
-check "apex_and_wildcard_are_not_both_on_the_shell" {
+# fifteen minutes deploying. The shell cannot claim app.${var.root_domain} and the apex under one
+# certificate unless that certificate covers BOTH — a wildcard alone does not, because *.example.com
+# does not match example.com.
+#
+# WHAT THIS USED TO ASSERT, AND WHY IT WAS WRONG (corrected 2026-09-01). The condition was
+# `!(apex_on_shell && static_aliased)` — the two were held to be mutually exclusive outright, on the
+# stated premise that "the live apex certificate covers only the apex and www". That premise stopped
+# being true once ONE certificate was issued covering both: `*.tejdux.com` with `tejdux.com` as an
+# explicit SAN, which is exactly the resolution the old message asked for and which prod.tfvars has
+# pointed both variables at ever since.
+#
+# So the check fired on every plan while the configuration it objected to was live, correct and
+# serving all three names. That is worse than no check: a warning that is always wrong trains the
+# reader to skip the warnings that are not, and this one appeared in the same output as genuine
+# infrastructure diffs. Verified before changing it — ACM reports SANs [*.tejdux.com, tejdux.com],
+# distribution E3GALL4Q8H611Y serves all three aliases under that ARN, and all three pass an
+# openssl SAN check against the live endpoint.
+#
+# The real invariant is not "never both" but "if both, one certificate covering all three names",
+# which is what is asserted now. Kept as a `check` rather than promoted to a `precondition`
+# deliberately: it reads two variables and cannot see the certificate's SANs, so it can only compare
+# the ARNs. Two different-but-both-valid certificates would trip it, and failing an apply on
+# something this check cannot actually verify would be the more expensive error.
+check "apex_and_wildcard_share_one_certificate_on_the_shell" {
   assert {
-    condition     = !(local.apex_on_shell && local.static_aliased)
+    condition = !(local.apex_on_shell && local.static_aliased) || (
+      var.apex_certificate_arn == var.static_site_certificate_arn
+    )
     error_message = <<-EOT
       shell_serves_apex and static_site_certificate_arn are both set, which makes the shell claim
-      app.${var.root_domain}, ${var.root_domain} and www.${var.root_domain} under a single certificate.
+      app.${var.root_domain}, ${var.root_domain} and www.${var.root_domain} — but apex_certificate_arn
+      and static_site_certificate_arn are DIFFERENT certificates.
 
-      The live apex certificate covers only ${var.root_domain} and www.${var.root_domain}, so CloudFront
-      would reject the app. alias. Issue one certificate covering all three names and set both variables
-      to it, or leave static_site_certificate_arn empty.
+      A distribution serves one certificate, and CloudFront rejects an alias that certificate does not
+      cover. Point both variables at a single certificate covering all three names (a wildcard plus the
+      apex as an explicit SAN), or leave static_site_certificate_arn empty.
     EOT
   }
 }
