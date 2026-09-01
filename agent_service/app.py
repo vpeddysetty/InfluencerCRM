@@ -449,8 +449,21 @@ def creators_classify(request: CreatorClassifyRequest) -> Dict[str, Any]:
 
 
 @app.get("/health")
-def health() -> Dict[str, str]:
-    return {"status": "ok"}
+def health() -> Dict[str, Any]:
+    """
+    Liveness, plus whether the model is actually reachable (roadmap OP-27).
+
+    `status` stays "ok" whenever the process is serving, because that is what the container
+    healthcheck and the ASG read -- degrading it on a missing key would take the platform down
+    over a feature that is designed to survive without one.
+
+    `llm` is the part worth having. Every LLM path here falls back to a deterministic matcher and
+    returns a result, so a missing key produces no error, no 500 and no log line at request time --
+    creator vetting silently ran on substring matching in production for three weeks and was found
+    only by someone measuring `source` on stored rows. An unavailable model is a real operational
+    state, and this is the cheapest place to make it observable rather than inferable.
+    """
+    return {"status": "ok", "llm": "available" if advisor.is_available() else "unavailable"}
 
 
 @app.get("/mappings/examples")
