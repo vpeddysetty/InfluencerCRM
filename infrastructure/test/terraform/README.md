@@ -27,6 +27,23 @@ aws autoscaling start-instance-refresh \
   --region us-east-1
 ```
 
+**A "Successful" instance refresh does not mean the platform is up.** The ASG health-checks the
+EC2 instance; it knows nothing about the containers. On 2026-08-31 a refresh reported Successful
+at 100% with a healthy instance and an empty `docker ps` — `docker compose pull` had timed out
+against ECR during boot, systemd marked the unit failed, and the site was down for two hours while
+the deploy looked fine from every angle AWS reports on.
+
+So after the refresh, **wait on the API rather than on the refresh**:
+
+```bash
+./infrastructure/scripts/wait-for-api.sh
+```
+
+It polls for three consecutive 200s (one can come from the old instance mid-roll), gives up after
+fifteen minutes rather than forever, and prints what to check. The boot script now retries the ECR
+pull three times and prints FATAL to the console if all three fail. Recovery, when the pull was the
+only problem, is `systemctl start influencrm` over SSM.
+
 ## What is here
 
 | File | What it holds |
