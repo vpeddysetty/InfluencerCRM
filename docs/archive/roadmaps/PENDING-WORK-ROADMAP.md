@@ -1,3 +1,8 @@
+> **ARCHIVED 2026-08-19 — superseded by [MASTER-ROADMAP.md](../../../MASTER-ROADMAP.md).**
+> Kept for its reasoning, not its status. Every status claim below is stale, and several
+> were wrong when written — the code had moved past them. **Do not schedule from this**
+> **document.** Still worth reading for: the append-only build log — it remains the most factual record of what shipped, and the mocking policy (§9-20).
+
 # Pending work — verified state and build order
 
 **Date:** 2026-08-07

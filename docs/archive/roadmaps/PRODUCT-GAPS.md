@@ -1,3 +1,8 @@
+> **ARCHIVED 2026-08-19 — superseded by [MASTER-ROADMAP.md](../../../MASTER-ROADMAP.md).**
+> Kept for its reasoning, not its status. Every status claim below is stale, and several
+> were wrong when written — the code had moved past them. **Do not schedule from this**
+> **document.** Still worth reading for: §0 "the asymmetry" — strong where buyers cannot see, absent where they look first. The single best paragraph in the repo.
+
 # Product Gap Analysis — InfluenCRM
 
 **Date:** 2026-08-06

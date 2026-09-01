@@ -1,3 +1,8 @@
+> **ARCHIVED 2026-08-19 — superseded by [MASTER-ROADMAP.md](../../../MASTER-ROADMAP.md).**
+> Kept for its reasoning, not its status. Every status claim below is stale, and several
+> were wrong when written — the code had moved past them. **Do not schedule from this**
+> **document.** Still worth reading for: the original MVP build order and the validate-then-monetize principle it argued for.
+
 MVP roadmap
 Build order for the influencer CRM. The organizing bet: prove small brands will abandon their spreadsheet. Phase 1 exists only to validate that. Everything after earns and defends the subscription.
 

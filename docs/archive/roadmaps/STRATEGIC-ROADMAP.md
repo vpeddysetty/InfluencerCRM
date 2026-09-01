@@ -1,3 +1,8 @@
+> **ARCHIVED 2026-08-19 — superseded by [MASTER-ROADMAP.md](../../../MASTER-ROADMAP.md).**
+> Kept for its reasoning, not its status. Every status claim below is stale, and several
+> were wrong when written — the code had moved past them. **Do not schedule from this**
+> **document.** Still worth reading for: the pricing posture, the "why not free" framing, and the commercial-layer argument.
+
 # Strategic Roadmap — InfluenCRM
 
 **Date:** 2026-08-06
