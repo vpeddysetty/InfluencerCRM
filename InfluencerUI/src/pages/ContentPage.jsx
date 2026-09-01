@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { MdsKicker, MdsSectionRule, MdsNote } from '../components/Mds'
 import LandingBuilder from '../components/LandingBuilder'
 import SectionEditor from '@influencer/ui/SectionEditor.jsx'
+import LandingAnalytics from '@influencer/ui/LandingAnalytics.jsx'
 import { applyTemplate, stripForTemplate, templateById, templateForCampaignType, PAGE_TEMPLATES } from '@influencer/ui/pageTemplates.js'
 import { blankSection } from '@influencer/ui/sectionTypes.js'
 import CampaignPageGenerator from '../components/CampaignPageGenerator'
@@ -37,6 +38,7 @@ function ContentPage({
   onReloadCoupons,
   onDraftContent,
   onPreviewLanding,
+  onLoadAnalytics,
   onLoadVersions,
   onRestoreVersion,
   onLoadAssets,
@@ -1051,6 +1053,15 @@ function ContentPage({
                     {publicPageUrl(`/s/${currentTemplate.publicSlug}`)}
                   </a>
                 </p>
+              ) : null}
+              {/* PR-57. Only once the page is published: before that the count is
+                  necessarily zero, and a row of zeroes reads as a broken report rather than
+                  as "not live yet". */}
+              {currentTemplate && templateStatus === 'published' ? (
+                <LandingAnalytics
+                  campaignId={campaignId}
+                  loadAnalytics={onLoadAnalytics}
+                />
               ) : null}
               {previewHtml ? (
                 <div className="landing-preview">

@@ -109,6 +109,7 @@ import {
   takePageBack,
   revokePageCollaborator,
   inviteCreator,
+  getLandingAnalytics,
   listLandingVersions,
   restoreLandingVersion,
   listAssets,
@@ -1763,6 +1764,10 @@ function App() {
   const inviteCreatorRecord = async (payload) => inviteCreator(authToken, payload)
 
   const loadLandingVersionsRecord = async (campaignId) => listLandingVersions(authToken, campaignId)
+  // PR-57. Bound here, like every other data dependency: the host owns the session and the
+  // panel owns the display.
+  const loadLandingAnalyticsRecord = async (campaignId, days) =>
+    getLandingAnalytics(authToken, campaignId, days)
   const restoreLandingVersionRecord = async (campaignId, versionNo) =>
     restoreLandingVersion(authToken, campaignId, versionNo)
 
@@ -2570,6 +2575,7 @@ function App() {
                   onReloadCoupons={loadCouponsForContent}
                   onDraftContent={draftContentRecord}
                   onPreviewLanding={previewLandingRecord}
+                  onLoadAnalytics={loadLandingAnalyticsRecord}
                   onLoadVersions={loadLandingVersionsRecord}
                   onRestoreVersion={restoreLandingVersionRecord}
                   onLoadAssets={loadAssetsRecord}

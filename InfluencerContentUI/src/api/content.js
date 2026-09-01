@@ -114,6 +114,19 @@ export async function cancelLandingPublishSchedule(token, templateId) {
   })
 }
 
+// ---- view analytics (PR-57) ----
+
+// The summary, not the raw log. `/api/landing-page-views` returns every row unpaginated and
+// undated, which is why it was never wired to anything: a page doing well would eventually answer
+// with tens of thousands of records for the browser to add up. The counting happens server-side.
+export async function getLandingAnalytics(token, campaignId, days) {
+  const window = days ? `&days=${encodeURIComponent(days)}` : ''
+  return request(
+    `/api/landing-pages/analytics?campaignId=${encodeURIComponent(campaignId)}${window}`,
+    { token },
+  )
+}
+
 // ---- version history (Phase A.5) ----
 
 export async function listLandingVersions(token, campaignId) {

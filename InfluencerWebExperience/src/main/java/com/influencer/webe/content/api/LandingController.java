@@ -3,6 +3,7 @@ package com.influencer.webe.content.api;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.influencer.webe.shared.infrastructure.DaoGatewayClient;
+import com.influencer.webe.content.application.LandingAnalyticsService;
 import com.influencer.webe.content.application.LandingService;
 import com.influencer.webe.identity.application.EntitlementService;
 import com.influencer.webe.identity.application.PlanPolicy;
@@ -31,6 +32,7 @@ public class LandingController {
     private final RequestUserResolver requestUserResolver;
     private final ResponseShapeService shape;
     private final EntitlementService entitlements;
+    private final LandingAnalyticsService landingAnalytics;
 
     /**
      * Which editor the UI should mount (PR-39): {@code sections} or {@code builder}.
@@ -47,12 +49,14 @@ public class LandingController {
                             RequestUserResolver requestUserResolver,
                             ResponseShapeService shape,
                             EntitlementService entitlements,
+                            LandingAnalyticsService landingAnalytics,
                             @Value("${web-experience.landing.editor:builder}") String editorMode) {
         this.landingService = landingService;
         this.dao = dao;
         this.requestUserResolver = requestUserResolver;
         this.shape = shape;
         this.entitlements = entitlements;
+        this.landingAnalytics = landingAnalytics;
         // An unrecognised value falls back to `builder` rather than throwing, matching
         // BillingProviderRegistry.active(): a typo in an environment variable must not stop the
         // application booting. It is silent, which is the documented trade — the shipped default
@@ -129,6 +133,25 @@ public class LandingController {
         query.put("brandId", resolved.toString());
         query.put("campaignCodeId", campaignCodeId == null ? null : campaignCodeId.toString());
         return dao.get("/landing-page-views", query);
+    }
+
+    /**
+     * View counts for a campaign's landing page, by creator and by day (PR-57).
+     *
+     * <p>Separate from {@code /api/landing-page-views} above, which returns raw rows: that one is
+     * unpaginated and undated, so a page doing well would eventually answer with tens of thousands
+     * of records for the browser to add up. This returns the summary, counted server-side.
+     *
+     * <p>Permission is {@code CONTENT_READ} rather than a reporting-specific one: this is the
+     * page's own performance, shown to whoever may already see the page.
+     */
+    @GetMapping("/api/landing-pages/analytics")
+    public JsonNode analytics(@RequestHeader(value = "Authorization", required = false) String authorization,
+                              @RequestParam UUID campaignId,
+                              @RequestParam(required = false) UUID brandId,
+                              @RequestParam(required = false) Integer days) {
+        UUID resolved = requestUserResolver.requirePermissionForBrand(authorization, Permission.CONTENT_READ);
+        return landingAnalytics.forCampaign(resolved, campaignId, days);
     }
 
     /** Version history for the campaign's landing page, newest first (A.5). */

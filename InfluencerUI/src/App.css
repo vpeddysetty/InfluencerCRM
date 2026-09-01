@@ -3262,3 +3262,52 @@ a.ghost-btn:visited {
 .cpg-allowance--spent {
   color: var(--fg);
 }
+
+/* ---- Landing page view analytics (PR-57) --------------------------------
+   Deliberately no chart library. The shape here is a list of days with a bar
+   whose width is a percentage -- one flex row and a background colour do it,
+   and adding a charting dependency for that would cost more bundle than the
+   whole feature. PR-39 deleted 951 KB of GrapesJS on exactly this reasoning. */
+.lp-analytics { margin-block: 1.5rem; }
+.lp-analytics__head {
+  display: flex; flex-wrap: wrap; gap: .75rem;
+  align-items: baseline; justify-content: space-between;
+}
+.lp-analytics__range { display: flex; gap: .25rem; }
+.lp-analytics__range button {
+  font: inherit; padding: .2rem .6rem; cursor: pointer;
+  border: 1px solid var(--mds-rule, #d8d2cb);
+  background: transparent; border-radius: 999px;
+}
+.lp-analytics__range button.is-selected {
+  background: var(--mds-ink, #1c1b19); color: var(--mds-paper, #fff);
+  border-color: var(--mds-ink, #1c1b19);
+}
+.lp-analytics__total { font-size: 1.05rem; margin-block: .5rem; }
+.lp-analytics__total strong { font-size: 1.6rem; }
+.lp-analytics__muted { opacity: .7; }
+.lp-analytics__error { color: var(--mds-danger, #a4331f); }
+.lp-analytics__subhead { margin-block: 1rem .35rem; font-size: .95rem; }
+.lp-analytics__caption { text-align: start; opacity: .7; padding-block-end: .35rem; }
+.lp-analytics__table { width: 100%; border-collapse: collapse; }
+.lp-analytics__table th, .lp-analytics__table td {
+  text-align: start; padding: .35rem .5rem;
+  border-block-end: 1px solid var(--mds-rule, #e8e3dd);
+}
+.lp-analytics__bars { list-style: none; margin: 0; padding: 0; }
+.lp-analytics__bars li {
+  display: grid; grid-template-columns: 6.5rem 1fr 3rem;
+  align-items: center; gap: .5rem; padding-block: .15rem;
+}
+.lp-analytics__date { font-variant-numeric: tabular-nums; opacity: .75; font-size: .85rem; }
+/* min-inline-size so a single view is still a visible mark rather than nothing. */
+.lp-analytics__bar {
+  display: block; block-size: .7rem; min-inline-size: 2px;
+  background: var(--mds-accent, #b4522f); border-radius: 2px;
+}
+.lp-analytics__count { font-variant-numeric: tabular-nums; text-align: end; font-size: .85rem; }
+
+@media (max-width: 32rem) {
+  /* The date column is the one that can go: the bar and the count still say what happened. */
+  .lp-analytics__bars li { grid-template-columns: 4.5rem 1fr 2.5rem; }
+}
