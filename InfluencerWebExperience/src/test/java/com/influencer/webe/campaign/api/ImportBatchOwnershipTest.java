@@ -88,6 +88,23 @@ class ImportBatchOwnershipTest {
         public UUID resolveBrandId(String authorizationHeader, UUID explicitBrandId) {
             return CALLER_BRAND;
         }
+
+        /**
+         * The controller resolves the caller before the ownership check so PR-62 has an account to
+         * meter against. A minimal context is enough — this test asserts ownership, not metering,
+         * and the allowance stub above records nothing either way.
+         */
+        @Override
+        public com.influencer.webe.security.TenantContext requireTenantContext(String authorizationHeader) {
+            return new com.influencer.webe.security.TenantContext(
+                    UUID.randomUUID(),
+                    UUID.randomUUID(),
+                    CALLER_BRAND,
+                    "owner@example.com",
+                    com.influencer.webe.security.AccountRole.OWNER,
+                    java.util.Set.of(),
+                    java.util.Set.of(CALLER_BRAND));
+        }
     }
 
     /** Records whether the billed mapping call was made. */
@@ -110,9 +127,27 @@ class ImportBatchOwnershipTest {
         }
     }
 
+    /** Records nothing and refuses nobody: metering is PR-62's concern, not this test's. */
+    private static class PermissiveAllowance extends com.influencer.webe.identity.application.AiGenerationAllowance {
+
+        PermissiveAllowance() {
+            super(null, null);
+        }
+
+        @Override
+        public void require(UUID accountId) {
+            // never refuses
+        }
+
+        @Override
+        public void record(UUID accountId, UUID brandId, String kind, String generator) {
+            // never records
+        }
+    }
+
     private ImportBatchesController controller(StubDao dao, CountingAgent agent) {
         return new ImportBatchesController(dao, agent, new StubResolver(),
-                new ResponseShapeService(MAPPER));
+                new ResponseShapeService(MAPPER), new PermissiveAllowance());
     }
 
     @Test

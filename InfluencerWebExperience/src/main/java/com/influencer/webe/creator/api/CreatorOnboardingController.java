@@ -7,8 +7,10 @@ import com.influencer.webe.creator.application.PublicSignupRateLimiter;
 // Consent capture lives in the identity context. Reaching it from here is allowed because
 // `application` is the published-port package — see ServiceBoundaryTest; its entities and
 // repositories are not reachable and are not used.
+import com.influencer.webe.identity.application.AiGenerationAllowance;
 import com.influencer.webe.identity.application.ConsentService;
 import com.influencer.webe.security.Permission;
+import com.influencer.webe.security.TenantContext;
 import com.influencer.webe.shared.application.RequestUserResolver;
 import com.influencer.webe.shared.infrastructure.DaoGatewayClient;
 import jakarta.servlet.http.HttpServletRequest;
@@ -40,27 +42,40 @@ public class CreatorOnboardingController {
     private final DaoGatewayClient dao;
     private final ConsentService consentService;
     private final PublicSignupRateLimiter publicSignupRateLimiter;
+    private final AiGenerationAllowance allowance;
 
     public CreatorOnboardingController(CreatorOnboardingService onboarding,
                                        RequestUserResolver requestUserResolver,
                                        DaoGatewayClient dao,
                                        ConsentService consentService,
-                                       PublicSignupRateLimiter publicSignupRateLimiter) {
+                                       PublicSignupRateLimiter publicSignupRateLimiter,
+                                       AiGenerationAllowance allowance) {
         this.consentService = consentService;
         this.publicSignupRateLimiter = publicSignupRateLimiter;
+        this.allowance = allowance;
         this.onboarding = onboarding;
         this.requestUserResolver = requestUserResolver;
         this.dao = dao;
     }
 
-    /** Preview what a handle resolves to. Reads only — nothing is persisted (C.2). */
+    /**
+     * Preview what a handle resolves to. Reads only — nothing is persisted (C.2).
+     *
+     * <p>Metered (PR-62) even though it persists nothing: the classification behind it is a billed
+     * model call, it runs once per creator with no caching, and previewing a roster of fifty while
+     * deciding bills over a hundred times. "Nothing is stored" and "nothing is spent" are different
+     * claims, and only the first is true here.
+     */
     @PostMapping("/api/creators/resolve-handle")
     public JsonNode resolveHandle(@RequestHeader(value = "Authorization", required = false) String authorization,
                                   @RequestBody ObjectNode payload) {
-        requestUserResolver.requirePermissionForBrand(authorization, Permission.CREATOR_READ);
-        return onboarding.resolveHandle(
+        var context = requestUserResolver.requirePermission(authorization, Permission.CREATOR_READ);
+        allowance.require(context.accountId());
+        JsonNode result = onboarding.resolveHandle(
                 payload.path("platform").asText(null),
                 payload.path("handle").asText(null));
+        recordClassification(context, result);
+        return result;
     }
 
     /** Brand-side lead capture: add a creator by handle, enriched (C.5). */
@@ -69,7 +84,33 @@ public class CreatorOnboardingController {
     public JsonNode captureLead(@RequestHeader(value = "Authorization", required = false) String authorization,
                                 @RequestBody ObjectNode payload) {
         var context = requestUserResolver.requirePermission(authorization, Permission.CREATOR_WRITE);
-        return onboarding.captureLead(context.brandId(), context.userId(), payload);
+        allowance.require(context.accountId());
+        JsonNode result = onboarding.captureLead(context.brandId(), context.userId(), payload);
+        recordClassification(context, result);
+        return result;
+    }
+
+    /**
+     * Record a classification against the account's allowance — but only when one actually ran.
+     *
+     * <p>Read from the RESULT rather than assumed from the request, for the same reason
+     * {@code CampaignPageGenerationController} reads the generator off its response: a lookup whose
+     * handle did not resolve never reaches the classifier at all, and one that fell back to the
+     * keyword matcher cost nothing. Charging for either would meter work that was never billed.
+     *
+     * <p>{@code allowance.record} never throws, so a failure here leaves the count low by one
+     * rather than losing the creator the user is waiting for.
+     */
+    private void recordClassification(TenantContext context, JsonNode result) {
+        String source = result == null ? null : result.path("classificationSource").asText(null);
+        if (source == null && result != null) {
+            source = result.path("classification").path("source").asText(null);
+        }
+        // Only the model is billed. `heuristic` is the local keyword matcher and costs nothing —
+        // the same distinction V48 draws for `template`.
+        if ("llm".equals(source)) {
+            allowance.record(context.accountId(), context.brandId(), "classify", "openai");
+        }
     }
 
     /**

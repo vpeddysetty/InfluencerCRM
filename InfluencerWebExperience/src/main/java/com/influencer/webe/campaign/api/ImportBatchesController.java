@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.influencer.webe.campaign.infrastructure.AgentMappingClient;
 import com.influencer.webe.shared.infrastructure.DaoGatewayClient;
+import com.influencer.webe.identity.application.AiGenerationAllowance;
 import com.influencer.webe.security.Permission;
 import com.influencer.webe.shared.application.RequestUserResolver;
 import com.influencer.webe.shared.application.ResponseShapeService;
@@ -27,15 +28,18 @@ public class ImportBatchesController {
     private final AgentMappingClient agentMappingClient;
     private final RequestUserResolver requestUserResolver;
     private final ResponseShapeService responseShapeService;
+    private final AiGenerationAllowance allowance;
 
     public ImportBatchesController(DaoGatewayClient daoGatewayClient,
                                    AgentMappingClient agentMappingClient,
                                    RequestUserResolver requestUserResolver,
-                                   ResponseShapeService responseShapeService) {
+                                   ResponseShapeService responseShapeService,
+                                   AiGenerationAllowance allowance) {
         this.daoGatewayClient = daoGatewayClient;
         this.agentMappingClient = agentMappingClient;
         this.requestUserResolver = requestUserResolver;
         this.responseShapeService = responseShapeService;
+        this.allowance = allowance;
     }
 
     @GetMapping
@@ -75,6 +79,9 @@ public class ImportBatchesController {
         // came back in the response, and the mapping call below spends OpenAI budget, so an
         // unowned id billed us to leak. `columns` above already states the rule these headers fall
         // under — they describe a customer's own spreadsheet and are not harmless metadata.
+        // Resolve the caller BEFORE the ownership check so the account is known for metering
+        // below; requireOwnedImportBatch then proves the batch is theirs.
+        var context = requestUserResolver.requireTenantContext(authorization);
         requireOwnedImportBatch(authorization, brandId, id);
         JsonNode storedColumnsResult = daoGatewayClient.get("/import-batches/" + id + "/columns", null);
         ArrayNode columnsNode = storedColumnsResult != null && storedColumnsResult.has("columns") && storedColumnsResult.get("columns").isArray()
@@ -88,6 +95,13 @@ public class ImportBatchesController {
         }
         response.set("columns", columnsNode);
         response.set("mapping", agentMappingClient.mapColumns(responseShapeService.asStringList(columnsNode)));
+        // PR-62. RECORDED, deliberately NEVER COUNTED -- the repository's own query excludes
+        // `column_mapping`. This call sends only the column HEADERS, so a 10,000-row roster and a
+        // 10-row one cost exactly one call each: bounded by the number of imports, never by their
+        // size. The free tier's twenty was sized against page drafts, and a budget silently shared
+        // with imports would make twenty stop meaning twenty drafts. Recorded anyway, because
+        // "which kind of call ran up the bill" is the question this table exists to answer.
+        allowance.record(context.accountId(), context.brandId(), "column_mapping", "openai");
         return response;
     }
 
