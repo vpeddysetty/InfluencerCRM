@@ -1,0 +1,38 @@
+# Line endings, and why this file exists.
+#
+# The repo had none, and `core.autocrlf=true` on the Windows dev machine means every text file is
+# checked out with CRLF. That is invisible almost everywhere -- until Terraform reads a `.tf` file
+# and compares it against live AWS, which holds what was applied from a LF checkout. The plan then
+# proposes rewriting a CloudFront function and an alarm description whose only difference is \n
+# versus \r\n: a real diff, semantically identical, on a function that runs on every viewer request.
+#
+# Two changes like that shipped in the v1.0.49 plan before anyone looked closely, and the standing
+# rule for this repo is to read the rendered diff rather than the action counts. This is the fix for
+# the class rather than the instance -- normalize to LF in the repo, so what Terraform renders is
+# what was applied.
+#
+# `text=auto eol=lf` means: store LF in git, check out LF, regardless of the platform's autocrlf.
+* text=auto eol=lf
+
+# Binaries must never be touched. A "normalized" image or archive is a corrupted one.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.pdf  binary
+*.mp4  binary
+*.mp3  binary
+*.zip  binary
+*.gz   binary
+*.jar  binary
+*.woff binary
+*.woff2 binary
+*.p12  binary
+*.jks  binary
+
+# Windows scripts are the deliberate exception: cmd.exe is the one interpreter here that genuinely
+# wants CRLF, and a .bat with LF line endings can fail in ways that read as a broken script rather
+# than a broken checkout.
+*.bat text eol=crlf
+*.cmd text eol=crlf
