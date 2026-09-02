@@ -437,35 +437,8 @@ variable "scheduled_publish_enabled" {
   type        = bool
   default     = false
 }
-
-variable "landing_editor" {
-  description = <<-EOT
-    Which page editor the app serves (roadmap PR-39): `builder` or `sections`.
-
-    `builder` is the GrapesJS visual canvas that is in production today. `sections` is the curated
-    section editor that replaces it — a fixed set of designed section types the brand fills in,
-    with no way to author a colour, font, size or position.
-
-    Both code paths ship in one image, exactly like page_generation_provider above, so switching —
-    or switching straight back after a bad release — is a variable change and an instance refresh
-    rather than a redeploy. The default is `builder` because that is what brands use now, and a
-    rewrite of the authoring surface should not go live for everyone the moment an image ships.
-
-    Switching back is genuinely safe: the renderer's precedence is sections -> document -> blocks
-    and the GrapesJS document is never cleared, so a page authored under `sections` keeps its old
-    document underneath and reverts intact.
-  EOT
-  type        = string
-  default     = "builder"
-
-  validation {
-    # Same reasoning as the provider below: a typo would fall through to `builder` silently, which
-    # looks exactly like deciding not to switch — a config change that appears to have worked and
-    # did nothing.
-    condition     = contains(["builder", "sections"], var.landing_editor)
-    error_message = "landing_editor must be either \"builder\" or \"sections\"."
-  }
-}
+# PR-39: `landing_editor` is removed. It selected the curated section editor over the GrapesJS
+# builder; the builder is deleted from the bundle, so the variable had one legal value left.
 
 variable "page_generation_provider" {
   description = <<-EOT

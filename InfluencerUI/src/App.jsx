@@ -96,7 +96,6 @@ import {
   generateCampaignPage,
   rewriteCampaignPageSection,
   loadAiAllowance,
-  loadLandingEditorMode,
   listPageTemplates,
   savePageTemplate,
   deletePageTemplate,
@@ -1743,7 +1742,6 @@ function App() {
   const rewriteCampaignPageSectionRecord = async (payload) => rewriteCampaignPageSection(authToken, payload)
   // PR-39. useCallback so the effect that reads it does not re-run on every App render — these
   // are passed straight into a dependency array in ContentPage.
-  const loadEditorModeRecord = useCallback(async () => loadLandingEditorMode(authToken), [authToken])
   const loadAiAllowanceRecord = useCallback(async () => loadAiAllowance(authToken), [authToken])
   const loadPageTemplatesRecord = useCallback(async () => listPageTemplates(authToken), [authToken])
   const savePageTemplateRecord = async (payload) => savePageTemplate(authToken, payload)
@@ -2583,7 +2581,6 @@ function App() {
                   onGeneratePage={generateCampaignPageRecord}
                   onRewriteSection={rewriteCampaignPageSectionRecord}
                   onRegenerateVariant={regenerateCampaignPageVariantRecord}
-                  onLoadEditorMode={loadEditorModeRecord}
                   onLoadAiAllowance={loadAiAllowanceRecord}
                   onLoadPageTemplates={loadPageTemplatesRecord}
                   onSavePageTemplate={savePageTemplateRecord}

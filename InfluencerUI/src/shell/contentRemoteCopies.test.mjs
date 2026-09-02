@@ -101,7 +101,12 @@ test('both API clients call the same section-editor endpoints', () => {
   // production only, and only for this one context.
   for (const path of [resolve(SHELL, 'api/content.js'), resolve(REMOTE, 'api/content.js')]) {
     const text = read(path)
-    assert.match(text, /\/api\/landing-templates\/editor/, `${path} should read the editor mode`)
+    // PR-39 removed `/api/landing-templates/editor`: the flag chose between the section editor
+    // and the GrapesJS builder, and the builder is deleted, so there is one answer and no
+    // question. Asserted as ABSENT rather than simply dropped, so a copy that reintroduces a call
+    // the BFF no longer serves fails here rather than 404-ing in production.
+    assert.doesNotMatch(text, /\/api\/landing-templates\/editor/,
+      `${path} must not call the removed editor-mode endpoint`)
     assert.match(text, /\/api\/brand-page-templates/, `${path} should call the saved-template endpoints`)
   }
 })

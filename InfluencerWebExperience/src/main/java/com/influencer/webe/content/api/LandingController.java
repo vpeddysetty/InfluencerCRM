@@ -34,51 +34,24 @@ public class LandingController {
     private final EntitlementService entitlements;
     private final LandingAnalyticsService landingAnalytics;
 
-    /**
-     * Which editor the UI should mount (PR-39): {@code sections} or {@code builder}.
-     *
-     * <p>Read here rather than baked into the frontend bundle because the whole point of the flag
-     * is that switching it is a variable flip and an instance refresh — a value compiled into the
-     * UI would need a rebuild and a CloudFront invalidation to change, which is a redeploy by
-     * another name and would not be a rollback path worth having.
-     */
-    private final String editorMode;
-
     public LandingController(LandingService landingService,
                             DaoGatewayClient dao,
                             RequestUserResolver requestUserResolver,
                             ResponseShapeService shape,
                             EntitlementService entitlements,
-                            LandingAnalyticsService landingAnalytics,
-                            @Value("${web-experience.landing.editor:builder}") String editorMode) {
+                            LandingAnalyticsService landingAnalytics) {
         this.landingService = landingService;
         this.dao = dao;
         this.requestUserResolver = requestUserResolver;
         this.shape = shape;
         this.entitlements = entitlements;
         this.landingAnalytics = landingAnalytics;
-        // An unrecognised value falls back to `builder` rather than throwing, matching
-        // BillingProviderRegistry.active(): a typo in an environment variable must not stop the
-        // application booting. It is silent, which is the documented trade — the shipped default
-        // is also the safe one, so a typo lands on the editor that is already in production.
-        this.editorMode = "sections".equalsIgnoreCase(String.valueOf(editorMode).trim())
-                ? "sections" : "builder";
     }
 
-    /**
-     * Which page editor this deployment serves (PR-39).
-     *
-     * <p>CONTENT_READ: it says nothing about the brand, only about the deployment, but it sits
-     * behind auth because every other endpoint here does and an unauthenticated config endpoint
-     * is a needless surface.
-     */
-    @GetMapping("/api/landing-templates/editor")
-    public JsonNode editor(@RequestHeader(value = "Authorization", required = false) String authorization) {
-        requestUserResolver.requirePermissionForBrand(authorization, Permission.CONTENT_READ);
-        ObjectNode out = shape.objectMapper().createObjectNode();
-        out.put("editor", editorMode);
-        return out;
-    }
+    // PR-39: `GET /api/landing-templates/editor` and the `web-experience.landing.editor` flag are
+    // both gone. The flag existed so `sections` could be rolled back to the GrapesJS builder with a
+    // variable flip; GrapesJS is deleted from the bundle, so there is nothing to roll back TO and a
+    // config endpoint with one possible answer is a question nobody needs to ask.
 
     // ---- brand-authenticated template management -----------------------
     @GetMapping("/api/landing-templates")

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { MdsKicker, MdsSectionRule, MdsNote } from './components/Mds'
-import LandingBuilder from './components/LandingBuilder'
 import SectionEditor from '@influencer/ui/SectionEditor.jsx'
 import LandingAnalytics from '@influencer/ui/LandingAnalytics.jsx'
 import { applyTemplate, stripForTemplate, templateById, templateForCampaignType, PAGE_TEMPLATES } from '@influencer/ui/pageTemplates.js'
@@ -46,7 +45,6 @@ function ContentPage({
   onGeneratePage,
   onRewriteSection,
   onRegenerateVariant,
-  onLoadEditorMode,
   onLoadAiAllowance,
   onLoadPageTemplates,
   onSavePageTemplate,
@@ -89,12 +87,10 @@ function ContentPage({
   const [previewing, setPreviewing] = useState(false)
   // Visual builder (Phase A). `visual` is the default for new pages; a page saved by the
   // old block editor opens in `blocks` so nobody's existing work silently changes shape.
-  const [editorMode, setEditorMode] = useState('visual')
   // PR-39. Which editor this DEPLOYMENT serves, read from the server rather than compiled in —
   // the flag's whole value is that flipping it is a variable change and an instance refresh.
   // Starts as null (unknown) rather than 'builder' so the editor does not flash the old one and
   // then swap while the answer is in flight.
-  const [serverEditor, setServerEditor] = useState(null)
   // What is left of this month's AI drafts. Null until loaded and on any failure -- the counter
   // renders nothing rather than a wrong number, because a wrong count here is worse than none:
   // it either alarms someone with room to spare or promises room that is not there.
@@ -461,8 +457,7 @@ function ContentPage({
           // from a mill that has run since 1892" is the shape the section is designed around --
           // and a line without one is still a valid reason, so it becomes the title alone.
           const proof = blankSection('proof')
-          const lines = body.split('
-').map((l) => l.trim()).filter(Boolean).slice(0, 4)
+          const lines = body.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).slice(0, 4)
           const items = lines.map((line) => {
             const at = line.indexOf(':')
             return at > 0
@@ -565,23 +560,12 @@ function ContentPage({
 
   useEffect(() => {
     let cancelled = false
-    if (typeof onLoadEditorMode !== 'function') return undefined
-    Promise.resolve(onLoadEditorMode())
-      .then((mode) => { if (!cancelled) setServerEditor(mode === 'sections' ? 'sections' : 'builder') })
-      // A failed read falls back to the builder: it is what production serves today, so an
-      // unreachable config endpoint must not strand the user in the newer editor by accident.
-      .catch(() => { if (!cancelled) setServerEditor('builder') })
-    return () => { cancelled = true }
-  }, [onLoadEditorMode])
-
-  useEffect(() => {
-    let cancelled = false
-    if (typeof onLoadPageTemplates !== 'function' || serverEditor !== 'sections') return undefined
+    if (typeof onLoadPageTemplates !== 'function') return undefined
     Promise.resolve(onLoadPageTemplates())
       .then((list) => { if (!cancelled && Array.isArray(list)) setSavedTemplates(list) })
       .catch(() => { /* the picker degrades to built-ins only */ })
     return () => { cancelled = true }
-  }, [onLoadPageTemplates, serverEditor])
+  }, [onLoadPageTemplates])
 
   // Seed the section list ONCE per campaign, not on every render.
   //
@@ -980,18 +964,10 @@ function ContentPage({
             </details>
           ) : null}
 
-          {/* PR-39. The section editor REPLACES the builder rather than joining it as a third
-              mode: offering both would mean a page could be authored two ways and the precedence
-              rule (sections -> document -> blocks) would become a thing users have to reason
-              about. Which one a deployment serves is the server's answer, not a user preference.
-
-              `serverEditor === null` means the answer is still in flight; rendering nothing for
-              that moment avoids showing the builder and then swapping it out underneath someone
-              who has started typing. */}
-          {serverEditor === null ? (
-            <p className="mds-note">Loading the editor…</p>
-          ) : serverEditor === 'sections' ? (
-            <>
+          {/* PR-39. The builder branch is gone: GrapesJS was deleted from the bundle once
+              `sections` had run a release without rollback. There is no editor choice left to
+              make, so there is no conditional -- the server flag it read is removed too. */}
+          <>
               {currentTemplate && typeof onHandOff === 'function' ? (
                 <CollaboratorPanel
                   page={currentTemplate}
@@ -1043,142 +1019,7 @@ function ContentPage({
                 </p>
               ) : null}
             </>
-          ) : (
-          <>
-          <div className="row-actions" role="group" aria-label="Editor mode">
-            <button
-              type="button"
-              className={editorMode === 'visual' ? 'primary-btn' : 'ghost-btn'}
-              aria-pressed={editorMode === 'visual'}
-              onClick={() => setEditorMode('visual')}
-            >
-              Visual builder
-            </button>
-            <button
-              type="button"
-              className={editorMode === 'blocks' ? 'primary-btn' : 'ghost-btn'}
-              aria-pressed={editorMode === 'blocks'}
-              onClick={() => setEditorMode('blocks')}
-            >
-              Block list
-            </button>
-          </div>
 
-          {editorMode === 'visual' ? (
-            <>
-              <label className="auth-label">Status</label>
-              <select value={templateStatus} onChange={(e) => setTemplateStatus(e.target.value)}>
-                <option value="draft">Draft</option>
-                <option value="published">Published</option>
-              </select>
-              <MdsNote>
-                Drag blocks onto the canvas. Preview at three widths with the buttons above the
-                canvas. A page must be <strong>Published</strong> before it is reachable at its
-                public link.
-              </MdsNote>
-              <LandingBuilder
-                // `key` forces a remount when a draft is chosen: the builder snapshots its initial
-                // document in a ref, so without a new key it keeps showing the old canvas.
-                key={generatedDocument ? `gen-${campaignId}-${generatedDraftId}` : campaignId}
-                initialDocument={generatedDocument || currentTemplate?.document || null}
-                onSave={saveBuilderDocument}
-                onPreview={previewBuilderDocument}
-                can={can}
-                busy={savingTemplate || previewing}
-                versions={versions}
-                onRestore={restoreVersion}
-                assets={mediaAssets}
-                onUploadAsset={uploadAsset}
-              />
-              {currentTemplate ? (
-                <p className="mds-note">
-                  Brand page:{' '}
-                  <a href={publicPageUrl(`/s/${currentTemplate.publicSlug}`)} target="_blank" rel="noreferrer">
-                    {publicPageUrl(`/s/${currentTemplate.publicSlug}`)}
-                  </a>
-                </p>
-              ) : null}
-              {/* PR-57. Only once the page is published: before that the count is
-                  necessarily zero, and a row of zeroes reads as a broken report rather than
-                  as "not live yet". */}
-              {currentTemplate && templateStatus === 'published' ? (
-                <LandingAnalytics
-                  campaignId={campaignId}
-                  loadAnalytics={onLoadAnalytics}
-                />
-              ) : null}
-              {previewHtml ? (
-                <div className="landing-preview">
-                  <iframe title="Landing preview" className="landing-preview-frame" srcDoc={previewHtml} sandbox="" />
-                </div>
-              ) : null}
-            </>
-          ) : (
-          <>
-          <label className="auth-label">Blocks</label>
-          {blocks.length === 0 ? <p className="custom-attributes-empty">No blocks yet. Add one below.</p> : null}
-          <ul className="simple-list">
-            {blocks.map((block, i) => (
-              <li key={i}>
-                <strong>{BLOCK_TYPES.find((t) => t.value === block.type)?.label || block.type}</strong>
-                {block.type === 'image' ? (
-                  <input type="url" value={block.url || ''} placeholder="Image URL" onChange={(e) => editBlock(i, 'url', e.target.value)} />
-                ) : block.type === 'couponBlock' ? (
-                  <span>Renders the creator’s code + discount</span>
-                ) : block.type === 'productCta' ? (
-                  <input type="text" value={block.label || ''} placeholder="Button label" onChange={(e) => editBlock(i, 'label', e.target.value)} />
-                ) : (
-                  <input type="text" value={block.text || ''} placeholder="Text (tokens allowed)" onChange={(e) => editBlock(i, 'text', e.target.value)} />
-                )}
-                <div className="row-actions">
-                  <button type="button" className="ghost-btn" onClick={() => moveBlock(i, -1)} disabled={i === 0}>↑</button>
-                  <button type="button" className="ghost-btn" onClick={() => moveBlock(i, 1)} disabled={i === blocks.length - 1}>↓</button>
-                  <button type="button" className="ghost-btn" onClick={() => removeBlock(i)}>Remove</button>
-                </div>
-              </li>
-            ))}
-          </ul>
-
-          <div className="row-actions">
-            <select value={newBlockType} onChange={(e) => setNewBlockType(e.target.value)}>
-              {BLOCK_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-            </select>
-            <button type="button" className="ghost-btn" onClick={addBlock}>Add block</button>
-          </div>
-
-          <label className="auth-label">Status</label>
-          <select value={templateStatus} onChange={(e) => setTemplateStatus(e.target.value)}>
-            <option value="draft">Draft</option>
-            <option value="published">Published</option>
-          </select>
-
-          <div className="row-actions">
-            <button type="button" className="primary-btn" onClick={saveTemplate} disabled={savingTemplate}>
-              {savingTemplate ? 'Saving…' : currentTemplate ? 'Update landing page' : 'Create landing page'}
-            </button>
-            <button type="button" className="ghost-btn" onClick={previewLanding} disabled={previewing}>
-              {previewing ? 'Rendering…' : 'Preview'}
-            </button>
-          </div>
-
-          <label className="auth-label">Preview as creator</label>
-          <select value={previewCouponId} onChange={(e) => setPreviewCouponId(e.target.value)}>
-            <option value="">{allCampaignCoupons.length ? 'Auto (first coupon on campaign)' : 'Sample data'}</option>
-            {allCampaignCoupons.map((c) => (
-              <option key={c.id} value={c.id}>{c.code}</option>
-            ))}
-          </select>
-          <MdsNote>Preview shows the page exactly as a visitor sees it — tokens like {'{{creator.name}}'} and {'{{discount}}'} are filled in. It reflects your current unsaved edits and does not record a visit.</MdsNote>
-
-          {previewHtml ? (
-            <div className="landing-preview">
-              <iframe title="Landing preview" className="landing-preview-frame" srcDoc={previewHtml} sandbox="" />
-            </div>
-          ) : null}
-          </>
-          )}
-          </>
-          )}
 
           {/* Page-level, deliberately: a schedule applies to the page, not to whichever editor
               happens to be open. Only shown once the page exists — there is nothing to schedule

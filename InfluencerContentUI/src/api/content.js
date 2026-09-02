@@ -29,16 +29,6 @@ export async function previewLandingTemplate(token, payload) {
   return text
 }
 
-// ---- Curated section editor (PR-39) ----
-
-// Which editor this DEPLOYMENT serves: `sections` or `builder`. Read at runtime rather than
-// compiled into the bundle, because the flag's value is that flipping it is a variable change and
-// an instance refresh — a build-time constant would need a rebuild and a cache invalidation.
-export async function loadLandingEditorMode(token) {
-  const payload = await request('/api/landing-templates/editor', { token })
-  return payload?.editor === 'sections' ? 'sections' : 'builder'
-}
-
 /**
  * This month's AI draft allowance.
  *
