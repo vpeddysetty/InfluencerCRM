@@ -113,7 +113,7 @@ public class AttributionService {
                                     OrderEvent event, ObjectNode result) {
         BigDecimal sale = event.getSaleAmount() == null ? BigDecimal.ZERO : event.getSaleAmount();
         BigDecimal discount = event.getDiscountAmount() == null ? BigDecimal.ZERO : event.getDiscountAmount();
-        BigDecimal commission = computeCommission(coupon, sale);
+        BigDecimal commission = computeCommission(coupon, sale, discount);
         String currency = event.getCurrency() == null ? "USD" : event.getCurrency();
 
         ObjectNode attribution = shape.objectMapper().createObjectNode();
@@ -248,14 +248,37 @@ public class AttributionService {
 
     // ---- helpers -------------------------------------------------------
 
-    private BigDecimal computeCommission(JsonNode coupon, BigDecimal sale) {
+    /**
+     * THE COMMISSION BASE, written down once (roadmap OP-21).
+     *
+     * <p><b>A percentage commission is calculated on NET REVENUE AFTER DISCOUNT.</b> Net is
+     * {@code saleAmount - discountAmount}, and it deliberately excludes tax and shipping — neither
+     * is revenue the brand keeps, and paying commission on a shipping charge or on VAT means paying
+     * a creator a share of money that was never the brand's.
+     *
+     * <p><b>This was gross until OP-21, and the row beside it disagreed.</b> The commission was
+     * computed from {@code sale} while {@code netAmount} was stored as {@code sale - discount} on
+     * the very same attribution — so a 20%-off order paid the creator 20% more than the ledger's own
+     * net figure implied. Nobody had complained yet because there are no paying brands; the first
+     * dispute would have been unanswerable, because the product asserted both numbers at once.
+     *
+     * <p>The same sentence now appears in three places, which is the whole point of OP-21: here, in
+     * the coupon form's help text (`CouponsPage.jsx`), and in the campaign agreement copy. If one
+     * changes, the other two are wrong and someone is owed money on a basis nobody agreed to.
+     *
+     * <p>A FIXED commission is a flat amount per attributed order and is unaffected by any of this.
+     */
+    private BigDecimal computeCommission(JsonNode coupon, BigDecimal sale, BigDecimal discount) {
         String type = text(coupon, "commissionType");
         if (type == null || !coupon.hasNonNull("commissionValue")) {
             return BigDecimal.ZERO;
         }
         BigDecimal value = new BigDecimal(coupon.get("commissionValue").asText());
         if (type.equalsIgnoreCase("percent")) {
-            return sale.multiply(value).divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
+            // max(0, ...) because a discount larger than the sale is data, not an impossibility --
+            // a fully comped order should pay no commission rather than a negative one.
+            BigDecimal net = sale.subtract(discount == null ? BigDecimal.ZERO : discount).max(BigDecimal.ZERO);
+            return net.multiply(value).divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
         }
         if (type.equalsIgnoreCase("fixed")) {
             return value.setScale(2, RoundingMode.HALF_UP);

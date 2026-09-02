@@ -8,10 +8,19 @@ const DISCOUNT_TYPES = [
   { value: 'free_shipping', label: 'Free shipping' },
   { value: 'bogo', label: 'Buy one get one' },
 ]
+// OP-21. "% of sale" was ambiguous between gross and net, and the ledger disagreed with the row it
+// wrote beside it -- commission on gross, netAmount stored as sale minus discount. The label now
+// says which, in the same words as AttributionService.computeCommission and the campaign
+// agreement. A creator and a brand reading two different sentences about the same number is the
+// dispute this exists to prevent.
 const COMMISSION_TYPES = [
-  { value: 'percent', label: '% of sale' },
+  { value: 'percent', label: '% of net revenue' },
   { value: 'fixed', label: 'Fixed per sale' },
 ]
+
+/** The one sentence, so the form and the agreement cannot drift apart. */
+export const COMMISSION_BASE_NOTE =
+  'Percentage commission is calculated on net revenue after discount, excluding tax and shipping.'
 
 const EMPTY_SINGLE = {
   campaignId: '',
@@ -347,6 +356,10 @@ function CouponsPage({
           >
             {COMMISSION_TYPES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
           </select>
+          {/* OP-21. Shown where the rate is SET, not buried in help: the moment someone chooses a
+              percentage is the moment the basis matters, and it is the sentence the agreement and
+              the ledger both use. */}
+          <p className="helper commission-base-note">{COMMISSION_BASE_NOTE}</p>
           <input
             type="number"
             value={single.commissionValue}
@@ -405,6 +418,10 @@ function CouponsPage({
           >
             {COMMISSION_TYPES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
           </select>
+          {/* OP-21. Shown where the rate is SET, not buried in help: the moment someone chooses a
+              percentage is the moment the basis matters, and it is the sentence the agreement and
+              the ledger both use. */}
+          <p className="helper commission-base-note">{COMMISSION_BASE_NOTE}</p>
           <input
             type="number"
             value={bulk.commissionValue}
