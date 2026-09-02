@@ -56,6 +56,26 @@ export function rangeToParams(value, today = new Date()) {
   // `days - 1` so "last 7 days" spans today plus the six before it — seven days of data, not
   // eight. Using `days` directly is the classic off-by-one that quietly inflates every window.
   from.setDate(from.getDate() - (preset.days - 1))
+
+  // The UPPER bound has to cover the UTC day, not the local one, and this is not symmetrical with
+  // `from`.
+  //
+  // Rows are stamped in UTC. West of Greenwich the UTC date runs AHEAD of the local one after
+  // early evening, so an order placed at 20:30 in New York is stored as tomorrow. A `to` of local
+  // today then excludes an order that just happened, and the dashboard says "No sales attributed"
+  // while the sale sits in the database — measured, not theorised: `to=2026-09-01` returned 0
+  // orders and `to=2026-09-02` returned 1, for the same order, at 20:23 local.
+  //
+  // Extending `to` by a day whenever UTC is ahead includes that order. It cannot pull in a FUTURE
+  // one, because there are none — the extra day is the part of "now" that UTC has already entered
+  // and the local clock has not.
+  //
+  // `from` deliberately does NOT get the same treatment: widening the lower bound would add a day
+  // of genuinely older data to every window, which is the off-by-one the line above avoids. The
+  // asymmetry is the point.
+  if (toIsoDate(to) !== to.toISOString().slice(0, 10)) {
+    to.setDate(to.getDate() + 1)
+  }
   return { from: toIsoDate(from), to: toIsoDate(to) }
 }
 
