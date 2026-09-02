@@ -459,6 +459,12 @@ public class CampaignPageGenerationService {
                 item.put("type", section.type());
                 item.put("title", section.title() == null ? "" : section.title());
                 item.put("body", section.body() == null ? "" : section.body());
+                // PR-58. Only when the model chose one: an absent variant means "use the type's
+                // default", and writing an empty string would make the editor render a section
+                // with no arrangement at all rather than the designed default.
+                if (section.hasVariant()) {
+                    item.put("variant", section.variant());
+                }
             }
             // The builder-ready form travels with the draft so selecting one is a save, not a
             // second round trip that could disagree with what the user previewed.

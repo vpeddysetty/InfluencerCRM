@@ -4,7 +4,7 @@ import LandingBuilder from '../components/LandingBuilder'
 import SectionEditor from '@influencer/ui/SectionEditor.jsx'
 import LandingAnalytics from '@influencer/ui/LandingAnalytics.jsx'
 import { applyTemplate, stripForTemplate, templateById, templateForCampaignType, PAGE_TEMPLATES } from '@influencer/ui/pageTemplates.js'
-import { blankSection } from '@influencer/ui/sectionTypes.js'
+import { blankSection, sectionType } from '@influencer/ui/sectionTypes.js'
 import CampaignPageGenerator from '../components/CampaignPageGenerator'
 import CollaboratorPanel from '../components/CollaboratorPanel'
 import { publicPageUrl } from '../api/core'
@@ -455,6 +455,41 @@ function ContentPage({
             fields: { ...signup.fields, headline: body || 'Ready when you are', ctaLabel: label },
           }
         }
+        case 'proof': {
+          // PR-58. The model writes reasons one per line; the curated type wants an items array of
+          // {title, body}. A line with a colon splits into the two, because "Woven in Portugal:
+          // from a mill that has run since 1892" is the shape the section is designed around --
+          // and a line without one is still a valid reason, so it becomes the title alone.
+          const proof = blankSection('proof')
+          const lines = body.split('
+').map((l) => l.trim()).filter(Boolean).slice(0, 4)
+          const items = lines.map((line) => {
+            const at = line.indexOf(':')
+            return at > 0
+              ? { title: line.slice(0, at).trim(), body: line.slice(at + 1).trim() }
+              : { title: line, body: '' }
+          })
+          // The type requires at least two; fewer than that and the section renders as a lonely
+          // half-grid, so it falls back to Text rather than shipping something that looks broken.
+          if (items.length < 2) {
+            const text = blankSection('text')
+            return { ...text, fields: { ...text.fields, body } }
+          }
+          // No headline: `title` is the draft list's display label ("Proof"), not copy -- the same
+          // trap the hero case documents, where publishing it put the word "Hero" on a real page.
+          return { ...proof, fields: { ...proof.fields, items } }
+        }
+        case 'creator': {
+          // The quote is the required field, and it is the creator's own words -- which is why the
+          // prompt only permits this section when the brief names a creator. Handle and name come
+          // from the brief rather than from the model, because a fabricated attribution publishes
+          // under a real person's name.
+          const creator = blankSection('creator')
+          return {
+            ...creator,
+            fields: { ...creator.fields, quote: body },
+          }
+        }
         case 'legal': {
           const legal = blankSection('legal')
           return { ...legal, fields: { ...legal.fields, body } }
@@ -471,6 +506,15 @@ function ContentPage({
           return { ...text, fields: { ...text.fields, body } }
         }
       }
+    }).map((section, i) => {
+      // PR-58. The model may name a designed arrangement; honour it only when the type actually
+      // offers it, so a variant meant for one section type cannot land on another and render
+      // unstyled. Anything else keeps the default blankSection() already chose.
+      const chosen = String(generated[i]?.variant || '').trim()
+      if (!chosen || !section) return section
+      const spec = sectionType(section.type)
+      const offered = (spec?.variants || []).some((v) => v.id === chosen)
+      return offered ? { ...section, variant: chosen } : section
     }).filter(Boolean)
 
     // Every published page needs a disclosure; the generator does not always produce one.

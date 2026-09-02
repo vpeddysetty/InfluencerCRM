@@ -47,6 +47,29 @@ public class AnthropicPageGenerator implements PageGenerationPort {
     /** The same trick for a single-section rewrite. */
     private static final String REWRITE_TOOL_NAME = "emit_rewritten_section";
 
+    /**
+     * The designed arrangements the stylesheet actually implements (roadmap PR-58).
+     *
+     * <p>Mirrors the 13 variants in {@code packages/ui/src/sectionTypes.js}, which is the single
+     * source of truth for what a section IS. Duplicated here rather than imported because that file
+     * is JavaScript and this is the server — the same duplication {@code LandingService.renderSection}
+     * already carries, and the same rule applies: when they disagree, a brand fills in a field that
+     * never appears on their page.
+     *
+     * <p>Used to DROP an unrecognised value rather than pass it through. A variant the stylesheet
+     * does not implement renders as an unstyled section, which looks broken in a way the type's
+     * default never does — and the model inventing "hero-large" is an ordinary outcome, not an
+     * exceptional one.
+     */
+    private static final java.util.Set<String> VALID_VARIANTS = java.util.Set.of(
+            "centred", "left", "split",              // hero, offer
+            "grid", "stacked-list",                  // proof
+            "portrait-left", "quote-first",          // creator
+            "one-column", "two-column",              // text
+            "contained", "full-bleed",               // media
+            "stacked", "inline");                    // signup
+
+
     private final OutboundHttpClient http;
     private final ObjectMapper mapper;
     private final String apiKey;
@@ -332,13 +355,44 @@ public class AnthropicPageGenerator implements PageGenerationPort {
         ObjectNode type = sectionProps.putObject("type");
         type.put("type", "string");
         type.put("description",
-                "The block type. couponBlock renders the creator's real code at request time and takes no body.");
+                "The block type. couponBlock renders the creator's real code at request time and takes no body. "
+                        + "proof carries two to four short reasons to buy, one per line in the body. "
+                        + "creator is the creator's own words about the product, and may only be used when the "
+                        + "brief names a creator.");
         ArrayNode allowed = type.putArray("enum");
-        for (String value : List.of("hero", "richText", "couponBlock", "productCta", "legal")) {
+        // PR-58. Widened from the five legacy block names to include `proof` and `creator`.
+        //
+        // WHY THIS MATTERED. The editor has had eight section types since PR-39, and this enum still
+        // listed the renderer's ORIGINAL five — so the two sections that carry the most weight on an
+        // influencer page were unreachable by the model. Anything it wrote toward them fell through
+        // `sectionsFromVariant`'s default branch and became a plain Text section. The generator was
+        // not weak at reasons-to-buy; it was never allowed to emit them.
+        //
+        // `media` is deliberately still absent. The model is not asked to invent an image URL — a
+        // plausible-looking one that 404s is worse on a public page than an obvious empty frame —
+        // and a media section with no asset is dropped by the renderer anyway.
+        for (String value : List.of("hero", "richText", "couponBlock", "productCta", "proof", "creator", "legal")) {
             allowed.add(value);
         }
         describe(sectionProps, "title", "Short label shown in the editor, such as 'Offer'.");
         describe(sectionProps, "body", "The visitor-facing text. Empty for couponBlock.");
+
+        // The designed arrangement, not a layout instruction: every value here is a variant the
+        // stylesheet already implements, so the model picks among finished designs and still cannot
+        // express a colour, font, size or position. That is the curated-editor line from
+        // sectionTypes.js, and widening the vocabulary must not cross it.
+        //
+        // Without this every generated page landed on variants[0] — the same centred hero every
+        // time — so three drafts the prompt asked to differ "in structure and angle" rendered
+        // near-identically. Optional: an omitted or unrecognised variant falls back to the type's
+        // default, which is what the editor does for a hand-added section.
+        ObjectNode variantProp = sectionProps.putObject("variant");
+        variantProp.put("type", "string");
+        variantProp.put("description",
+                "Optional. The designed arrangement for this section: hero and offer take "
+                        + "centred|left|split; proof takes grid|stacked-list; creator takes "
+                        + "portrait-left|quote-first; text takes one-column|two-column. Vary it between "
+                        + "drafts so they differ in shape, not only in wording. Omit it to use the default.");
         return tool;
     }
 
@@ -411,7 +465,12 @@ public class AnthropicPageGenerator implements PageGenerationPort {
                 if (type == null || type.isBlank()) {
                     continue;
                 }
-                sections.add(new Section(type, textOr(section, "title", ""), textOr(section, "body", "")));
+                // PR-58. A variant the stylesheet does not implement is dropped rather than
+                // passed through: an unknown value would render as an unstyled section, which
+                // looks broken in a way the default never does.
+                String variant = textOr(section, "variant", "");
+                sections.add(new Section(type, textOr(section, "title", ""), textOr(section, "body", ""),
+                        null, VALID_VARIANTS.contains(variant) ? variant : null));
             }
         }
         if (sections.isEmpty()) {

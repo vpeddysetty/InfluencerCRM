@@ -51,11 +51,26 @@ final class ConversionScore {
         } else if (brief.hasOffer()) {
             score += 8;
         }
-        if (!brief.proofPoints().isEmpty()) {
+        // PR-58. Credited for what is ON THE PAGE, falling back to the brief.
+        //
+        // These two read the brief because, until PR-58, `proof` and `creator` were not in the
+        // model's vocabulary — a page could not contain them, so the brief was the only evidence
+        // available. Now that the generator can emit both, scoring the brief alone would give every
+        // draft the same points whether it used the material or ignored it, and widening the
+        // vocabulary would have raised every score without a line of copy improving.
+        //
+        // The section is worth more than the raw material, because having the reasons and using
+        // them are different things. The brief still scores something: a page that omits a proof
+        // section is thinner, not worthless, and a floor of evidence the writer had is fair.
+        if (types.contains("proof")) {
             score += 10;
+        } else if (!brief.proofPoints().isEmpty()) {
+            score += 6;
         }
-        if (brief.hasCreator()) {
+        if (types.contains("creator")) {
             score += 8;
+        } else if (brief.hasCreator()) {
+            score += 5;
         }
         if (brief.has(brief.audience())) {
             score += 5;

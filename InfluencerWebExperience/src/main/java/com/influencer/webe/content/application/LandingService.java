@@ -77,6 +77,14 @@ public class LandingService {
         // `sections` joins them for PR-39. stringifyJsonb omits an absent key rather than
         // writing null, which is what lets a builder-era save leave a section page's column
         // alone instead of blanking it.
+        //
+        // OP-24 -- `theme` IS A DEAD COLUMN. It is stored here, snapshotted into every version and
+        // restored on rollback, and NO renderer reads it: renderSections, renderBuilderDocument and
+        // renderLegacyBlocks all style from SECTION_CSS or the builder's own document. Anyone
+        // building a theme switcher on it would find it saves perfectly and changes nothing on the
+        // page. It is carried rather than dropped because a version snapshot that silently lost a
+        // column would be worse than an unused one, and because PR-39's curated editor deliberately
+        // has no colour or font field for it to hold — see sectionTypes.js.
         stringifyJsonb(payload, body, "blocks", "theme", "document", "sections");
         // A pending scheduled publish must survive an ordinary save. See LandingTemplateWrites for
         // why the DAO cannot guard this column itself, and for the two other writers that failed
@@ -363,7 +371,7 @@ public class LandingService {
         StringBuilder sb = new StringBuilder();
         sb.append("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">");
         sb.append("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
-        sb.append("<title>").append(esc(text(template, "name"))).append("</title>");
+        sb.append(pageMetadata(template, null, tokens));
         // A mobile-first baseline under the builder's own CSS: images that never overflow
         // and sane box-sizing. The builder's rules win by cascade order.
         sb.append("<style>*,*::before,*::after{box-sizing:border-box}"
@@ -408,7 +416,7 @@ public class LandingService {
         StringBuilder sb = new StringBuilder();
         sb.append("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">");
         sb.append("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
-        sb.append("<title>").append(esc(text(template, "name"))).append("</title>");
+        sb.append(pageMetadata(template, sections, tokens));
         sb.append(SECTION_FONTS);
         sb.append("<style>").append(SECTION_CSS).append("</style>");
         sb.append("</head><body>");
@@ -948,7 +956,7 @@ public class LandingService {
         StringBuilder sb = new StringBuilder();
         sb.append("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">");
         sb.append("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
-        sb.append("<title>").append(esc(text(template, "name"))).append("</title>");
+        sb.append(pageMetadata(template, null, tokens));
         sb.append("<style>body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0;color:#0f172a}"
                 + ".wrap{max-width:640px;margin:0 auto;padding:24px}.hero{font-size:2rem;font-weight:700;margin:.5rem 0}"
                 + ".code{display:inline-block;font-weight:700;letter-spacing:.05em;background:#eef2ff;color:#4338ca;"
@@ -1343,6 +1351,106 @@ public class LandingService {
     }
 
     /** HTML-escape text content. */
+    /**
+     * The document title and the social preview, for every render path (roadmap PR-59).
+     *
+     * <p><b>What was there before:</b> a {@code <title>} holding the INTERNAL template name and
+     * nothing else. No description, no OpenGraph, no Twitter card, no canonical. A page whose entire
+     * purpose is to be opened from a creator's post therefore previewed as a bare URL on every
+     * platform that matters — the one moment the page does its job was the one moment it said
+     * nothing.
+     *
+     * <p><b>Where the words come from.</b> The page's own sections, which §10.3 correctly calls the
+     * best AI input in the product because they are already structured and already written. Nothing
+     * is generated here and no model is called: the headline is the hero's, the description is the
+     * first real sentence on the page. A page that says one thing to visitors and another to the
+     * share card would be worse than a bare URL.
+     *
+     * <p><b>No canonical or og:url either, and for a concrete reason:</b> both must be ABSOLUTE, and
+     * this service has no configured public origin — the page is served behind CloudFront under
+     * whichever host the visitor used. Guessing one would publish a canonical pointing at the wrong
+     * hostname, which is worse than omitting it: platforms fall back to the URL they fetched, which
+     * is always right.
+     *
+     * <p><b>No og:image yet, deliberately.</b> An image tag pointing at nothing renders as a broken
+     * preview, which is worse than the text-only card a platform composes when the tag is absent.
+     * The image needs object storage — `PR-45` — and the text half does not, so it ships first.
+     *
+     * <p><b>Tokens are already substituted</b> by the time this runs, so a creator's real coupon can
+     * appear in a description. That is correct: the preview should match the page that visitor gets.
+     */
+    private String pageMetadata(JsonNode template, JsonNode sections, Map<String, String> tokens) {
+        // Tokens are substituted here for the same reason the body substitutes them: a preview
+        // showing `{{coupon.code}}` where the page shows SAVE20 is a worse card than no card. This
+        // runs BEFORE escaping, so a token whose value carries markup is still neutralised below.
+        String name = fill(text(template, "name"), tokens);
+        String headline = fill(firstSectionText(sections, "hero", "headline"), tokens);
+        String description = fill(firstNonBlank(
+                firstSectionText(sections, "hero", "subheadline"),
+                firstSectionText(sections, "offer", "headline"),
+                firstSectionText(sections, "text", "body")), tokens);
+
+        // The headline is what a reader recognises; the internal page name is what the brand filed
+        // it under. Prefer the former and keep the latter as the fallback it always was.
+        String title = firstNonBlank(headline, name);
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("<title>").append(esc(title)).append("</title>");
+        if (!isBlank(description)) {
+            String trimmed = truncate(description, 200);
+            sb.append("<meta name=\"description\" content=\"").append(esc(trimmed)).append("\">");
+            sb.append("<meta property=\"og:description\" content=\"").append(esc(trimmed)).append("\">");
+            sb.append("<meta name=\"twitter:description\" content=\"").append(esc(trimmed)).append("\">");
+        }
+        sb.append("<meta property=\"og:title\" content=\"").append(esc(title)).append("\">");
+        sb.append("<meta property=\"og:type\" content=\"website\">");
+        // summary, not summary_large_image: the large card reserves space for an image this page
+        // does not yet have, and renders as an empty band when none arrives.
+        sb.append("<meta name=\"twitter:card\" content=\"summary\">");
+        sb.append("<meta name=\"twitter:title\" content=\"").append(esc(title)).append("\">");
+        return sb.toString();
+    }
+
+    /** The first non-empty value of {@code field} on the first section of {@code type}. */
+    private String firstSectionText(JsonNode sections, String type, String field) {
+        if (sections == null || !sections.isArray()) {
+            return null;
+        }
+        for (JsonNode section : sections) {
+            if (!type.equals(text(section, "type"))) {
+                continue;
+            }
+            String value = text(section.path("fields"), field);
+            if (!isBlank(value)) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (!isBlank(value)) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.isBlank();
+    }
+
+    /** Cut on a word boundary: a description severed mid-word reads as a bug in the share card. */
+    private String truncate(String value, int max) {
+        String flat = value.replaceAll("\s+", " ").trim();
+        if (flat.length() <= max) {
+            return flat;
+        }
+        int cut = flat.lastIndexOf(' ', max - 1);
+        return (cut > max / 2 ? flat.substring(0, cut) : flat.substring(0, max - 1)).trim() + "…";
+    }
+
     private String esc(String s) {
         if (s == null) return "";
         return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")

@@ -98,15 +98,35 @@ public interface PageGenerationPort {
      * image URL, because a plausible-looking one that 404s is worse on a public page than an
      * obvious empty frame.
      */
-    record Section(String type, String title, String body, String mediaUrl) {
+    record Section(String type, String title, String body, String mediaUrl, String variant) {
 
-        /** The common case: a text section with no media. */
+        /** The common case: a text section with no media and the type's default arrangement. */
         public Section(String type, String title, String body) {
-            this(type, title, body, null);
+            this(type, title, body, null, null);
+        }
+
+        /** Kept for callers that set media but no variant. */
+        public Section(String type, String title, String body, String mediaUrl) {
+            this(type, title, body, mediaUrl, null);
         }
 
         public boolean isMedia() {
             return "image".equals(type) || "video".equals(type);
+        }
+
+        /**
+         * Whether the model chose a designed arrangement for this section (roadmap PR-58).
+         *
+         * <p>{@code variant} names one of the layouts the stylesheet already implements — it is a
+         * choice among finished designs, never a layout instruction. The model still cannot express
+         * a colour, font, size or position, because those fields do not exist anywhere in this
+         * contract. That is the curated-editor line, and widening the vocabulary must not cross it.
+         *
+         * <p>Absent is the normal case and means "use the type's default", exactly as a hand-added
+         * section does in the editor.
+         */
+        public boolean hasVariant() {
+            return variant != null && !variant.isBlank();
         }
     }
 
