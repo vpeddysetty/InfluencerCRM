@@ -39,7 +39,7 @@ BRAND_EMAIL="stage1.brand.$STAMP@example.test"
 AGENCY_EMAIL="stage1.agency.$STAMP@example.test"
 
 echo "################ S1: solo brand signup (regression) ################"
-B=$(signup s1brand.jar "{\"email\":\"$BRAND_EMAIL\",\"password\":\"DemoPass123!\",\"brandName\":\"Stage1 Brand Co\",\"accountType\":\"brand\"}")
+B=$(signup s1brand.jar "{\"email\":\"$BRAND_EMAIL\",\"password\":\"DemoPass123!\",\"brandName\":\"Stage1 Brand Co\",\"accountType\":\"brand\",\"acceptedTerms\":true}")
 rec S1  200,201 "$(st)" "Brand signup succeeds"
 rec S1b OWNER "$(jqv "$B" "['role']")" "Brand signup yields OWNER"
 BRAND_UID=$(jqv "$B" "['userId']")
@@ -49,7 +49,7 @@ rec S1d 1 "$($PG -c "SELECT count(*) FROM identity.brands b JOIN identity.member
     "DB: exactly one brand provisioned"
 
 echo "################ S2: agency signup (the new capability) ################"
-B=$(signup s1agency.jar "{\"email\":\"$AGENCY_EMAIL\",\"password\":\"DemoPass123!\",\"brandName\":\"Stage1 Northstar Agency\",\"accountType\":\"agency\"}")
+B=$(signup s1agency.jar "{\"email\":\"$AGENCY_EMAIL\",\"password\":\"DemoPass123!\",\"brandName\":\"Stage1 Northstar Agency\",\"accountType\":\"agency\",\"acceptedTerms\":true}")
 rec S2  200,201 "$(st)" "Agency signup succeeds"
 AGENCY_UID=$(jqv "$B" "['userId']")
 AGENCY_BRAND=$(jqv "$B" "['brandId']")
@@ -61,7 +61,7 @@ rec S2d 1 "$($PG -c "SELECT count(*) FROM identity.brands b JOIN identity.member
 rec S2e "Stage1 Northstar Agency" "$(jqv "$B" "['brandName']")" "Agency's first brand takes the workspace name"
 
 echo "################ S3: unsupported requests are refused, not coerced ################"
-B=$(signup s1creator.jar "{\"email\":\"stage1.creator.$STAMP@example.test\",\"password\":\"DemoPass123!\",\"brandName\":\"Nope\",\"accountType\":\"creator\"}")
+B=$(signup s1creator.jar "{\"email\":\"stage1.creator.$STAMP@example.test\",\"password\":\"DemoPass123!\",\"brandName\":\"Nope\",\"accountType\":\"creator\",\"acceptedTerms\":true}")
 rec S3 400 "$(st)" "accountType=creator refused (creators are not accounts)"
 rec S3b 0 "$($PG -c "SELECT count(*) FROM identity.users WHERE email='stage1.creator.$STAMP@example.test';" | tr -d '\r')" \
     "No user is left behind by the refused signup"

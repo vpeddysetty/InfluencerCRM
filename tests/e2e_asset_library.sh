@@ -67,10 +67,10 @@ OTHER_EMAIL="ab.other.$STAMP@example.test"
 
 echo "################ setup ################"
 TOKEN=$(curl -s -m 30 -X POST "$BFF/api/auth/signup" -H "Content-Type: application/json" \
-  -d "{\"email\":\"$EMAIL\",\"password\":\"DemoPass123!\",\"brandName\":\"AB Brand\",\"accountType\":\"brand\"}" \
+  -d "{\"email\":\"$EMAIL\",\"password\":\"DemoPass123!\",\"brandName\":\"AB Brand\",\"accountType\":\"brand\",\"acceptedTerms\":true}" \
   | python -c "import sys,json;print(json.load(sys.stdin)['accessToken'])")
 OTHER=$(curl -s -m 30 -X POST "$BFF/api/auth/signup" -H "Content-Type: application/json" \
-  -d "{\"email\":\"$OTHER_EMAIL\",\"password\":\"DemoPass123!\",\"brandName\":\"AB Other\",\"accountType\":\"brand\"}" \
+  -d "{\"email\":\"$OTHER_EMAIL\",\"password\":\"DemoPass123!\",\"brandName\":\"AB Other\",\"accountType\":\"brand\",\"acceptedTerms\":true}" \
   | python -c "import sys,json;print(json.load(sys.stdin)['accessToken'])")
 rec SETUP nonempty "$([[ -n "$TOKEN" && -n "$OTHER" ]] && echo nonempty || echo empty)" "two brands"
 

@@ -28,7 +28,7 @@ code() { curl -s -m 15 -o /dev/null -w '%{http_code}' "$@"; }
 
 echo "################ setup ################"
 TOKEN=$(curl -s -m 30 -X POST "$BFF/api/auth/signup" -H "Content-Type: application/json" \
-  -d "{\"email\":\"ob.$STAMP@example.test\",\"password\":\"DemoPass123!\",\"brandName\":\"OB Brand\",\"accountType\":\"brand\"}" \
+  -d "{\"email\":\"ob.$STAMP@example.test\",\"password\":\"DemoPass123!\",\"brandName\":\"OB Brand\",\"accountType\":\"brand\",\"acceptedTerms\":true}" \
   | python -c "import sys,json;print(json.load(sys.stdin)['accessToken'])")
 rec SETUP nonempty "$([[ -n "$TOKEN" ]] && echo nonempty || echo empty)" "brand signed up"
 

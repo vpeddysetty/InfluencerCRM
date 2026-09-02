@@ -52,7 +52,7 @@ EMAIL="ch.brand.$STAMP@example.test"
 
 echo "################ setup ################"
 TOKEN=$(curl -s -m 30 -X POST "$BFF/api/auth/signup" -H "Content-Type: application/json" \
-  -d "{\"email\":\"$EMAIL\",\"password\":\"DemoPass123!\",\"brandName\":\"CH Brand\",\"accountType\":\"brand\"}" \
+  -d "{\"email\":\"$EMAIL\",\"password\":\"DemoPass123!\",\"brandName\":\"CH Brand\",\"accountType\":\"brand\",\"acceptedTerms\":true}" \
   | python -c "import sys,json;print(json.load(sys.stdin)['accessToken'])")
 CREATOR=$(jqv "$(api POST /api/creators/capture-lead "$TOKEN" '{"platform":"instagram","handle":"@glow_daily"}')" "['id']")
 rec SETUP nonempty "$([[ -n "$CREATOR" ]] && echo nonempty || echo empty)" "creator captured"
@@ -163,7 +163,7 @@ rec H13b 0 "$(echo "$GHOST_REFRESH" | python -c "import sys,json;print(len(json.
 
 echo "################ H14: tenancy ################"
 OTHER=$(curl -s -m 30 -X POST "$BFF/api/auth/signup" -H "Content-Type: application/json" \
-  -d "{\"email\":\"ch.other.$STAMP@example.test\",\"password\":\"DemoPass123!\",\"brandName\":\"CH Other\",\"accountType\":\"brand\"}" \
+  -d "{\"email\":\"ch.other.$STAMP@example.test\",\"password\":\"DemoPass123!\",\"brandName\":\"CH Other\",\"accountType\":\"brand\",\"acceptedTerms\":true}" \
   | python -c "import sys,json;print(json.load(sys.stdin)['accessToken'])")
 rec H14 0 "$(api GET /api/health-alerts "$OTHER" | python -c "import sys,json;print(len(json.load(sys.stdin)))")" \
     "another brand sees none of our alerts"

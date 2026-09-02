@@ -50,10 +50,10 @@ CREATOR_EMAIL="cp.creator.$STAMP@example.test"
 
 echo "################ C1: two unrelated brands each hold a row for one creator ################"
 TOKEN_A=$(curl -s -m 30 -X POST "$BFF/api/auth/signup" -H "Content-Type: application/json" \
-  -d "{\"email\":\"$BRAND_A_EMAIL\",\"password\":\"DemoPass123!\",\"brandName\":\"CP Brand A\",\"accountType\":\"brand\"}" \
+  -d "{\"email\":\"$BRAND_A_EMAIL\",\"password\":\"DemoPass123!\",\"brandName\":\"CP Brand A\",\"accountType\":\"brand\",\"acceptedTerms\":true}" \
   | python -c "import sys,json;print(json.load(sys.stdin)['accessToken'])")
 TOKEN_B=$(curl -s -m 30 -X POST "$BFF/api/auth/signup" -H "Content-Type: application/json" \
-  -d "{\"email\":\"$BRAND_B_EMAIL\",\"password\":\"DemoPass123!\",\"brandName\":\"CP Brand B\",\"accountType\":\"brand\"}" \
+  -d "{\"email\":\"$BRAND_B_EMAIL\",\"password\":\"DemoPass123!\",\"brandName\":\"CP Brand B\",\"accountType\":\"brand\",\"acceptedTerms\":true}" \
   | python -c "import sys,json;print(json.load(sys.stdin)['accessToken'])")
 
 CREATOR_A=$(jqv "$(brand_api POST /api/creators "$TOKEN_A" "{\"handle\":\"@cp_star_$STAMP\",\"name\":\"CP Star\",\"platform\":\"instagram\",\"preferredRate\":5000}")" "['id']")
@@ -66,7 +66,7 @@ BRAND_B_ID=$($PG -c "SELECT brand_id FROM creator.creators WHERE id='$CREATOR_B'
 
 echo "################ C2: a creator signs up for the portal ################"
 B=$(curl -s -m 30 -X POST "$BFF/api/creator-portal/auth/signup" -H "Content-Type: application/json" \
-  -d "{\"email\":\"$CREATOR_EMAIL\",\"password\":\"DemoPass123!\",\"displayName\":\"CP Star\"}" \
+  -d "{\"email\":\"$CREATOR_EMAIL\",\"password\":\"DemoPass123!\",\"displayName\":\"CP Star\",\"acceptedTerms\":true}" \
   -o "$SP/.cbody" -w '%{http_code}' > "$SP/.ccode"; cat "$SP/.cbody")
 rec C2 201 "$(st)" "Creator can sign up for the portal" "$B"
 CREATOR_TOKEN=$(jqv "$B" "['token']")
@@ -117,7 +117,7 @@ rec C8b 0 "${COUNT:-x}" "TENANCY: Brand B sees no claims against Brand A's recor
 
 echo "################ C9: a second identity cannot steal a confirmed record ################"
 B=$(curl -s -m 30 -X POST "$BFF/api/creator-portal/auth/signup" -H "Content-Type: application/json" \
-  -d "{\"email\":\"cp.impostor.$STAMP@example.test\",\"password\":\"DemoPass123!\",\"displayName\":\"Impostor\"}")
+  -d "{\"email\":\"cp.impostor.$STAMP@example.test\",\"password\":\"DemoPass123!\",\"displayName\":\"Impostor\",\"acceptedTerms\":true}")
 IMPOSTOR_TOKEN=$(jqv "$B" "['token']")
 B=$(creator_api POST /api/creator-portal/claims "$IMPOSTOR_TOKEN" "{\"creatorId\":\"$CREATOR_A\",\"brandId\":\"$BRAND_A_ID\"}")
 rec C9 409,400 "$(st)" "SECURITY: an already-confirmed record cannot be claimed by another identity" "$B"

@@ -43,7 +43,7 @@ EMAIL="ws.brand.$STAMP@example.test"
 
 echo "################ setup: board, three stages, one placed card ################"
 TOKEN=$(curl -s -m 30 -X POST "$BFF/api/auth/signup" -H "Content-Type: application/json" \
-  -d "{\"email\":\"$EMAIL\",\"password\":\"DemoPass123!\",\"brandName\":\"WS Brand\",\"accountType\":\"brand\"}" \
+  -d "{\"email\":\"$EMAIL\",\"password\":\"DemoPass123!\",\"brandName\":\"WS Brand\",\"accountType\":\"brand\",\"acceptedTerms\":true}" \
   | python -c "import sys,json;print(json.load(sys.stdin)['accessToken'])")
 BOARD=$(jqv "$(api POST /api/workflow-boards "$TOKEN" '{"name":"WS Board","isActive":true}')" "['id']")
 STAGES=$(api PUT /api/workflow-board-stages/replace "$TOKEN" \

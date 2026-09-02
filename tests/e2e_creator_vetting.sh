@@ -45,7 +45,7 @@ EMAIL="vt.brand.$STAMP@example.test"
 
 echo "################ setup ################"
 TOKEN=$(curl -s -m 30 -X POST "$BFF/api/auth/signup" -H "Content-Type: application/json" \
-  -d "{\"email\":\"$EMAIL\",\"password\":\"DemoPass123!\",\"brandName\":\"VT Brand\",\"accountType\":\"brand\"}" \
+  -d "{\"email\":\"$EMAIL\",\"password\":\"DemoPass123!\",\"brandName\":\"VT Brand\",\"accountType\":\"brand\",\"acceptedTerms\":true}" \
   | python -c "import sys,json;print(json.load(sys.stdin)['accessToken'])")
 rec SETUP nonempty "$([[ -n "$TOKEN" ]] && echo nonempty || echo empty)" "brand signed up"
 
@@ -158,7 +158,7 @@ rec V12b t "$SNAPSHOT" \
 
 echo "################ V13: tenancy ################"
 OTHER=$(curl -s -m 30 -X POST "$BFF/api/auth/signup" -H "Content-Type: application/json" \
-  -d "{\"email\":\"vt.other.$STAMP@example.test\",\"password\":\"DemoPass123!\",\"brandName\":\"VT Other\",\"accountType\":\"brand\"}" \
+  -d "{\"email\":\"vt.other.$STAMP@example.test\",\"password\":\"DemoPass123!\",\"brandName\":\"VT Other\",\"accountType\":\"brand\",\"acceptedTerms\":true}" \
   | python -c "import sys,json;print(json.load(sys.stdin)['accessToken'])")
 OTHER_RULES=$(api GET /api/vetting-rules "$OTHER")
 rec V13 0 "$(echo "$OTHER_RULES" | python -c "import sys,json;print(len(json.load(sys.stdin)))")" \

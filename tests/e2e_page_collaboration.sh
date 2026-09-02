@@ -59,7 +59,7 @@ CREATOR_EMAIL="pc.creator.$STAMP@example.test"
 
 echo "################ setup: a brand, a page, and a creator with a portal login ################"
 TOKEN=$(curl -s -m 30 -X POST "$BFF/api/auth/signup" -H "Content-Type: application/json" \
-  -d "{\"email\":\"$EMAIL\",\"password\":\"DemoPass123!\",\"brandName\":\"PC Brand\",\"accountType\":\"brand\"}" \
+  -d "{\"email\":\"$EMAIL\",\"password\":\"DemoPass123!\",\"brandName\":\"PC Brand\",\"accountType\":\"brand\",\"acceptedTerms\":true}" \
   | python -c "import sys,json;print(json.load(sys.stdin)['accessToken'])")
 CAMPAIGN=$(jqv "$(api POST /api/campaigns "$TOKEN" '{"name":"PC Campaign","status":"active"}')" "['id']")
 PAGE=$(jqv "$(api POST /api/landing-templates/save "$TOKEN" \
@@ -67,7 +67,7 @@ PAGE=$(jqv "$(api POST /api/landing-templates/save "$TOKEN" \
 CREATOR_ROW=$(jqv "$(api POST /api/creators "$TOKEN" '{"handle":"@pc_creator","name":"PC Creator","platform":"instagram"}')" "['id']")
 
 CREATOR_TOKEN=$(curl -s -m 30 -X POST "$BFF/api/creator-portal/auth/signup" -H "Content-Type: application/json" \
-  -d "{\"email\":\"$CREATOR_EMAIL\",\"password\":\"DemoPass123!\",\"displayName\":\"PC Creator\"}" \
+  -d "{\"email\":\"$CREATOR_EMAIL\",\"password\":\"DemoPass123!\",\"displayName\":\"PC Creator\",\"acceptedTerms\":true}" \
   | python -c "import sys,json;print(json.load(sys.stdin).get('token',''))")
 IDENTITY=$($PG -c "select id from identity.creator_identities where email='$CREATOR_EMAIL';" | tr -d '\r')
 rec SETUP nonempty "$([[ -n "$PAGE" && -n "$CREATOR_TOKEN" && -n "$IDENTITY" ]] && echo nonempty || echo empty)" \
@@ -183,7 +183,7 @@ rec G13c 404 "$(st)" "the edit path re-checks the link on every save, not just a
 
 echo "################ G14: tenancy ################"
 OTHER=$(curl -s -m 30 -X POST "$BFF/api/auth/signup" -H "Content-Type: application/json" \
-  -d "{\"email\":\"pc.other.$STAMP@example.test\",\"password\":\"DemoPass123!\",\"brandName\":\"PC Other\",\"accountType\":\"brand\"}" \
+  -d "{\"email\":\"pc.other.$STAMP@example.test\",\"password\":\"DemoPass123!\",\"brandName\":\"PC Other\",\"accountType\":\"brand\",\"acceptedTerms\":true}" \
   | python -c "import sys,json;print(json.load(sys.stdin)['accessToken'])")
 api GET "/api/landing-pages/$PAGE/collaborators" "$OTHER" > /dev/null
 rec G14 404 "$(st)" "another brand cannot list our page's collaborators"

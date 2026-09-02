@@ -55,7 +55,7 @@ EMAIL="dm.brand.$STAMP@example.test"
 
 echo "################ setup ################"
 TOKEN=$(curl -s -m 30 -X POST "$BFF/api/auth/signup" -H "Content-Type: application/json" \
-  -d "{\"email\":\"$EMAIL\",\"password\":\"DemoPass123!\",\"brandName\":\"DM Brand\",\"accountType\":\"brand\"}" \
+  -d "{\"email\":\"$EMAIL\",\"password\":\"DemoPass123!\",\"brandName\":\"DM Brand\",\"accountType\":\"brand\",\"acceptedTerms\":true}" \
   | python -c "import sys,json;print(json.load(sys.stdin)['accessToken'])")
 CAMPAIGN=$(jqv "$(api POST /api/campaigns "$TOKEN" '{"name":"DM Campaign","status":"active"}')" "['id']")
 PAGE_JSON=$(api POST /api/landing-templates/save "$TOKEN" \
@@ -166,7 +166,7 @@ rec E12 409 "$(st)" "connecting an already-connected domain is refused at connec
 
 echo "################ E13: tenancy ################"
 OTHER=$(curl -s -m 30 -X POST "$BFF/api/auth/signup" -H "Content-Type: application/json" \
-  -d "{\"email\":\"dm.other.$STAMP@example.test\",\"password\":\"DemoPass123!\",\"brandName\":\"DM Other\",\"accountType\":\"brand\"}" \
+  -d "{\"email\":\"dm.other.$STAMP@example.test\",\"password\":\"DemoPass123!\",\"brandName\":\"DM Other\",\"accountType\":\"brand\",\"acceptedTerms\":true}" \
   | python -c "import sys,json;print(json.load(sys.stdin)['accessToken'])")
 rec E13 0 "$(api GET /api/brand-domains "$OTHER" | python -c "import sys,json;print(len(json.load(sys.stdin)))")" \
     "another brand sees none of our domains"

@@ -51,7 +51,7 @@ EMAIL="cr.brand.$STAMP@example.test"
 
 echo "################ setup ################"
 TOKEN=$(curl -s -m 30 -X POST "$BFF/api/auth/signup" -H "Content-Type: application/json" \
-  -d "{\"email\":\"$EMAIL\",\"password\":\"DemoPass123!\",\"brandName\":\"CR Brand\",\"accountType\":\"brand\"}" \
+  -d "{\"email\":\"$EMAIL\",\"password\":\"DemoPass123!\",\"brandName\":\"CR Brand\",\"accountType\":\"brand\",\"acceptedTerms\":true}" \
   | python -c "import sys,json;print(json.load(sys.stdin)['accessToken'])")
 BRAND=$(curl -s -m 30 "$BFF/api/creators" -H "Authorization: Bearer $TOKEN" > /dev/null; echo ok)
 rec SETUP nonempty "$([[ -n "$TOKEN" ]] && echo nonempty || echo empty)" "brand signed up"
@@ -156,7 +156,7 @@ rec C10b 404 "$(pst)" "an unknown slug is refused"
 
 echo "################ C11: tenancy — one row per (creator, brand) ################"
 OTHER=$(curl -s -m 30 -X POST "$BFF/api/auth/signup" -H "Content-Type: application/json" \
-  -d "{\"email\":\"cr.other.$STAMP@example.test\",\"password\":\"DemoPass123!\",\"brandName\":\"CR Other\",\"accountType\":\"brand\"}" \
+  -d "{\"email\":\"cr.other.$STAMP@example.test\",\"password\":\"DemoPass123!\",\"brandName\":\"CR Other\",\"accountType\":\"brand\",\"acceptedTerms\":true}" \
   | python -c "import sys,json;print(json.load(sys.stdin)['accessToken'])")
 OTHER_LEAD=$(api POST /api/creators/capture-lead "$OTHER" '{"platform":"instagram","handle":"@casino_king"}')
 rec C11 201 "$(st)" "a second brand can hold its own row for the same handle"

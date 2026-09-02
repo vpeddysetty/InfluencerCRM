@@ -45,7 +45,7 @@ EMAIL="sa.brand.$STAMP@example.test"
 
 echo "################ setup: board, stages, mappings, a page-tracking card ################"
 TOKEN=$(curl -s -m 30 -X POST "$BFF/api/auth/signup" -H "Content-Type: application/json" \
-  -d "{\"email\":\"$EMAIL\",\"password\":\"DemoPass123!\",\"brandName\":\"SA Brand\",\"accountType\":\"brand\"}" \
+  -d "{\"email\":\"$EMAIL\",\"password\":\"DemoPass123!\",\"brandName\":\"SA Brand\",\"accountType\":\"brand\",\"acceptedTerms\":true}" \
   | python -c "import sys,json;print(json.load(sys.stdin)['accessToken'])")
 
 BOARD=$(jqv "$(api POST /api/workflow-boards "$TOKEN" '{"name":"SA Board","isActive":true}')" "['id']")
@@ -173,7 +173,7 @@ echo "################ D13: tenancy ################"
 # placeCard previously performed NO authorization at all: any caller could place any card by
 # id. Phase D closes that, so it is worth pinning.
 OTHER=$(curl -s -m 30 -X POST "$BFF/api/auth/signup" -H "Content-Type: application/json" \
-  -d "{\"email\":\"sa.other.$STAMP@example.test\",\"password\":\"DemoPass123!\",\"brandName\":\"SA Other\",\"accountType\":\"brand\"}" \
+  -d "{\"email\":\"sa.other.$STAMP@example.test\",\"password\":\"DemoPass123!\",\"brandName\":\"SA Other\",\"accountType\":\"brand\",\"acceptedTerms\":true}" \
   | python -c "import sys,json;print(json.load(sys.stdin)['accessToken'])")
 api PUT "/api/workflow-cards/$CARD/placement" "$OTHER" "{\"boardId\":\"$BOARD\",\"stageId\":\"$S2\"}" > /dev/null
 rec D13 404 "$(st)" "another brand cannot place our card"

@@ -35,7 +35,7 @@ jqv() { echo "$1" | python -c "import sys,json;d=json.load(sys.stdin);print(d$2 
 
 signup() { # signup <email> <brand> <type> -> access token
   curl -s -m 30 -X POST "$BFF/api/auth/signup" -H "Content-Type: application/json" \
-    -d "{\"email\":\"$1\",\"password\":\"DemoPass123!\",\"brandName\":\"$2\",\"accountType\":\"$3\"}" \
+    -d "{\"email\":\"$1\",\"password\":\"DemoPass123!\",\"brandName\":\"$2\",\"accountType\":\"$3\",\"acceptedTerms\":true}" \
     | python -c "import sys,json;print(json.load(sys.stdin).get('accessToken',''))" 2>/dev/null
 }
 login() {
