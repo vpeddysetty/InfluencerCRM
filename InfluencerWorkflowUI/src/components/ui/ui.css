@@ -1333,3 +1333,54 @@
     animation: none;
   }
 }
+
+/* ---- Activation checklist (PR-02) ---------------------------------------
+   Shown on DEFAULT_ROUTE to a workspace that has not finished setting up, and
+   rendered as null once it has. No animation and no dismiss control: a thing
+   that disappears on its own when the work is done does not need a way to hide
+   it, and a dismissed checklist is one someone can never get back. */
+.activation {
+  margin-block: 1.5rem;
+  padding: 1.1rem 1.25rem;
+  border: 1px solid var(--mds-rule, #e3e6ea);
+  border-radius: 10px;
+  background: var(--mds-card, #f6f8fa);
+}
+.activation__head {
+  display: flex; flex-wrap: wrap; gap: .75rem 1.5rem;
+  align-items: center; justify-content: space-between;
+}
+.activation__head h3 { margin: 0; font-size: 1.05rem; }
+.activation__sub { margin: .2rem 0 0; opacity: .75; font-size: .9rem; }
+.activation__meter {
+  inline-size: 8rem; block-size: .45rem; border-radius: 999px;
+  background: var(--mds-rule, #e3e6ea); overflow: hidden;
+}
+.activation__meter-fill {
+  display: block; block-size: 100%;
+  background: var(--mds-accent, #2f5bd8); border-radius: 999px;
+}
+.activation__steps { list-style: none; margin: 1rem 0 0; padding: 0; }
+.activation__step {
+  display: grid; grid-template-columns: 1.5rem 1fr auto;
+  align-items: center; gap: .6rem;
+  padding-block: .45rem;
+  border-block-start: 1px solid var(--mds-rule, #e8ecef);
+}
+.activation__step:first-child { border-block-start: 0; }
+.activation__tick { text-align: center; opacity: .5; }
+.activation__step.is-done .activation__tick { opacity: 1; color: var(--mds-accent, #2f5bd8); }
+/* Done steps recede rather than vanish: the list is also a map of what the product expects of
+   you, and a completed step still carries that information. */
+.activation__step.is-done .activation__label { opacity: .55; text-decoration: line-through; }
+.activation__step.is-next .activation__label { font-weight: 600; }
+.activation__body { display: flex; flex-direction: column; gap: .1rem; min-inline-size: 0; }
+.activation__why { font-size: .85rem; opacity: .75; }
+.activation__cta { white-space: nowrap; text-decoration: none; }
+
+@media (max-width: 34rem) {
+  /* The button drops under the label rather than squeezing it: a truncated call to action is
+     worse than a taller row. */
+  .activation__step { grid-template-columns: 1.5rem 1fr; }
+  .activation__cta { grid-column: 2; justify-self: start; margin-block-start: .35rem; }
+}

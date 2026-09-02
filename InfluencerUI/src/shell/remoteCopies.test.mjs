@@ -24,6 +24,7 @@ import { dirname, resolve } from 'node:path'
 const here = dirname(fileURLToPath(import.meta.url))
 const REMOTE = resolve(here, '../../../InfluencerCreatorsUI/src')
 const CONTENT_REMOTE = resolve(here, '../../../InfluencerContentUI/src')
+const WORKFLOW_REMOTE = resolve(here, '../../../InfluencerWorkflowUI/src')
 
 /** Everything from the first line after the module's opening block comment. */
 function bodyOf(path) {
@@ -65,4 +66,19 @@ test('the section vocabulary is not copied at all any more', () => {
     assert.equal(existsSync(gone), false,
       `${gone} is back. These modules live once in packages/ui — re-copying them is what OP-19 fixed.`)
   }
+})
+
+test('the workflow remote carries the same activation logic', () => {
+  // PR-02. The checklist renders on DEFAULT_ROUTE, and production serves that route from the
+  // REMOTE -- so a fix applied only to the shell copy would work perfectly in dev and do nothing
+  // for the users it exists for. That is the exact failure this file was created after.
+  //
+  // The ORDER of the steps is the opinion being guarded: "connect your store" before "add a
+  // creator" sends someone to an integration that cannot pay off yet, and two copies drifting on
+  // that would give two different answers to the only question a new user is asking.
+  assert.equal(
+    bodyOf(resolve(WORKFLOW_REMOTE, 'activation.js')),
+    bodyOf(resolve(here, 'activation.js')),
+    'InfluencerWorkflowUI/src/activation.js has drifted from shell/activation.js — copy the change across',
+  )
 })

@@ -4,6 +4,8 @@ import { MdsNote } from '../components/Mds'
 import { exportCsv } from '../api/csv'
 import { DataTable, EmptyState, FilterBar, PageHeader } from '../components/ui'
 import { DEFAULT_RANGE, RANGE_PRESETS, rangeLabel as labelForRange, rangeToParams } from '../shell/dateRange'
+import { activationState, shouldShowActivation } from '../shell/activation'
+import ActivationChecklist from '@influencer/ui/ActivationChecklist.jsx'
 
 const EMPTY = { kpis: {}, leaderboard: [], channels: [] }
 
@@ -18,7 +20,7 @@ function money(value) {
   return `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
-function DashboardPage({ coupons = [], onLoadRevenue, onSimulateOrder }) {
+function DashboardPage({ coupons = [], creators = [], campaigns = [], pages = [], stores = [], onLoadRevenue, onSimulateOrder, onGoTo }) {
   const [data, setData] = useState(EMPTY)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -69,6 +71,17 @@ function DashboardPage({ coupons = [], onLoadRevenue, onSimulateOrder }) {
   // all three avoids hiding real data when one field lags behind the others.
   const hasAttribution =
     data.leaderboard.length > 0 || Number(kpis.orders) > 0 || Number(kpis.revenue) > 0
+
+  // PR-02. Derived, never stored: a persisted checklist can disagree with reality — ticked while
+  // the creator it refers to was deleted — and then it is wrong on the first screen a new user
+  // trusts. Recomputing costs nothing and cannot drift. `hasAttribution` doubles as the "this
+  // workspace is past setup" signal, so a brand with real sales is never told to connect a store
+  // it evidently connected.
+  const activation = useMemo(
+    () => activationState({ creators, campaigns, coupons, pages, stores }),
+    [creators, campaigns, coupons, pages, stores],
+  )
+  const showActivation = shouldShowActivation(activation, { hasRevenue: hasAttribution })
 
   const rangeLabel = labelForRange(range)
   const isRanged = range !== 'all'
@@ -202,6 +215,11 @@ function DashboardPage({ coupons = [], onLoadRevenue, onSimulateOrder }) {
       </FilterBar>
 
       {error ? <p className="row-save-feedback error">{error}</p> : null}
+
+      {/* Above the KPIs deliberately: for an empty workspace the tiles are all zeroes, and the
+          first thing on the page should be the way out of that rather than a wall of nothing. It
+          renders null once setup is done, so an established brand never sees it. */}
+      {showActivation ? <ActivationChecklist state={activation} onGo={onGoTo} /> : null}
 
       {hasAttribution ? (
         <div className="kpi-grid">

@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { MdsKicker, MdsNote, MdsSectionRule } from '../components/Mds'
 import { MAX_WORKFLOW_BOARDS, DEFAULT_BOARD_STAGES } from '../constants'
 import { ConfirmDialog, useToast } from '../components/ui'
+import { activationState, shouldShowActivation } from '../shell/activation'
+import ActivationChecklist from '@influencer/ui/ActivationChecklist.jsx'
 
 const EMPTY_DRAFT = {
   name: '',
@@ -33,11 +35,26 @@ function WorkflowPage({
   onSaveBoardStages,
   campaigns = [],
   creators = [],
+  // PR-02. For the activation checklist: this is where a new signup LANDS (routeManifest's
+  // DEFAULT_ROUTE), so it is where "what do I do first" has to be answered. The dashboard is a
+  // page they may not reach for days.
+  coupons = [],
+  pages = [],
+  stores = [],
   cards = [],
   onCreateCard,
   onPlaceCard,
   onDeleteCard,
 }) {
+  // PR-02. Derived from what the workspace HAS, never stored: a persisted checklist can disagree
+  // with reality -- ticked while the creator it refers to was deleted -- and then it is wrong on
+  // the first screen a new user trusts. Recomputing costs nothing and cannot drift.
+  const activation = useMemo(
+    () => activationState({ creators, campaigns, coupons, pages, stores }),
+    [creators, campaigns, coupons, pages, stores],
+  )
+  const showActivation = shouldShowActivation(activation)
+
   const [creating, setCreating] = useState(false)
   const [notice, setNotice] = useState('')
 
@@ -475,6 +492,11 @@ function WorkflowPage({
           <MdsNote className="board-notice">No boards yet. Add one above or start from the default template.</MdsNote>
         )}
       </article>
+
+      {/* PR-02. Below the boards rather than above: someone returning to work should see their
+          board first. A new workspace has no boards, so this is the first substantial thing on
+          the page for exactly the people it is for -- and it renders null once setup is done. */}
+      {showActivation ? <ActivationChecklist state={activation} /> : null}
 
       {activeBoard ? (
         <>

@@ -2440,6 +2440,12 @@ function App() {
               path="workflow"
               element={
                 <WorkflowPage
+                  // PR-02. The activation checklist lives here because this is DEFAULT_ROUTE --
+                  // where a new signup actually lands. `pages` is not held in shell state, so the
+                  // page step is judged from the coupons own published slugs rather than adding a
+                  // fetch to the landing screen -- see activationState.
+                  coupons={coupons}
+                  stores={marketplaceConnections}
                   boards={workflowBoards}
                   boardStages={workflowBoardStages}
                   activeBoardId={activeBoardId}
