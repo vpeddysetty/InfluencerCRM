@@ -120,6 +120,56 @@ aws sesv2 put-account-details \
 
 Review is typically ~24 hours. Approval lifts the 200/day cap and the verified-recipient restriction.
 
+#### The first request was DENIED (2026-09-01, case `178750875200560`)
+
+`get-account` shows why, or as close as AWS will let anyone get: `Details` carries `MailType`,
+`WebsiteURL` and `ContactLanguage` and **no `UseCaseDescription` field at all.** The free-text answer
+the review actually reads was never submitted, so there was nothing to evaluate. The denial letter is
+boilerplate and names no cause, which is normal — AWS does not disclose criteria.
+
+Nothing in the account's own signals suggests reputation: `EnforcementStatus: HEALTHY`, 42 sends /
+1 bounce / 0 complaints over 30 days, 0 suppressed destinations, and the `influencrm-prod`
+configuration set live with an enabled BOUNCE/COMPLAINT/REJECT/RENDERING_FAILURE destination.
+
+**The CLI cannot resubmit.** `put-account-details` returns `ConflictException` while a DENIED case is
+open. Use **Console → SES → Account dashboard → Request production access**, or reply to case
+`178750875200560`. The `--website-url` also wanted correcting from `https://www.tejdux.com` to the
+apex, which the console form asks for anyway.
+
+Text to paste, with every figure verified against the account rather than asserted:
+
+> InfluenCRM (tejdux.com) is an influencer-marketing CRM for small brands. All mail is transactional
+> and sent only to people who created an account or were invited by an account holder: team
+> invitations, landing-page hosting-expiry warnings (30/7/1 days), subscription and payment
+> notifications, password and sign-in mail, and a creator-collaboration acknowledgement. There is no
+> marketing, newsletter or bulk mail of any kind, and no purchased or imported recipient lists.
+>
+> Consent is captured and enforced server-side at signup and recorded with an immutable snapshot of
+> the exact terms text the user accepted, retained under S3 Object Lock. Users can request deletion
+> of their data through a published address, which is received by SES and processed as a tracked
+> request.
+>
+> Bounces and complaints are monitored through the SES configuration set 'influencrm-prod', which has
+> an enabled event destination for BOUNCE, COMPLAINT, REJECT and RENDERING_FAILURE. Over the last 30
+> days the account sent 42 messages with 1 bounce, 0 complaints and 0 suppressed destinations, and
+> enforcement status is HEALTHY. Bounced addresses are removed from further sending and complaints
+> are treated as an immediate opt-out.
+>
+> Privacy policy: https://tejdux.com/privacy/ — sub-processors: https://tejdux.com/subprocessors/ —
+> DPA: https://tejdux.com/dpa/
+
+All four URLs return 200, checked 2026-09-02. Refresh the send/bounce figures before submitting if
+much time has passed — a stale number a reviewer can contradict is worse than no number.
+
+#### `inbox.tejdux.com` shows `dkim: FAILED`. Do NOT delete it to tidy that up.
+
+It is the deletion-request intake (`PR-37`), managed by `deletion-intake.tf`, with a live MX to
+`inbound-smtp.us-east-1.amazonaws.com` and the active `influencrm-prod-inbound` rule set. The flag is
+cosmetic: all three DKIM CNAMEs resolve correctly to `dkim.amazonses.com`, and DKIM signs OUTBOUND
+mail while this domain only ever receives. SES marked it failed once and stopped retrying;
+re-enabling signing does not clear it. Removing the identity would break a GDPR obligation to
+silence a warning that costs nothing.
+
 ### 5. Create a configuration set before the first real send
 
 Without one, bounces and complaints are invisible, and repeated sends to a dead address damage the
