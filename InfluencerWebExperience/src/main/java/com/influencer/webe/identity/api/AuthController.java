@@ -5,6 +5,11 @@ import com.influencer.webe.identity.application.AuthService;
 import com.influencer.webe.identity.application.ConsentService;
 import com.influencer.webe.identity.application.OAuthFlowService;
 import com.influencer.webe.identity.application.OAuthHandoffService;
+import com.influencer.webe.identity.application.WelcomeEmail;
+import com.influencer.webe.shared.application.EmailPort;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
@@ -18,25 +23,38 @@ import java.net.URI;
 @RestController
 @RequestMapping("/api/auth")
 public class AuthController {
+    private static final Logger log = LoggerFactory.getLogger(AuthController.class);
+
     private final AuthService authService;
     private final OAuthFlowService oauthFlowService;
     private final OAuthHandoffService oauthHandoffService;
     private final ConsentService consentService;
     private final com.influencer.webe.identity.application.EmailVerificationService emailVerification;
     private final com.influencer.webe.shared.application.RequestUserResolver requestUserResolver;
+    private final EmailPort emailPort;
+    private final String uiBaseUrl;
 
     public AuthController(AuthService authService,
                           OAuthFlowService oauthFlowService,
                           OAuthHandoffService oauthHandoffService,
                           ConsentService consentService,
                           com.influencer.webe.identity.application.EmailVerificationService emailVerification,
-                          com.influencer.webe.shared.application.RequestUserResolver requestUserResolver) {
+                          com.influencer.webe.shared.application.RequestUserResolver requestUserResolver,
+                          EmailPort emailPort,
+                          @Value("${web-experience.ui-base-url}") String uiBaseUrl) {
         this.authService = authService;
         this.oauthFlowService = oauthFlowService;
         this.oauthHandoffService = oauthHandoffService;
         this.consentService = consentService;
         this.emailVerification = emailVerification;
         this.requestUserResolver = requestUserResolver;
+        this.emailPort = emailPort;
+        // FIRST value only, and the trailing slash stripped -- ui-base-url may be a comma-separated
+        // list because the same site is served from several hostnames and CORS must allow them all.
+        // MemberInvitationService records the live proof: the whole string produced
+        // "https://tejdux.com,https://www.tejdux.com/..." in a mail body, which is not a link.
+        this.uiBaseUrl = uiBaseUrl == null ? ""
+                : uiBaseUrl.split(",")[0].trim().replaceAll("/+$", "");
     }
 
     /**
@@ -132,6 +150,24 @@ public class AuthController {
                         : "brand_signup",
                 httpRequest,
                 null);
+
+        // PR-02. AFTER the account and its consent record exist, and deliberately best-effort: a
+        // mail provider having a bad minute must not fail a signup that already succeeded. The user
+        // is standing at a working workspace either way, and the in-product checklist says the same
+        // five things — this exists for the far more common case, which is someone who signed up,
+        // got interrupted, and closed the tab.
+        try {
+            EmailPort.Result sent = emailPort.send(
+                    WelcomeEmail.compose(response.email(), request.brandName(), uiBaseUrl));
+            if (!sent.sent()) {
+                // Worth a line, because in the SES sandbox this fails for every unverified
+                // recipient while everything else looks healthy — the silent half of OP-06.
+                log.warn("Welcome email not delivered to {} via {}: {}",
+                        response.email(), sent.provider(), sent.detail());
+            }
+        } catch (RuntimeException e) {
+            log.warn("Welcome email could not be sent to {}: {}", response.email(), e.toString());
+        }
 
         return response;
     }
