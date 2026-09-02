@@ -181,5 +181,36 @@ PY
     echo
 done
 
+# ---------------------------------------------------------------------------
+# Smoke check: does the thing that just deployed actually RUN?
+# ---------------------------------------------------------------------------
+# Everything above proves the FILES are in place -- S3 accepted them, CloudFront was invalidated,
+# and curl gets 200 with a real index.html. None of that says the app inside them starts.
+#
+# On 2026-09-01 the GrapesJS removal left three calls to a `setEditorMode` that no longer existed.
+# Vite compiles a call to an undefined identifier without complaint, so the bundle built clean,
+# uploaded clean, and this script printed "Done." over a Content page that threw on mount and
+# rendered COMPLETELY BLANK in production. It stayed that way for about fifteen minutes, and what
+# eventually noticed was an end-to-end journey failing on a selector three steps later.
+#
+# So the deploy is not done when the upload finishes. It is done when a browser loads each host and
+# no JS error is thrown. That takes seconds and is the cheapest possible guard against shipping a
+# blank page.
+#
+# NON-FATAL BY DESIGN. A failure here means the deploy already happened -- the files are live and
+# exiting non-zero would neither undo that nor tell anyone anything the output does not already say.
+# It is loud instead, because the whole point is that this failure is otherwise silent. Playwright
+# lives in tests/e2e; if it is not installed the check says so and is skipped rather than failing a
+# deploy over a missing devDependency.
+echo "==> smoke check"
+if node "${REPO_ROOT}/infrastructure/scripts/smoke-ui.mjs" "${REQUESTED[@]}"; then
+    :
+else
+    echo
+    echo "  !! The upload succeeded and the deployed UI does not run. See above."
+    echo "     The previous release is already gone; fix forward rather than expecting a rollback."
+fi
+echo
+
 echo "Done."
 terraform -chdir="$TF_DIR" output ui_urls

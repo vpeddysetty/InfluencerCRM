@@ -457,9 +457,19 @@ locals {
     # Only when the portal actually has a hostname. With aliasing off it serves on a
     # *.cloudfront.net name that this configuration does not know, and an empty entry in a
     # comma-separated list is worse than no entry.
+    # And `app.`, which is the THIRD instance of exactly the failure the two comments above
+    # describe -- found 2026-09-02 by the new UI smoke check on its first run, not by anyone using
+    # the site. `shell_serves_apex` makes the shell answer on app., www AND the apex; the first two
+    # were allowed and app. was not, so a visitor who reached the shell by its own subdomain got a
+    # page that rendered perfectly and could not sign in.
+    #
+    # Derived from the alias list rather than added as a variable, for the same reason www is: these
+    # are one site under three names, and allowing some of them is never what anyone means. Gated on
+    # the same condition that creates the alias, so the two cannot disagree.
     ui_allowed_origins = var.api_domain != "" ? join(",", compact([
       var.ui_base_url,
       replace(var.ui_base_url, "://", "://www."),
+      local.apex_on_shell ? "https://app.${var.root_domain}" : "",
       local.static_aliased ? "https://portal.${var.root_domain}" : "",
     ])) : var.ui_base_url
 
