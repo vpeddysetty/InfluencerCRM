@@ -183,17 +183,13 @@ function ContentPage({
       setTemplateName(t.name || 'Landing page')
       setBlocks(Array.isArray(t.blocks) ? t.blocks : [])
       setTemplateStatus(t.status || 'draft')
-      // Open a page in the editor that produced it. A page with a GrapesJS document opens
-      // visually; one with only typed blocks opens in the block editor, so existing work
-      // never appears to have changed shape on its own.
-      const hasDocument = Boolean(t.document && (t.document.html || t.document.css))
-      const hasBlocks = Array.isArray(t.blocks) && t.blocks.length > 0
-      setEditorMode(hasDocument ? 'visual' : hasBlocks ? 'blocks' : 'visual')
+      // PR-39: there is one editor now, so there is no mode to choose. A page still holding a
+      // GrapesJS document or legacy blocks keeps RENDERING from them -- precedence is unchanged --
+      // it simply opens in the section editor.
     } else {
       setTemplateName('Landing page')
       setBlocks([])
       setTemplateStatus('draft')
-      setEditorMode('visual')
     }
   }, [campaignId, templates])
 
@@ -530,9 +526,6 @@ function ContentPage({
     // had nothing to point at once a draft was open. Map them onto the curated section list so an
     // AI draft opens in the section editor as sections rather than as an opaque document.
     setSections(sectionsFromVariant(variant))
-    // Stay in the visual builder, which is the default and where most people already are. The
-    // block editor remains one click away and now holds the same draft.
-    setEditorMode('visual')
     setTemplateStatus('draft')
     setTemplateFeedback({
       type: 'success',
