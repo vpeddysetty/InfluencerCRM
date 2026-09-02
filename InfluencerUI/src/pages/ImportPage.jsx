@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { MdsInlineCode, MdsKicker, MdsNote, MdsSectionRule } from '../components/Mds'
 import { MAPPING_CONFIDENCE_THRESHOLD } from '../constants'
+import { downloadSampleImport } from '../shell/sampleImport'
 
 // Labels are written for someone looking at their own spreadsheet, not at the schema. "Campaign
 // relationship" is the row that ties a creator to a campaign — described here by what it holds
@@ -275,6 +276,24 @@ function ImportPage({
             onChange={(event) => handleSelectedFiles(event.target.files)}
           />
         </div>
+
+        {/* PR-02. A file to copy the shape of, for someone whose roster is in a format they are not
+            sure about -- which on a first visit is everyone. Deliberately NOT a "seed my workspace
+            with examples" button: seeded rows spend a free tier's 25-creator budget, are
+            indistinguishable from real ones the moment they exist, and would tick the activation
+            checklist's first step with a creator nobody added. A file they download, edit and own
+            has none of those problems and answers the same question. */}
+        <p className="helper import-sample-hint">
+          Not sure what the file should look like?{' '}
+          <button
+            type="button"
+            className="linkish-btn"
+            onClick={downloadSampleImport}
+          >
+            Download a sample CSV
+          </button>{' '}
+          — the columns are the ones the importer recognises, so it maps with no corrections.
+        </p>
 
         {importSummary.message ? <MdsNote>{importSummary.message}</MdsNote> : null}
 

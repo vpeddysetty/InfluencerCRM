@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 import { MdsInlineCode, MdsKicker, MdsNote, MdsSectionRule } from './components/Mds'
+import { downloadSampleImport } from './sampleImport'
 
 const ENTITY_ATTRIBUTE_OPTIONS = {
   campaign: [
@@ -155,6 +156,19 @@ function ImportPage({
           onChange={(event) => handleSelectedFiles(event.target.files)}
         />
       </div>
+
+      {/* PR-02. A file to copy the shape of, for someone whose roster is in a format they are not
+          sure about -- which on a first visit is everyone. Deliberately NOT a "seed my workspace
+          with examples" button: seeded rows spend a free tier's 25-creator budget, are
+          indistinguishable from real ones the moment they exist, and would tick the activation
+          checklist's first step with a creator nobody added. */}
+      <p className="helper import-sample-hint">
+        Not sure what the file should look like?{' '}
+        <button type="button" className="linkish-btn" onClick={downloadSampleImport}>
+          Download a sample CSV
+        </button>{' '}
+        — the columns are the ones the importer recognises, so it maps with no corrections.
+      </p>
 
       <MdsNote>{importSummary.message}</MdsNote>
 

@@ -1333,3 +1333,12 @@
     animation: none;
   }
 }
+
+/* A button that reads as a link (PR-02) -- see the shell's App.css for why it is a button. */
+.linkish-btn {
+  background: none; border: 0; padding: 0;
+  font: inherit; color: var(--mds-accent, #2f5bd8);
+  text-decoration: underline; cursor: pointer;
+}
+.linkish-btn:hover { text-decoration: none; }
+.import-sample-hint { margin-block: .6rem 0; }

@@ -3362,3 +3362,15 @@ a.ghost-btn:visited {
   .activation__step { grid-template-columns: 1.5rem 1fr; }
   .activation__cta { grid-column: 2; justify-self: start; margin-block-start: .35rem; }
 }
+
+/* A button that reads as a link (PR-02).
+   A <button> because it triggers a client-side download rather than navigating -- an <a href="#">
+   would be a lie to a screen reader and to anyone middle-clicking it. Styled as a link because
+   that is what the action is: inline, secondary, inside a sentence. */
+.linkish-btn {
+  background: none; border: 0; padding: 0;
+  font: inherit; color: var(--mds-accent, #2f5bd8);
+  text-decoration: underline; cursor: pointer;
+}
+.linkish-btn:hover { text-decoration: none; }
+.import-sample-hint { margin-block: .6rem 0; }

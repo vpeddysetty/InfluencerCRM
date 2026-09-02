@@ -25,6 +25,7 @@ const here = dirname(fileURLToPath(import.meta.url))
 const REMOTE = resolve(here, '../../../InfluencerCreatorsUI/src')
 const CONTENT_REMOTE = resolve(here, '../../../InfluencerContentUI/src')
 const WORKFLOW_REMOTE = resolve(here, '../../../InfluencerWorkflowUI/src')
+const CAMPAIGNS_REMOTE = resolve(here, '../../../InfluencerCampaignsUI/src')
 
 /** Everything from the first line after the module's opening block comment. */
 function bodyOf(path) {
@@ -80,5 +81,17 @@ test('the workflow remote carries the same activation logic', () => {
     bodyOf(resolve(WORKFLOW_REMOTE, 'activation.js')),
     bodyOf(resolve(here, 'activation.js')),
     'InfluencerWorkflowUI/src/activation.js has drifted from shell/activation.js — copy the change across',
+  )
+})
+
+test('the campaigns remote carries the same sample import file', () => {
+  // PR-02. Production serves the import page from the REMOTE, so a sample offered only by the
+  // shell is one nobody downloads. The columns are the load-bearing part: they are the ones
+  // agent_service's mapper recognises, and a drifted copy would hand someone a file that needs
+  // correcting on the very first upload -- teaching exactly the wrong lesson.
+  assert.equal(
+    bodyOf(resolve(CAMPAIGNS_REMOTE, 'sampleImport.js')),
+    bodyOf(resolve(here, 'sampleImport.js')),
+    'InfluencerCampaignsUI/src/sampleImport.js has drifted from shell/sampleImport.js — copy the change across',
   )
 })
