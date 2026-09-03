@@ -8,6 +8,19 @@
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#0f766e" />
+    <!--
+      Meta (Facebook) domain verification, for the Instagram app review in PR-27b.
+
+      It has to be served from the APEX. tejdux.com, www. and app. are all aliases of the same
+      CloudFront distribution serving this one index.html, so adding it here covers all three —
+      but only this file. The legal pages under /privacy/ and /terms/ come from a different
+      S3 bucket and do not carry it; Meta checks the domain root, so that is fine.
+
+      DO NOT remove it once verification passes. Meta re-checks periodically, and a tag that
+      disappears on a later deploy fails the domain silently — the same shape as the DNS CNAME
+      that verifies Bing, which is documented in the roadmap for exactly that reason.
+    -->
+    <meta name="facebook-domain-verification" content="prxj38yswndeimkpbffdz2jkuut6gu" />
     <title>Tejdux — Influencer marketing CRM for brands and agencies</title>
     <!--
       DESCRIPTIVE METADATA IS A SAFETY SIGNAL, NOT DECORATION.
