@@ -110,6 +110,10 @@ import {
   inviteCreator,
   getLandingAnalytics,
   getShareKit,
+  listBrandDomains,
+  connectBrandDomain,
+  verifyBrandDomain,
+  disconnectBrandDomain,
   recordPosted,
   listLandingVersions,
   restoreLandingVersion,
@@ -1770,6 +1774,11 @@ function App() {
     getLandingAnalytics(authToken, campaignId, days)
   // PR-45. Bound here like every other data dependency: the host owns the session.
   const loadShareKitRecord = async (templateId, couponId) => getShareKit(authToken, templateId, couponId)
+  // PR-60. The backend for these has existed since PR-23 with no UI at all.
+  const loadDomainsRecord = async () => listBrandDomains(authToken)
+  const connectDomainRecord = async (domainName) => connectBrandDomain(authToken, domainName)
+  const verifyDomainRecord = async (id) => verifyBrandDomain(authToken, id)
+  const disconnectDomainRecord = async (id) => disconnectBrandDomain(authToken, id)
   const recordPostedRecord = async (templateId, couponId, platform) =>
     recordPosted(authToken, templateId, couponId, platform)
   const restoreLandingVersionRecord = async (campaignId, versionNo) =>
@@ -2533,6 +2542,10 @@ function App() {
                   linkedNotice={linkedProviderNotice}
                   workspaceName={brandName}
                   onRenameWorkspace={renameWorkspace}
+                  onLoadDomains={loadDomainsRecord}
+                  onConnectDomain={connectDomainRecord}
+                  onVerifyDomain={verifyDomainRecord}
+                  onDisconnectDomain={disconnectDomainRecord}
                 />
               }
             />

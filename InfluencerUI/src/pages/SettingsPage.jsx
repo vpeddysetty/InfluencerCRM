@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { MdsKicker, MdsSectionRule, MdsNote } from '../components/Mds'
 import { ConfirmDialog } from '../components/ui'
+import CustomDomains from '@influencer/ui/CustomDomains.jsx'
 
 const PROVIDERS = [
   { key: 'google', label: 'Google' },
@@ -28,6 +29,10 @@ function SettingsPage({
   linkedNotice = '',
   workspaceName = '',
   onRenameWorkspace,
+  onLoadDomains,
+  onConnectDomain,
+  onVerifyDomain,
+  onDisconnectDomain,
 }) {
   const [accounts, setAccounts] = useState([])
   const [loading, setLoading] = useState(true)
@@ -207,6 +212,21 @@ function SettingsPage({
           onConfirm={confirmDisconnect}
           onCancel={() => setPendingDisconnect(null)}
         />
+      ) : null}
+
+      {/* PR-60. Settings rather than the content page: a domain is account-level configuration set
+          once, not something touched while authoring a page. Rendered only when the host wires the
+          callbacks, so a shell that does not carry them gets no half-working panel. */}
+      {typeof onLoadDomains === 'function' ? (
+        <>
+          <MdsSectionRule />
+          <CustomDomains
+            onLoad={onLoadDomains}
+            onConnect={onConnectDomain}
+            onVerify={onVerifyDomain}
+            onDisconnect={onDisconnectDomain}
+          />
+        </>
       ) : null}
     </section>
   )

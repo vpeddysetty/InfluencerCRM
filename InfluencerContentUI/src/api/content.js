@@ -137,6 +137,26 @@ export async function recordPosted(token, templateId, couponId, platform) {
   })
 }
 
+// ---- custom domains (PR-60) ----
+
+// The backend for these has existed since PR-23 and had no UI at all -- grepping both trees for
+// `brand-domains` returned nothing, so a brand could not reach a tested, working feature.
+export async function listBrandDomains(token) {
+  return unwrapList(await request('/api/brand-domains', { token }))
+}
+
+export async function connectBrandDomain(token, domainName) {
+  return request('/api/brand-domains', { method: 'POST', token, body: { domainName } })
+}
+
+export async function verifyBrandDomain(token, id) {
+  return request(`/api/brand-domains/${encodeURIComponent(id)}/verify`, { method: 'POST', token })
+}
+
+export async function disconnectBrandDomain(token, id) {
+  return request(`/api/brand-domains/${encodeURIComponent(id)}`, { method: 'DELETE', token })
+}
+
 // ---- version history (Phase A.5) ----
 
 export async function listLandingVersions(token, campaignId) {
