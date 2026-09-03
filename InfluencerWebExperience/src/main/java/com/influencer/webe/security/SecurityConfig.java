@@ -90,6 +90,13 @@ public class SecurityConfig {
             // page slug (never from the body), only published pages accept signups, and the row
             // is created as status=lead — so this grants nothing without a brand decision.
             "/api/public/landing/*/signup",
+            // Lead capture from a published landing page (PR-61). Public for the same reason as
+            // the line above: a visitor filling in a form has no account. Four things contain it —
+            // the tenant comes from the SLUG rather than the caller, an unpublished page is not
+            // addressable, consent is required BEFORE anything is written, and PageLeadService
+            // rate limits per page. The response says only that it worked, so nothing about the
+            // brand or the page leaks to an anonymous caller.
+            "/api/public/landing/*/leads",
             "/api/webhooks/**",           // marketplace callbacks — authenticated by provider signature
             // Subscription events (M2.2). Unauthenticated by necessity — Stripe holds no user
             // token — so the HMAC signature over the raw body IS the authentication, verified in

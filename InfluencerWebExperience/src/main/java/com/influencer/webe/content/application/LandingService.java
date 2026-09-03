@@ -425,7 +425,7 @@ public class LandingService {
         // than re-read per section.
         String pageName = textOrDefault(template, "name", "");
         for (JsonNode section : sections) {
-            sb.append(renderSection(section, coupon, tokens, pageName));
+            sb.append(renderSection(section, coupon, tokens, pageName, text(template, "publicSlug")));
         }
 
         // Creator personalization blurb, on the same terms as the other two renderers: shown only
@@ -450,7 +450,7 @@ public class LandingService {
      * so B extends these branches rather than replacing them.
      */
     private String renderSection(JsonNode section, JsonNode coupon, Map<String, String> tokens,
-                                 String pageName) {
+                                 String pageName, String publicSlug) {
         String type = textOrDefault(section, "type", "text");
         JsonNode f = parseObject(section.get("fields"));
         String variant = textOrDefault(section, "variant", "");
@@ -524,13 +524,16 @@ public class LandingService {
                         + "</figure></div></section>";
             }
             case "signup":
-                // Renders the CTA, not a form. A form here would collect personal data on an
-                // anonymous public page with nowhere to POST it; the signup section's job in this
-                // piece is to send the visitor to the shop carrying their code.
+                // STILL renders the CTA, not a form, and PR-61 did not change that. `signup` sends
+                // the visitor to the shop carrying their code; a page that silently grew an email
+                // box where a Shop button used to be would surprise every brand already using it.
+                // Lead capture is the separate `contact` type below, added rather than substituted.
                 return "<section class=\"" + escAttr(cls) + "\">"
                         + optional("h2", "headline", f, tokens)
                         + ctaLink(f, coupon, tokens, pageName)
                         + "</section>";
+            case "contact":
+                return contactForm(f, tokens, publicSlug);
             case "legal":
                 return "<section class=\"" + escAttr(cls) + "\">"
                         + optional("p", "body", f, tokens) + "</section>";
@@ -558,6 +561,54 @@ public class LandingService {
      * let the brand type a destination would be a way to publish an arbitrary outbound link from a
      * page carrying the platform's tracking, and the CTA's whole job is to land on the tracked URL.
      */
+    /**
+     * The one form this product renders on a public page (roadmap PR-61).
+     *
+     * <p><b>Three guards said no to this, and they were right until PR-61.</b> The reason given
+     * everywhere was that a form here would collect personal data "with nowhere to POST it" —
+     * `content.page_leads` is now the somewhere, and the consent machinery `PR-31`/`PR-36` built is
+     * what makes collecting it defensible rather than merely possible. The other two guards stay
+     * exactly as they were: `LandingDocumentSanitizer` still strips {@code <form>} from
+     * brand-authored HTML, because a form somebody pasted has no such backing.
+     *
+     * <p><b>The consent checkbox is required in the markup AND on the server.</b> The attribute
+     * makes it a good experience; `PageLeadService.capture` calling `requireAccepted` before writing
+     * anything is what makes it true — a client-side `required` is a suggestion to anyone with a
+     * terminal.
+     *
+     * <p><b>Native form POST, no JavaScript.</b> This page is server-rendered HTML with no bundle,
+     * and adding one for a three-field form would be a script tag on every visitor's page to save a
+     * redirect. The endpoint answers JSON, so the browser shows it — which is the honest limitation
+     * of doing this without script, and the reason the button says what will happen.
+     */
+    private String contactForm(JsonNode fields, Map<String, String> tokens, String slug) {
+        if (slug == null || slug.isBlank()) {
+            // An unsaved page has no slug, so the form would post nowhere. Rendering the heading
+            // alone is better than a button that 404s.
+            return "<section class=\"s-contact\">" + optional("h2", "headline", fields, tokens) + "</section>";
+        }
+        String action = "/api/public/landing/" + escAttr(slug) + "/leads";
+        return "<section class=\"s-contact\">"
+                + optional("h2", "headline", fields, tokens)
+                + optional("p", "supporting", fields, tokens)
+                + "<form method=\"post\" action=\"" + action + "\" class=\"lead-form\">"
+                + "<label for=\"lead-email\">Email</label>"
+                + "<input id=\"lead-email\" name=\"email\" type=\"email\" required autocomplete=\"email\">"
+                + "<label for=\"lead-name\">Name</label>"
+                + "<input id=\"lead-name\" name=\"name\" type=\"text\" autocomplete=\"name\">"
+                + "<label for=\"lead-message\">Message</label>"
+                + "<textarea id=\"lead-message\" name=\"message\" rows=\"4\"></textarea>"
+                + "<label class=\"lead-consent\">"
+                + "<input name=\"acceptedTerms\" type=\"checkbox\" value=\"true\" required> "
+                + "I agree to be contacted about this enquiry."
+                + "</label>"
+                + "<button type=\"submit\">"
+                + esc(fill(textOrDefault(fields, "ctaLabel", "Send"), tokens))
+                + "</button>"
+                + "</form>"
+                + "</section>";
+    }
+
     private String ctaLink(JsonNode fields, JsonNode coupon, Map<String, String> tokens, String pageName) {
         String label = fill(textOrDefault(fields, "ctaLabel", ""), tokens);
         if (label.isBlank()) {

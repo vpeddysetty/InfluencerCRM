@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.influencer.webe.shared.infrastructure.DaoGatewayClient;
 import com.influencer.webe.content.application.LandingAnalyticsService;
+import com.influencer.webe.content.application.PageLeadService;
 import com.influencer.webe.content.application.ShareKitService;
 import com.influencer.webe.content.application.LandingService;
 import com.influencer.webe.identity.application.EntitlementService;
@@ -11,6 +12,7 @@ import com.influencer.webe.identity.application.PlanPolicy;
 import com.influencer.webe.security.Permission;
 import com.influencer.webe.shared.application.RequestUserResolver;
 import com.influencer.webe.shared.application.ResponseShapeService;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.beans.factory.annotation.Value;
@@ -37,6 +39,7 @@ public class LandingController {
     private final EntitlementService entitlements;
     private final LandingAnalyticsService landingAnalytics;
     private final ShareKitService shareKit;
+    private final PageLeadService pageLeads;
 
     public LandingController(LandingService landingService,
                             DaoGatewayClient dao,
@@ -44,7 +47,8 @@ public class LandingController {
                             ResponseShapeService shape,
                             EntitlementService entitlements,
                             LandingAnalyticsService landingAnalytics,
-                            ShareKitService shareKit) {
+                            ShareKitService shareKit,
+                            PageLeadService pageLeads) {
         this.landingService = landingService;
         this.dao = dao;
         this.requestUserResolver = requestUserResolver;
@@ -52,6 +56,7 @@ public class LandingController {
         this.entitlements = entitlements;
         this.landingAnalytics = landingAnalytics;
         this.shareKit = shareKit;
+        this.pageLeads = pageLeads;
     }
 
     // PR-39: `GET /api/landing-templates/editor` and the `web-experience.landing.editor` flag are
@@ -176,6 +181,34 @@ public class LandingController {
                                  @PathVariable UUID templateId) {
         UUID resolved = requestUserResolver.requirePermissionForBrand(authorization, Permission.CONTENT_READ);
         return shareKit.postsFor(resolved, templateId);
+    }
+
+    /**
+     * Lead capture from a published public page (PR-61) — <b>no authentication</b>.
+     *
+     * <p>Public by necessity: a visitor filling in a form on a brand's landing page has no account,
+     * so this cannot require a token. Four things contain what that opens up — the tenant comes
+     * from the SLUG rather than the caller, an unpublished page is not addressable, consent is
+     * required before anything is written, and the endpoint is rate limited per page.
+     *
+     * <p>The response is deliberately thin. A public caller learns that it worked and nothing about
+     * the brand, the page id, or what else was stored.
+     */
+    @PostMapping("/api/public/landing/{slug}/leads")
+    @ResponseStatus(HttpStatus.CREATED)
+    public JsonNode captureLead(@PathVariable String slug,
+                                @RequestBody ObjectNode payload,
+                                HttpServletRequest httpRequest) {
+        Boolean accepted = payload.hasNonNull("acceptedTerms") ? payload.get("acceptedTerms").asBoolean() : null;
+        return pageLeads.capture(slug, payload, accepted, httpRequest);
+    }
+
+    /** The enquiries a page has collected, newest first (PR-61). Brand-side. */
+    @GetMapping("/api/landing-pages/{templateId}/leads")
+    public JsonNode leads(@RequestHeader(value = "Authorization", required = false) String authorization,
+                          @PathVariable UUID templateId) {
+        UUID resolved = requestUserResolver.requirePermissionForBrand(authorization, Permission.CONTENT_READ);
+        return pageLeads.listFor(resolved, templateId);
     }
 
     /** Version history for the campaign's landing page, newest first (A.5). */

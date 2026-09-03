@@ -26,10 +26,15 @@ export const FIELD_KINDS = {
 }
 
 /**
- * The eight section types.
+ * The nine section types.
  *
  * `variants[0]` is the default for a newly added section. Every variant is designed and
- * responsive; there is deliberately no way to author a ninth.
+ * responsive.
+ *
+ * <p>This said "there is deliberately no way to author a ninth" until PR-61 added `contact`. That
+ * sentence guarded against LAYOUT proliferation -- a brand inventing arrangements is how the editor
+ * becomes a box canvas again -- and a new field-bearing type with no variants does not cross it.
+ * The guard that matters is still absolute: no field here is a colour, font, size or position.
  *
  * `tokens: true` on a field means personalization tokens are meaningful there and the editor
  * should surface them. It is not a validation rule — a token in any text field still substitutes
@@ -150,6 +155,25 @@ export const SECTION_TYPES = [
     fields: [
       { name: 'headline', label: 'Headline', kind: FIELD_KINDS.TEXT },
       { name: 'body', label: 'Body', kind: FIELD_KINDS.TEXTAREA, tokens: true, required: true },
+    ],
+  },
+  {
+    type: 'contact',
+    label: 'Contact form',
+    // PR-61. The ONE form this product renders on a public page, and it is a separate type rather
+    // than a change to `signup` -- a page that silently grew an email box where a Shop button used
+    // to be would surprise every brand already using that section.
+    //
+    // Three fields and no more. Every extra one is more personal data to defend on a page with no
+    // account behind it, and a brand who needs a phone number can ask for it in their reply.
+    // Consent is a checkbox in the rendered markup AND required server-side before anything is
+    // written -- a client-side `required` is a suggestion to anyone with a terminal.
+    hint: 'Lets a visitor ask you to get in touch. Their email is stored against this page.',
+    variants: [],
+    fields: [
+      { name: 'headline', label: 'Headline', kind: FIELD_KINDS.TEXT, placeholder: 'Work with us', required: true },
+      { name: 'supporting', label: 'Supporting line', kind: FIELD_KINDS.TEXTAREA, tokens: true },
+      { name: 'ctaLabel', label: 'Button label', kind: FIELD_KINDS.TEXT, placeholder: 'Send' },
     ],
   },
   {
