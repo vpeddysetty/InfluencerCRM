@@ -117,6 +117,26 @@ export async function getLandingAnalytics(token, campaignId, days) {
   )
 }
 
+// ---- share kit (PR-45) ----
+
+// Fetched per creator, on demand: the kit is per-coupon because the link and the code both are,
+// and a brand opens one at a time.
+export async function getShareKit(token, templateId, couponId) {
+  return request(
+    `/api/landing-pages/${encodeURIComponent(templateId)}/share-kit?couponId=${encodeURIComponent(couponId)}`,
+    { token },
+  )
+}
+
+// The creator's own claim that they posted. Not a measurement -- nothing here can see their feed.
+export async function recordPosted(token, templateId, couponId, platform) {
+  return request(`/api/landing-pages/${encodeURIComponent(templateId)}/posted`, {
+    method: 'POST',
+    token,
+    body: { couponId, platform },
+  })
+}
+
 // ---- version history (Phase A.5) ----
 
 export async function listLandingVersions(token, campaignId) {

@@ -22,7 +22,10 @@ export default defineConfig({
     // packages/ui lives OUTSIDE this project root, so Rolldown looks for `react` in a node_modules
     // beside those sources and finds none. dedupe pins the resolution to this project's copy --
     // which is also what federation needs, since two Reacts in one page break hooks.
-    dedupe: ['react', 'react-dom'],
+    // react-qr-code joins the list for the same reason react does: ShareSheet imports it from
+    // packages/ui, which lives OUTSIDE this project root, so Rolldown looks for it in a
+    // node_modules beside those sources and finds none. Deduping pins it to this project's copy.
+    dedupe: ['react', 'react-dom', 'react-qr-code'],
     alias: {
       '@influencer/ui': fileURLToPath(new URL('../packages/ui/src', import.meta.url)),
     },

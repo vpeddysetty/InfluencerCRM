@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { MdsKicker, MdsSectionRule, MdsNote } from '../components/Mds'
 import SectionEditor from '@influencer/ui/SectionEditor.jsx'
 import LandingAnalytics from '@influencer/ui/LandingAnalytics.jsx'
+import ShareSheet from '@influencer/ui/ShareSheet.jsx'
 import { applyTemplate, stripForTemplate, templateById, templateForCampaignType, PAGE_TEMPLATES } from '@influencer/ui/pageTemplates.js'
 import { blankSection, sectionType } from '@influencer/ui/sectionTypes.js'
 import CampaignPageGenerator from '../components/CampaignPageGenerator'
@@ -38,6 +39,8 @@ function ContentPage({
   onDraftContent,
   onPreviewLanding,
   onLoadAnalytics,
+  onLoadShareKit,
+  onRecordPosted,
   onLoadVersions,
   onRestoreVersion,
   onLoadAssets,
@@ -95,6 +98,31 @@ function ContentPage({
   // renders nothing rather than a wrong number, because a wrong count here is worse than none:
   // it either alarms someone with room to spare or promises room that is not there.
   const [aiAllowance, setAiAllowance] = useState(null)
+  // PR-45. Which creator's kit is open, and the kit itself. Fetched on demand rather than with
+  // the page: a brand opens one at a time, and prefetching one per creator would be a request per
+  // row for something most rows never show.
+  const [shareKitFor, setShareKitFor] = useState('')
+  const [shareKit, setShareKit] = useState(null)
+
+  const openShareKit = async (couponId) => {
+    if (shareKitFor === couponId) {
+      setShareKitFor('')
+      setShareKit(null)
+      return
+    }
+    setShareKitFor(couponId)
+    setShareKit(null)
+    try {
+      setShareKit(await onLoadShareKit(currentTemplate.id, couponId))
+    } catch (e) {
+      setShareKitFor('')
+      setTemplateFeedback({
+        type: 'error',
+        message: e instanceof Error ? e.message : 'The share kit could not be loaded.',
+      })
+    }
+  }
+
   const [sections, setSections] = useState([])
   const [savedTemplates, setSavedTemplates] = useState([])
   const [versions, setVersions] = useState([])
@@ -1108,6 +1136,27 @@ function ContentPage({
                     <li key={c.id}>
                       <strong className="mds-inline-code">{c.code}</strong>
                       {url ? <a href={url} target="_blank" rel="noreferrer">{url}</a> : <span>Save the page to get a link</span>}
+                      {/* PR-45. Per creator, because the kit is: the link and the code both are.
+                          Only once PUBLISHED -- the server refuses a kit for a draft rather than
+                          handing over a link nobody can open, so offering the button earlier would
+                          promise something that 409s. */}
+                      {url && templateStatus === 'published' && typeof onLoadShareKit === 'function' ? (
+                        <button
+                          type="button"
+                          className="ghost-btn"
+                          onClick={() => openShareKit(c.id)}
+                        >
+                          {shareKitFor === c.id ? 'Hide share kit' : 'Share kit'}
+                        </button>
+                      ) : null}
+                      {shareKitFor === c.id && shareKit ? (
+                        <ShareSheet
+                          kit={shareKit}
+                          onPosted={typeof onRecordPosted === 'function'
+                            ? () => onRecordPosted(currentTemplate.id, c.id)
+                            : undefined}
+                        />
+                      ) : null}
                     </li>
                   )
                 })}

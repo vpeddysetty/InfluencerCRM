@@ -1382,3 +1382,26 @@
   /* The date column is the one that can go: the bar and the count still say what happened. */
   .lp-analytics__bars li { grid-template-columns: 4.5rem 1fr 2.5rem; }
 }
+
+/* ---- Share kit (PR-45) --------------------------------------------------- */
+.sharekit {
+  margin-block: 1rem; padding: 1rem;
+  border: 1px solid var(--mds-rule, #e3e6ea); border-radius: 10px;
+  background: var(--mds-card, #f6f8fa);
+}
+.sharekit h3 { margin: 0 0 .2rem; font-size: 1rem; }
+.sharekit__sub { margin: 0 0 .8rem; opacity: .75; font-size: .9rem; }
+.sharekit__field { margin-block: .9rem; }
+.sharekit__field > .auth-label { display: block; margin-block-end: .25rem; }
+.sharekit__caption { inline-size: 100%; font: inherit; resize: vertical; }
+.sharekit__code, .sharekit__link { inline-size: 100%; font: inherit; }
+.sharekit__native { margin-block-end: .5rem; }
+/* White ground behind the QR regardless of theme: a dark-on-dark code does not scan, and this is
+   the one element whose contrast is a functional requirement rather than a stylistic one. */
+.sharekit__qr {
+  margin-block-start: .6rem; padding: .6rem;
+  background: #fff; border-radius: 8px; inline-size: fit-content;
+}
+.sharekit__assets { list-style: none; display: flex; flex-wrap: wrap; gap: .5rem; margin: 0; padding: 0; }
+.sharekit__assets img { block-size: 84px; inline-size: auto; border-radius: 6px; }
+.sharekit__posted { margin-block-start: 1rem; padding-block-start: .8rem; border-block-start: 1px solid var(--mds-rule, #e8ecef); }

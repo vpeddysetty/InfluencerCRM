@@ -109,6 +109,8 @@ import {
   revokePageCollaborator,
   inviteCreator,
   getLandingAnalytics,
+  getShareKit,
+  recordPosted,
   listLandingVersions,
   restoreLandingVersion,
   listAssets,
@@ -1766,6 +1768,10 @@ function App() {
   // panel owns the display.
   const loadLandingAnalyticsRecord = async (campaignId, days) =>
     getLandingAnalytics(authToken, campaignId, days)
+  // PR-45. Bound here like every other data dependency: the host owns the session.
+  const loadShareKitRecord = async (templateId, couponId) => getShareKit(authToken, templateId, couponId)
+  const recordPostedRecord = async (templateId, couponId, platform) =>
+    recordPosted(authToken, templateId, couponId, platform)
   const restoreLandingVersionRecord = async (campaignId, versionNo) =>
     restoreLandingVersion(authToken, campaignId, versionNo)
 
@@ -2580,6 +2586,8 @@ function App() {
                   onDraftContent={draftContentRecord}
                   onPreviewLanding={previewLandingRecord}
                   onLoadAnalytics={loadLandingAnalyticsRecord}
+                  onLoadShareKit={loadShareKitRecord}
+                  onRecordPosted={recordPostedRecord}
                   onLoadVersions={loadLandingVersionsRecord}
                   onRestoreVersion={restoreLandingVersionRecord}
                   onLoadAssets={loadAssetsRecord}

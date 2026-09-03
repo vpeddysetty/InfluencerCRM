@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import QRCode from 'react-qr-code'
 
 /**
  * What a creator copies to post a page on their own handle (roadmap PR-45).
@@ -13,11 +14,16 @@ import { useState } from 'react'
  * FTC obligation goes with the trim. Copying a caption always copies the disclosure with it; the
  * two are joined at the copy, never in a box someone can edit them out of.
  *
- * <p><b>No QR code yet, deliberately.</b> A correct QR needs Reed-Solomon error correction — not
- * something to hand-roll, because the failure mode is a code that scans on the author's phone and
- * not on anyone else's — and the smallest credible library is a new dependency in a bundle `PR-39`
- * just cut 951 KB from. The desktop-to-phone gap it would close is real but narrow: the link copies
- * in one click, and most creators are already on the phone they will post from.
+ * <p><b>The QR is a library, and that was a deliberate call.</b> A correct QR needs Reed-Solomon
+ * error correction, whose failure mode is a code that scans on the author's phone and not on anyone
+ * else's — not something to hand-roll. `react-qr-code` renders SVG rather than canvas, so it scales
+ * to any print size, needs no ref or effect, and adds no raster asset. It pulls `qrcode-generator`,
+ * which is large on disk mostly in per-mode files a tree-shaking build drops; the measured delta is
+ * 23.5 KB in the ContentUI bundle -- 560.7 KB with it, 537.1 KB without -- which is what justified
+ * it rather than the 555 KB package size.
+ *
+ * <p>It exists for one specific gap: a brand looking at this on a desktop has the assets and the
+ * caption on the wrong device. Scanning is faster than emailing yourself a link.
  */
 export default function ShareSheet({ kit, platform = 'instagram', onPosted }) {
   const [copied, setCopied] = useState('')
@@ -99,6 +105,15 @@ export default function ShareSheet({ kit, platform = 'instagram', onPosted }) {
           <button type="button" className="ghost-btn" onClick={() => copy('link', kit.link)}>
             {copied === 'link' ? 'Copied' : 'Copy link'}
           </button>
+          {/* For the desktop-to-phone hop: the assets and the caption are on the wrong device for
+              someone who will post from their phone, and scanning beats emailing yourself a link.
+              Hidden where the native share sheet exists, because on that device it is redundant. */}
+          {!canNativeShare ? (
+            <div className="sharekit__qr">
+              <QRCode value={kit.link} size={132} bgColor="#ffffff" fgColor="#1a1d21" />
+              <p className="helper">Scan to open this page on your phone.</p>
+            </div>
+          ) : null}
         </div>
       ) : null}
 
