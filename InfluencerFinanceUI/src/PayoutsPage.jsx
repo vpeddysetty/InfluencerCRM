@@ -144,7 +144,10 @@ function PayoutsPage({
         </select>
       </div>
       {payableByCreator.length === 0 ? (
-        <p className="custom-attributes-empty">Nothing approved yet.</p>
+        <p className="custom-attributes-empty">
+          Nothing approved yet. Approve a pending commission above and it moves here, grouped by
+          creator, ready to pay in one go.
+        </p>
       ) : (
         <ul className="simple-list">
           {payableByCreator.map((row) => (
@@ -169,7 +172,10 @@ function PayoutsPage({
       <MdsSectionRule />
       <h4>Payout history ({payouts.length})</h4>
       {payouts.length === 0 ? (
-        <p className="custom-attributes-empty">No payouts yet.</p>
+        <p className="custom-attributes-empty">
+          No payouts yet. Once you pay an approved commission, it is recorded here with its
+          reference — this is the record a creator asks for when they cannot find the money.
+        </p>
       ) : (
         <ul className="simple-list">
           {payouts.map((p) => (

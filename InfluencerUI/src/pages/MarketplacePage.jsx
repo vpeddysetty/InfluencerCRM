@@ -133,7 +133,10 @@ function MarketplacePage({ providers = [], connections = [], onConnect, onDiscon
       <MdsSectionRule />
       <h4>Connected stores ({connections.length})</h4>
       {connections.length === 0 ? (
-        <p className="custom-attributes-empty">No stores connected yet.</p>
+        <p className="custom-attributes-empty">
+          No stores connected yet. Connecting one is what lets orders find their creator: an order
+          carrying a discount code is matched automatically, and the revenue shows on the dashboard.
+        </p>
       ) : (
         <ul className="simple-list">
           {connections.map((conn) => (
