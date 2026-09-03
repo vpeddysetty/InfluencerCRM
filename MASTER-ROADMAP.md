@@ -774,6 +774,15 @@ urgent together — you cannot pay a US creator more than $600 in a year without
 
 ## Appendix A — Old → new ID crosswalk
 
+
+**Audited 2026-09-02.** Several right-hand IDs never had rows of their own — they were allocated to
+name a *deferred or declined* body of work, which is a legitimate use of a stable ID and is why they
+are kept. What was NOT legitimate, and is now fixed, is `M5.1 → PR-34`: that pointed at Apollo
+enrichment, which has nothing to do with hosting, and the pairing was plausible enough to leave a
+reader believing S3-hosted per-brand landing pages had shipped. They have not. Landing pages are
+rendered per request and served through Caddy, because personalising a page per creator is not
+something a static object can do — see the corrected rows below.
+
 | Old | New | Item |
 |---|---|---|
 | M0.1 | `PR-27b` | Platform app registrations |
@@ -786,17 +795,17 @@ urgent together — you cannot pay a US creator more than $600 in a year without
 | M2.4 | `PR-01` | Pricing page |
 | — | `PR-04` | Stripe cutover (config) |
 | M3.1 | `PR-22` | Credential encryption |
-| M3.2–3.5 | `PR-10` | Shopify provider (deferred) |
+| M3.2–3.5 | — | **DANGLING:** `PR-10` has no row. Shopify remains deferred; `docs/shopify-integration-plan.md` is the live document |
 | M4.1–4.4 | `PR-02` | Activation |
-| M5.1 | `PR-34` | Real hosting target (code done, deploy outstanding) |
-| M5.2/5.3/5.5 | `PR-03` | Wildcard cert, subdomain routing, asset serving |
+| M5.1 | — | **Real hosting target — DANGLING.** Pointed at `PR-34`, which is Apollo enrichment and always was; the two were never related. Landing pages are rendered per request by `LandingService.renderPublic` and served through Caddy — verified 2026-09-02 — because personalisation per creator (`/s/{slug}/{creator}` substitutes that creator's code at render time) is not something a static object can do. There is no S3-hosted, brand-prefixed page path, shipped or half-shipped |
+| M5.2/5.3/5.5 | — | **DANGLING.** `PR-03` has no row and never did. The wildcard cert and subdomain routing exist for the UI hosts (`static-site-cdn.tf`), not for per-brand page hosting; asset SERVING is `AssetsController` + `PR-45`'s `S3AssetStorage`. The per-brand-subdomain design is §9.2 and is unbuilt |
 | M5.4 | `PR-23` | Real DNS verification |
 | M5.6 | `PR-24` | Expiry warnings |
 | M6.1–6.3, 6.5 | `PR-27` | Metrics infrastructure |
 | M6.4 | `PR-27b` | IG/TikTok adapters (Meta-gated) |
 | M6.6 | `PR-35` | Tiered refresh scheduler |
-| M7.1–7.5 | `PR-11` | Custom domains (deferred) |
-| M8.1/8.2/8.4 | `PR-12` | Agency depth (deferred) |
+| M7.1–7.5 | ~~`PR-60`~~ | Custom domains — the UI shipped 2026-09-02. ACME issuance and the public serving lookup remain; `PR-11` never had a row of its own |
+| M8.1/8.2/8.4 | — | **DANGLING:** `PR-12` has no row. Agency depth remains deferred |
 | M8.3 | `PR-28` | Payout idempotency |
 | U1 | `PR-25` | Creator record page |
 | U2 | `PR-13` | Pagination (deferred) |
