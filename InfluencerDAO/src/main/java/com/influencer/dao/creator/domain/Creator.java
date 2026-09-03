@@ -111,6 +111,29 @@ public class Creator {
     @Column(name = "metrics_platform_verified")
     private Boolean metricsPlatformVerified;
 
+    /**
+     * Stripe Connect Express account (roadmap PR-47, V52).
+     *
+     * <p>Its EXISTENCE means onboarding started, not that anyone can be paid — read
+     * {@link #payoutsEnabled} for that. The two are days apart in practice, because identity, the
+     * bank account and the tax form each gate payouts separately.
+     */
+    @Column(name = "stripe_account_id")
+    private String stripeAccountId;
+
+    /** Whether Stripe will actually move money. The only field to show a brand as "can be paid". */
+    @Column(name = "payouts_enabled", nullable = false)
+    private boolean payoutsEnabled = false;
+
+    /**
+     * When the provider last told us.
+     *
+     * <p>Not "when we asked": a cached boolean with no timestamp is a number nobody can judge —
+     * minutes old it is fact, weeks old it is a guess, and the reader cannot tell which.
+     */
+    @Column(name = "payout_status_checked_at")
+    private java.time.Instant payoutStatusCheckedAt;
+
     /** llm | heuristic | manual. Never platform_api — a platform does not classify. */
     @Column(name = "classification_source")
     private String classificationSource;
@@ -541,5 +564,29 @@ public class Creator {
 
     public void setVettingDecidedByUserId(UUID vettingDecidedByUserId) {
         this.vettingDecidedByUserId = vettingDecidedByUserId;
+    }
+
+    public String getStripeAccountId() {
+        return stripeAccountId;
+    }
+
+    public void setStripeAccountId(String stripeAccountId) {
+        this.stripeAccountId = stripeAccountId;
+    }
+
+    public boolean isPayoutsEnabled() {
+        return payoutsEnabled;
+    }
+
+    public void setPayoutsEnabled(boolean payoutsEnabled) {
+        this.payoutsEnabled = payoutsEnabled;
+    }
+
+    public java.time.Instant getPayoutStatusCheckedAt() {
+        return payoutStatusCheckedAt;
+    }
+
+    public void setPayoutStatusCheckedAt(java.time.Instant payoutStatusCheckedAt) {
+        this.payoutStatusCheckedAt = payoutStatusCheckedAt;
     }
 }

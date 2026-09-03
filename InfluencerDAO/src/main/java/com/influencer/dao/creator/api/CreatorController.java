@@ -10,6 +10,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
+import java.util.Map;
+import java.time.Instant;
 
 @RestController
 @RequestMapping("/creators")
@@ -150,6 +152,41 @@ public class CreatorController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported platform: " + platform);
         }
         return normalized;
+    }
+
+    /**
+     * Payout onboarding state only (roadmap PR-47).
+     *
+     * <p><b>Why not PUT.</b> The update above overwrites every field from the body, so sending it a
+     * two-field payload would blank a creator's handle, metrics and notes. A partial update needs
+     * its own route, and this one is deliberately NARROW rather than a general PATCH: it can set
+     * exactly three columns and nothing else, so it cannot become the back door through which
+     * anything on a creator is writable without going past the checks the full update runs.
+     */
+    @PatchMapping("/{id}/payout-account")
+    public Creator updatePayoutAccount(@PathVariable UUID id, @RequestBody Map<String, Object> payload) {
+        Creator existing = repository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Creator not found"));
+
+        if (payload.containsKey("stripeAccountId")) {
+            existing.setStripeAccountId(text(payload.get("stripeAccountId")));
+        }
+        if (payload.containsKey("payoutsEnabled")) {
+            existing.setPayoutsEnabled(Boolean.TRUE.equals(payload.get("payoutsEnabled")));
+        }
+        if (payload.containsKey("payoutStatusCheckedAt")) {
+            String at = text(payload.get("payoutStatusCheckedAt"));
+            existing.setPayoutStatusCheckedAt(at == null ? null : Instant.parse(at));
+        }
+        return repository.save(existing);
+    }
+
+    private String text(Object value) {
+        if (value == null) {
+            return null;
+        }
+        String s = String.valueOf(value).trim();
+        return s.isEmpty() ? null : s;
     }
 
     @DeleteMapping("/{id}")
