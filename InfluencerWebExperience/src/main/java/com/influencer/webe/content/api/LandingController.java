@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.influencer.webe.shared.infrastructure.DaoGatewayClient;
 import com.influencer.webe.content.application.LandingAnalyticsService;
+import com.influencer.webe.content.application.ShareKitService;
 import com.influencer.webe.content.application.LandingService;
 import com.influencer.webe.identity.application.EntitlementService;
 import com.influencer.webe.identity.application.PlanPolicy;
@@ -33,19 +34,22 @@ public class LandingController {
     private final ResponseShapeService shape;
     private final EntitlementService entitlements;
     private final LandingAnalyticsService landingAnalytics;
+    private final ShareKitService shareKit;
 
     public LandingController(LandingService landingService,
                             DaoGatewayClient dao,
                             RequestUserResolver requestUserResolver,
                             ResponseShapeService shape,
                             EntitlementService entitlements,
-                            LandingAnalyticsService landingAnalytics) {
+                            LandingAnalyticsService landingAnalytics,
+                            ShareKitService shareKit) {
         this.landingService = landingService;
         this.dao = dao;
         this.requestUserResolver = requestUserResolver;
         this.shape = shape;
         this.entitlements = entitlements;
         this.landingAnalytics = landingAnalytics;
+        this.shareKit = shareKit;
     }
 
     // PR-39: `GET /api/landing-templates/editor` and the `web-experience.landing.editor` flag are
@@ -125,6 +129,22 @@ public class LandingController {
                               @RequestParam(required = false) Integer days) {
         UUID resolved = requestUserResolver.requirePermissionForBrand(authorization, Permission.CONTENT_READ);
         return landingAnalytics.forCampaign(resolved, campaignId, days);
+    }
+
+    /**
+     * The share kit for one creator's code on a published page (PR-45).
+     *
+     * <p>CONTENT_READ: it assembles words already on the page and a link already public. The
+     * creator-facing route is the portal's own, which authenticates with X-Creator-Token; this one
+     * is for the brand, who often posts on a creator's behalf or sends them the text.
+     */
+    @GetMapping("/api/landing-pages/{templateId}/share-kit")
+    public JsonNode shareKit(@RequestHeader(value = "Authorization", required = false) String authorization,
+                             @PathVariable UUID templateId,
+                             @RequestParam UUID couponId,
+                             @RequestParam(required = false) UUID brandId) {
+        UUID resolved = requestUserResolver.requirePermissionForBrand(authorization, Permission.CONTENT_READ);
+        return shareKit.forCoupon(resolved, templateId, couponId);
     }
 
     /** Version history for the campaign's landing page, newest first (A.5). */
