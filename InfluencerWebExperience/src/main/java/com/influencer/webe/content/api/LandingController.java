@@ -11,9 +11,11 @@ import com.influencer.webe.identity.application.PlanPolicy;
 import com.influencer.webe.security.Permission;
 import com.influencer.webe.shared.application.RequestUserResolver;
 import com.influencer.webe.shared.application.ResponseShapeService;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -145,6 +147,35 @@ public class LandingController {
                              @RequestParam(required = false) UUID brandId) {
         UUID resolved = requestUserResolver.requirePermissionForBrand(authorization, Permission.CONTENT_READ);
         return shareKit.forCoupon(resolved, templateId, couponId);
+    }
+
+    /**
+     * Record that a creator posted this page (PR-45).
+     *
+     * <p>CONTENT_WRITE rather than READ: it writes a row a brand will act on. The creator-facing
+     * equivalent lives on the portal's own controller, where the actor is a creator identity
+     * rather than a user.
+     */
+    @PostMapping("/api/landing-pages/{templateId}/posted")
+    @ResponseStatus(HttpStatus.CREATED)
+    public JsonNode recordPosted(@RequestHeader(value = "Authorization", required = false) String authorization,
+                                 @PathVariable UUID templateId,
+                                 @RequestBody ObjectNode payload) {
+        var context = requestUserResolver.requirePermission(authorization, Permission.CONTENT_WRITE);
+        UUID couponId = getUuid(payload, "couponId");
+        if (couponId == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "couponId is required");
+        }
+        return shareKit.recordPosted(context.brandId(), templateId, couponId,
+                context.userId(), null, payload.path("platform").asText(null));
+    }
+
+    /** What has been reported as posted for this page, newest first (PR-45). */
+    @GetMapping("/api/landing-pages/{templateId}/posted")
+    public JsonNode postedClaims(@RequestHeader(value = "Authorization", required = false) String authorization,
+                                 @PathVariable UUID templateId) {
+        UUID resolved = requestUserResolver.requirePermissionForBrand(authorization, Permission.CONTENT_READ);
+        return shareKit.postsFor(resolved, templateId);
     }
 
     /** Version history for the campaign's landing page, newest first (A.5). */

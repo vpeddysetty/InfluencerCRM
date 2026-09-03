@@ -15,6 +15,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -103,6 +104,57 @@ public class ShareKitService {
         out.set("captions", captionsFor(template, code));
         out.set("assets", assetsFor(template));
         return out;
+    }
+
+    /**
+     * Record that a creator says they posted this (roadmap PR-45).
+     *
+     * <p><b>Their claim, not a measurement.</b> Nothing here can see a creator's feed, so this
+     * stores what they told us and is named so a later reader cannot mistake it for verification.
+     * The alternative — inferring a post from a spike in page views — would be a guess presented as
+     * a fact, and the brand acting on it would be acting on our arithmetic rather than the
+     * creator's word.
+     *
+     * <p>Ownership is re-checked rather than trusted: the same page/coupon reads {@link #forCoupon}
+     * does, because a claim recorded against another brand's page is a cross-tenant write.
+     */
+    public JsonNode recordPosted(UUID brandId, UUID templateId, UUID couponId,
+                                 UUID reportedByUserId, UUID creatorIdentityId, String platform) {
+        JsonNode template = read("/landing-templates/" + templateId);
+        if (template == null || !brandId.toString().equals(text(template, "brandId"))) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Landing page not found");
+        }
+        JsonNode coupon = read("/influencer-campaign-codes/" + couponId);
+        if (coupon == null || !brandId.toString().equals(text(coupon, "brandId"))) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Code not found");
+        }
+
+        ObjectNode body = shape.objectMapper().createObjectNode();
+        body.put("brandId", brandId.toString());
+        body.put("landingTemplateId", templateId.toString());
+        body.put("campaignCodeId", couponId.toString());
+        if (reportedByUserId != null) {
+            body.put("reportedByUserId", reportedByUserId.toString());
+        }
+        if (creatorIdentityId != null) {
+            body.put("creatorIdentityId", creatorIdentityId.toString());
+        }
+        if (platform != null && !platform.isBlank()) {
+            body.put("platform", platform.trim());
+        }
+        return dao.post("/share-posts", body);
+    }
+
+    /** What has been claimed for this page, newest first. */
+    public JsonNode postsFor(UUID brandId, UUID templateId) {
+        JsonNode template = read("/landing-templates/" + templateId);
+        if (template == null || !brandId.toString().equals(text(template, "brandId"))) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Landing page not found");
+        }
+        Map<String, String> query = new LinkedHashMap<>();
+        query.put("landingTemplateId", templateId.toString());
+        JsonNode posts = readQuery("/share-posts", query);
+        return posts == null ? shape.objectMapper().createArrayNode() : posts;
     }
 
     // ---- the link ------------------------------------------------------
@@ -263,6 +315,15 @@ public class ShareKitService {
     private String textOr(JsonNode node, String field, String fallback) {
         String value = text(node, field);
         return value == null ? fallback : value;
+    }
+
+    private JsonNode readQuery(String path, Map<String, String> query) {
+        try {
+            return dao.get(path, query);
+        } catch (RuntimeException e) {
+            log.info("Share kit could not read {}: {}", path, e.toString());
+            return null;
+        }
     }
 
     private JsonNode read(String path) {
