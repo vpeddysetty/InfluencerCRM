@@ -138,7 +138,17 @@ public class ResponseShapeService {
                 "leadSource", "leadLandingTemplateId",
                 // Phase C2 vetting. `vettingDecidedByUserId` is exposed because it is what
                 // distinguishes a human decision from a rule at a glance.
-                "vettingStatus", "vettingDecidedAt", "vettingDecidedByUserId");
+                "vettingStatus", "vettingDecidedAt", "vettingDecidedByUserId",
+                // Payout readiness (PR-47) and tax state (PR-49). Two facts kept apart on purpose:
+                // `stripeAccountId` present means onboarding STARTED, `payoutsEnabled` means money
+                // will actually move, and they are days apart. `payoutStatusCheckedAt` travels with
+                // the boolean because a cached answer with no timestamp is one nobody can judge.
+                //
+                // Listed here because this allow-list is where a populated column silently stops
+                // being visible -- the column exists, the DAO returns it, and without this line the
+                // UI would show "not payable" for a creator Stripe had already enabled.
+                "stripeAccountId", "payoutsEnabled", "payoutStatusCheckedAt",
+                "taxFormRequiredAt", "taxFormOnFileAt", "taxFormKind");
     }
 
     public JsonNode campaignCreatorsList(JsonNode source, Integer page, Integer size) {

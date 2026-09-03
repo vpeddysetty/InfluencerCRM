@@ -134,6 +134,30 @@ public class Creator {
     @Column(name = "payout_status_checked_at")
     private java.time.Instant payoutStatusCheckedAt;
 
+    /**
+     * When THIS platform decided a tax form is needed (roadmap PR-49).
+     *
+     * <p>Stored, where V52 refused to store Stripe's status, because it is not a cache of a Stripe
+     * fact: it is the moment our own threshold arithmetic decided to withhold payment, and so is
+     * evidence of why a payout was held.
+     */
+    @Column(name = "tax_form_required_at")
+    private java.time.Instant taxFormRequiredAt;
+
+    /**
+     * When a brand recorded the form as received.
+     *
+     * <p>A brand assertion rather than a document: holding W-9s would make this application a
+     * custodian of signed forms carrying SSNs. Consulted only on the MANUAL rail — where Connect is
+     * in use, {@code payoutsEnabled} is authoritative.
+     */
+    @Column(name = "tax_form_on_file_at")
+    private java.time.Instant taxFormOnFileAt;
+
+    /** W-9 | W-8BEN. Free text, not an enum: a third country needs a value, not a migration. */
+    @Column(name = "tax_form_kind")
+    private String taxFormKind;
+
     /** llm | heuristic | manual. Never platform_api — a platform does not classify. */
     @Column(name = "classification_source")
     private String classificationSource;
@@ -588,5 +612,29 @@ public class Creator {
 
     public void setPayoutStatusCheckedAt(java.time.Instant payoutStatusCheckedAt) {
         this.payoutStatusCheckedAt = payoutStatusCheckedAt;
+    }
+
+    public java.time.Instant getTaxFormRequiredAt() {
+        return taxFormRequiredAt;
+    }
+
+    public void setTaxFormRequiredAt(java.time.Instant taxFormRequiredAt) {
+        this.taxFormRequiredAt = taxFormRequiredAt;
+    }
+
+    public java.time.Instant getTaxFormOnFileAt() {
+        return taxFormOnFileAt;
+    }
+
+    public void setTaxFormOnFileAt(java.time.Instant taxFormOnFileAt) {
+        this.taxFormOnFileAt = taxFormOnFileAt;
+    }
+
+    public String getTaxFormKind() {
+        return taxFormKind;
+    }
+
+    public void setTaxFormKind(String taxFormKind) {
+        this.taxFormKind = taxFormKind;
     }
 }

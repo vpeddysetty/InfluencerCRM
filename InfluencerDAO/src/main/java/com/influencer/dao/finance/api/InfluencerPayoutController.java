@@ -6,6 +6,11 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
+import java.util.Map;
 import java.util.UUID;
 
 @RestController
@@ -71,5 +76,25 @@ public class InfluencerPayoutController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(@PathVariable UUID id) {
         repository.deleteById(id);
+    }
+
+    /**
+     * What this brand has PAID this creator in a calendar year (roadmap PR-49).
+     *
+     * <p>Serves the 1099-NEC threshold check. Calendar year rather than rolling twelve months
+     * because the IRS figure is a calendar-year one -- a rolling window would withhold payment from
+     * someone under the actual limit.
+     */
+    @GetMapping("/paid-total")
+    public Map<String, Object> paidTotal(@RequestParam UUID creatorId,
+                                         @RequestParam UUID brandId,
+                                         @RequestParam int year) {
+        Instant from = LocalDate.of(year, 1, 1).atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant until = LocalDate.of(year + 1, 1, 1).atStartOfDay(ZoneOffset.UTC).toInstant();
+        BigDecimal total = repository.sumPaidBetween(creatorId, brandId, from, until);
+        // Coalesced HERE rather than in the query, so "no payouts" and "zero paid" stay
+        // distinguishable at the repository boundary.
+        return Map.of("creatorId", creatorId, "brandId", brandId, "year", year,
+                "paidTotal", total == null ? BigDecimal.ZERO : total);
     }
 }

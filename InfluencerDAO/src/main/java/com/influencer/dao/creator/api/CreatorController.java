@@ -160,8 +160,9 @@ public class CreatorController {
      * <p><b>Why not PUT.</b> The update above overwrites every field from the body, so sending it a
      * two-field payload would blank a creator's handle, metrics and notes. A partial update needs
      * its own route, and this one is deliberately NARROW rather than a general PATCH: it can set
-     * exactly three columns and nothing else, so it cannot become the back door through which
-     * anything on a creator is writable without going past the checks the full update runs.
+     * the six payout- and tax-state columns and nothing else, so it cannot become the back door
+     * through which anything on a creator is writable without going past the checks the full update
+     * runs. Extend the list only for another column of the same kind.
      */
     @PatchMapping("/{id}/payout-account")
     public Creator updatePayoutAccount(@PathVariable UUID id, @RequestBody Map<String, Object> payload) {
@@ -177,6 +178,17 @@ public class CreatorController {
         if (payload.containsKey("payoutStatusCheckedAt")) {
             String at = text(payload.get("payoutStatusCheckedAt"));
             existing.setPayoutStatusCheckedAt(at == null ? null : Instant.parse(at));
+        }
+        if (payload.containsKey("taxFormRequiredAt")) {
+            String at = text(payload.get("taxFormRequiredAt"));
+            existing.setTaxFormRequiredAt(at == null ? null : Instant.parse(at));
+        }
+        if (payload.containsKey("taxFormOnFileAt")) {
+            String at = text(payload.get("taxFormOnFileAt"));
+            existing.setTaxFormOnFileAt(at == null ? null : Instant.parse(at));
+        }
+        if (payload.containsKey("taxFormKind")) {
+            existing.setTaxFormKind(text(payload.get("taxFormKind")));
         }
         return repository.save(existing);
     }

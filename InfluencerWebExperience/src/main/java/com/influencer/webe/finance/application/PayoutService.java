@@ -1,5 +1,6 @@
 package com.influencer.webe.finance.application;
 
+import com.influencer.webe.payout.TaxThresholdService;
 import com.influencer.webe.shared.application.ResponseShapeService;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -31,12 +32,16 @@ public class PayoutService {
     private final ResponseShapeService shape;
     private final PayoutProviderRegistry registry;
 
+    private final TaxThresholdService taxThreshold;
+
     public PayoutService(DaoGatewayClient dao,
                          ResponseShapeService shape,
-                         PayoutProviderRegistry registry) {
+                         PayoutProviderRegistry registry,
+                         TaxThresholdService taxThreshold) {
         this.dao = dao;
         this.shape = shape;
         this.registry = registry;
+        this.taxThreshold = taxThreshold;
     }
 
     /** Provider catalog for the UI. */
@@ -98,6 +103,23 @@ public class PayoutService {
         if (toSettle.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "No approved commissions to pay for this creator");
+        }
+
+        // TAX GATE (PR-49). Placed HERE deliberately: after the amount is known -- the question is
+        // whether THIS payment crosses the threshold, not whether past ones did -- and before the
+        // payout row is written, so a blocked payout leaves no `processing` row behind for someone
+        // to wonder about later.
+        //
+        // This is the last point at which stopping is cheap. Past it the provider has been called
+        // and the money is gone, and the roadmap row is explicit that chasing paperwork while
+        // someone is asking where their money is is the worst possible order.
+        JsonNode clearance = taxThreshold.clearance(brandId, creatorId, total);
+        if (!clearance.path("clear").asBoolean(true)) {
+            // 409, not 403: nothing is forbidden and nobody did anything wrong -- a document is
+            // missing, and the brand can fix it. The detail says which one, because "blocked" with
+            // no reason sends someone to the logs to find out what to ask for.
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    clearance.path("detail").asText("A tax form is needed before paying this creator."));
         }
 
         // Create the payout row (draft).
