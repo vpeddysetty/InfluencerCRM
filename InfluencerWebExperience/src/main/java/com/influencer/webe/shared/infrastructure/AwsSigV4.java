@@ -233,6 +233,55 @@ public final class AwsSigV4 {
                                                  String key,
                                                  Map<String, String> extraHeaders,
                                                  Instant now) {
+        return signS3Bodiless("HEAD", accessKeyId, secretAccessKey, sessionToken, region, host, key,
+                extraHeaders, now);
+    }
+
+    /**
+     * Sign an S3 GET (roadmap PR-45).
+     *
+     * <p>Identical to HEAD but for the verb, which is part of the canonical request — signing a GET
+     * as a HEAD produces a 403 that names neither.
+     */
+    public static Map<String, String> signS3Get(String accessKeyId,
+                                                String secretAccessKey,
+                                                String sessionToken,
+                                                String region,
+                                                String host,
+                                                String key,
+                                                Instant now) {
+        return signS3Bodiless("GET", accessKeyId, secretAccessKey, sessionToken, region, host, key,
+                null, now);
+    }
+
+    /** Sign an S3 DELETE (roadmap PR-45). Same shape; S3 answers 204 for an absent key. */
+    public static Map<String, String> signS3Delete(String accessKeyId,
+                                                   String secretAccessKey,
+                                                   String sessionToken,
+                                                   String region,
+                                                   String host,
+                                                   String key,
+                                                   Instant now) {
+        return signS3Bodiless("DELETE", accessKeyId, secretAccessKey, sessionToken, region, host, key,
+                null, now);
+    }
+
+    /**
+     * The shared body of every bodiless S3 request signature.
+     *
+     * <p>Extracted when GET and DELETE were added for PR-45: HEAD, GET and DELETE differ only in the
+     * verb, and three copies of a signing routine is three places for a subtle divergence to hide —
+     * in code whose failure mode is a 403 that explains nothing.
+     */
+    private static Map<String, String> signS3Bodiless(String method,
+                                                      String accessKeyId,
+                                                      String secretAccessKey,
+                                                      String sessionToken,
+                                                      String region,
+                                                      String host,
+                                                      String key,
+                                                      Map<String, String> extraHeaders,
+                                                      Instant now) {
 
         String amzDate = AMZ_DATE.format(now);
         String dateStamp = DATE_STAMP.format(now);
@@ -259,7 +308,7 @@ public final class AwsSigV4 {
             signedHeaders.append(header.getKey());
         }
 
-        String canonicalRequest = "HEAD\n"
+        String canonicalRequest = method + "\n"
                 + "/" + encodeS3Key(key) + "\n"
                 + "\n"
                 + headerBlock + "\n"
