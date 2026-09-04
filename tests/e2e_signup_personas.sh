@@ -5,7 +5,9 @@
 # solo-brand path is unchanged, and that an unsupported request is REFUSED rather than quietly
 # downgraded. The last part is the actual defect this stage fixes: `accountType: "agency"` used
 # to return 200 and a brand account.
-DPS=http://localhost:8090
+DPS=${DPS:-http://localhost:8090}
+. "$(dirname "$0")/local_only_guard.sh"
+require_local_target "$DPS"
 SP="${E2E_WORKDIR:-$(dirname "$0")}"
 PG="docker exec influencercrm-postgres psql -U influencercrm_user -d influencercrm_db -t -A"
 STAMP=$(date +%s)

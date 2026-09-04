@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+# LOCAL ONLY, and unlike its siblings it takes no guard (roadmap OP-33).
+#
+# This is a report, not a test: it prints rows out of the local Postgres container and asserts
+# nothing. There is no API target to point elsewhere, so there is no way to aim it at a deployment
+# by mistake -- which is the failure the other suites needed guarding against. It reads whatever
+# database is on this machine, and says so here so the next reader does not go looking for a
+# missing guard.
 SP="${E2E_WORKDIR:-$(dirname "$0")}"; . "$SP/ids.env"
 q() { docker exec influencercrm-postgres psql -U influencercrm_user -d influencercrm_db -c "$1"; }
 

@@ -15,6 +15,8 @@
 # pause or end the relationship. A creator mid-campaign has delivered work, may be owed money,
 # and may have declined other offers to take this one.
 BFF=${BFF:-http://localhost:8081}
+. "$(dirname "$0")/local_only_guard.sh"
+require_local_target "$BFF"
 SP="${E2E_WORKDIR:-$(dirname "$0")}"
 PG="docker exec influencercrm-postgres psql -U influencercrm_user -d influencercrm_db -t -A"
 STAMP=$(date +%s)

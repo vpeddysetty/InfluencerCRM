@@ -17,6 +17,8 @@
 # phase that cannot be fully tested locally. The adapter reports provider="mock" and E3 asserts
 # it, for the same reason the social adapter does in Phase C.
 BFF=${BFF:-http://localhost:8081}
+. "$(dirname "$0")/local_only_guard.sh"
+require_local_target "$BFF"
 SP="${E2E_WORKDIR:-$(dirname "$0")}"
 PG="docker exec influencercrm-postgres psql -U influencercrm_user -d influencercrm_db -t -A"
 STAMP=$(date +%s)

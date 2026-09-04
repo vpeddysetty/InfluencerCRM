@@ -4,7 +4,9 @@
 # The acceptance test for this stage is that a user can be put on someone else's account
 # through the product. Before it, the only mechanism was what test_accounts.sql does:
 # sign the user up, DELETE the solo account the signup created, and re-parent them by hand.
-BFF=http://localhost:8081
+BFF=${BFF:-http://localhost:8081}
+. "$(dirname "$0")/local_only_guard.sh"
+require_local_target "$BFF"
 SP="${E2E_WORKDIR:-$(dirname "$0")}"
 PG="docker exec influencercrm-postgres psql -U influencercrm_user -d influencercrm_db -t -A"
 STAMP=$(date +%s)

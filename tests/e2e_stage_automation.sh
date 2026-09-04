@@ -13,6 +13,8 @@
 #   Rule 3 (some transitions need more than a stage change) — D4.
 #   Rule 4 (source tagging + idempotency) — D6, D7, D10.
 BFF=${BFF:-http://localhost:8081}
+. "$(dirname "$0")/local_only_guard.sh"
+require_local_target "$BFF"
 SP="${E2E_WORKDIR:-$(dirname "$0")}"
 PG="docker exec influencercrm-postgres psql -U influencercrm_user -d influencercrm_db -t -A"
 STAMP=$(date +%s)

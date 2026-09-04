@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # End-to-end journeys driven through the Digital Presentation Service (:8090),
 # exactly as the browser does: httpOnly session cookie, /dps/api/* proxy.
-DPS=http://localhost:8090
+DPS=${DPS:-http://localhost:8090}
+. "$(dirname "$0")/local_only_guard.sh"
+require_local_target "$DPS"
 SP="${E2E_WORKDIR:-$(dirname "$0")}"
 OUT="$SP/results.txt"
 : > "$OUT"

@@ -11,6 +11,8 @@
 # user genuinely deletes SHOULD unplace its cards, and a fix that just stopped deleting
 # would be wrong in the other direction.
 BFF=${BFF:-http://localhost:8081}
+. "$(dirname "$0")/local_only_guard.sh"
+require_local_target "$BFF"
 SP="${E2E_WORKDIR:-$(dirname "$0")}"
 PG="docker exec influencercrm-postgres psql -U influencercrm_user -d influencercrm_db -t -A"
 STAMP=$(date +%s)

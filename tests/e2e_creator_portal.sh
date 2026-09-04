@@ -6,6 +6,8 @@
 # these rows" but "these rows have been confirmed as me". These assertions exist mostly to prove
 # a claim alone grants nothing — approval by the brand is what makes it real.
 BFF=${BFF:-http://localhost:8081}
+. "$(dirname "$0")/local_only_guard.sh"
+require_local_target "$BFF"
 SP="${E2E_WORKDIR:-$(dirname "$0")}"
 PG="docker exec influencercrm-postgres psql -U influencercrm_user -d influencercrm_db -t -A"
 STAMP=$(date +%s)
