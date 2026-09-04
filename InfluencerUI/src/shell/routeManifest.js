@@ -170,6 +170,10 @@ export const ROUTE_MANIFEST = [
     label: 'Billing',
     group: 'Setup',
     permission: 'account:billing:read',
+    // Case-study period (2026-09): hidden from everyone but the platform owner, because there is
+    // no price to sell yet. An affordance only -- /api/billing/* answers 404 to anyone else, and
+    // that server check is the actual gate. Remove this line when pricing exists.
+    platformOwnerOnly: true,
     component: BillingPage,
     apiSlice: 'core',
   },
@@ -189,18 +193,27 @@ export const ROUTE_MANIFEST = [
 /** Where a signed-in user lands: the board they work out of, not a dashboard of zeros. */
 export const DEFAULT_ROUTE = '/workflow'
 
-/** Nav entries the given permission set may see. */
-export function visibleRoutes(permissions) {
+/**
+ * Nav entries the given permission set may see.
+ *
+ * `isPlatformOwner` gates routes marked `platformOwnerOnly`. It is applied OUTSIDE the
+ * empty-permissions branch below on purpose: that branch deliberately shows everything to a token
+ * with no permission claims, and an owner-only route must not ride in on it. Defaulting the flag
+ * to false means a caller who does not pass it gets the hidden behaviour, which is the safe way
+ * round for a surface that is hidden because it is not on offer.
+ */
+export function visibleRoutes(permissions, isPlatformOwner = false) {
+  const allowed = ROUTE_MANIFEST.filter((route) => !route.platformOwnerOnly || isPlatformOwner)
   // An empty set means the token predates permission claims; show everything, because the
   // server still enforces each action and an empty nav would be worse than a permissive one.
   if (!permissions || permissions.length === 0) {
-    return ROUTE_MANIFEST
+    return allowed
   }
   // A route with no permission is visible to everyone who can sign in. That is not an oversight to
   // be defaulted away: /settings manages the caller's OWN account, and every operation behind it is
   // scoped server-side to the user id in the token, so there is nothing for a workspace permission
   // to protect. Filtering on `includes(undefined)` would silently hide such a route from everyone.
-  return ROUTE_MANIFEST.filter((route) => !route.permission || permissions.includes(route.permission))
+  return allowed.filter((route) => !route.permission || permissions.includes(route.permission))
 }
 
 /**
@@ -209,8 +222,8 @@ export function visibleRoutes(permissions) {
  * Empty groups are dropped rather than rendered as a bare heading — a marketer whose
  * permissions exclude every Money route should see no Money section at all.
  */
-export function groupedVisibleRoutes(permissions) {
-  const visible = visibleRoutes(permissions)
+export function groupedVisibleRoutes(permissions, isPlatformOwner = false) {
+  const visible = visibleRoutes(permissions, isPlatformOwner)
   return NAV_GROUPS.map((group) => ({
     group,
     routes: visible.filter((route) => route.group === group),

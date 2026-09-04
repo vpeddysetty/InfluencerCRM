@@ -195,6 +195,18 @@ services:
       # No access key is set: SesEmailSender falls back to the EC2 instance role, which already
       # grants ses:SendEmail. That is a better credential than a long-lived IAM user secret in
       # configuration - it rotates itself, expires, and cannot be used off this instance.
+      # Case-study period (2026-09). Both are deliberately literals here rather than variables:
+      # they are a temporary commercial posture, not infrastructure config, and the pair has to
+      # change together when pricing is decided -- one grants everyone unlimited limits, the other
+      # hides the checkout that would otherwise be the remedy for hitting one.
+      #
+      # `agency` so a brand or agency evaluating the product does not meet a 25-creator wall with no
+      # pricing page to explain it. Set to `free` when pricing exists; every tier and every 402 path
+      # is still in place and tested.
+      WEBE_DEFAULT_PLAN: agency
+      # EMPTY MEANS NOBODY. Only this address reaches /api/billing/* -- the webhook route is a
+      # different controller and stays open, because Stripe calls it unauthenticated.
+      WEBE_PLATFORM_OWNER_EMAILS: vijay.peddysetty@kmpsglobal.com
       WEBE_EMAIL_PROVIDER: ses
       AWS_SES_REGION: ${region}
       # Routes bounces, complaints and rejections to the influencrm-prod-ses-events SNS topic.

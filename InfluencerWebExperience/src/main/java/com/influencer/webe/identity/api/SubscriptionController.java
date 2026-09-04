@@ -2,6 +2,7 @@ package com.influencer.webe.identity.api;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.influencer.webe.identity.application.PlanPolicy;
+import com.influencer.webe.identity.application.PlatformOwnerPolicy;
 import com.influencer.webe.identity.application.SubscriptionService;
 import com.influencer.webe.security.Permission;
 import com.influencer.webe.security.TenantContext;
@@ -36,13 +37,26 @@ import java.util.UUID;
 @RequestMapping("/api/billing")
 public class SubscriptionController {
 
+    // EVERY route here is gated to the platform owner while pricing is undecided (2026-09).
+    //
+    // Not deleted, not disabled, not behind a feature flag that silently changes shape: the billing
+    // path stays exactly as built and tested, and one policy decides who reaches it. Offering a
+    // customer a checkout for a product whose price has not been decided is the thing to avoid --
+    // the code is fine, the offer is what does not exist yet.
+    //
+    // The refusal is 404, not 403. A 403 confirms there is a billing system here and says "not
+    // you", which invites the question this is meant to avoid.
+
     private final SubscriptionService subscriptions;
     private final RequestUserResolver requestUserResolver;
+    private final PlatformOwnerPolicy platformOwner;
 
     public SubscriptionController(SubscriptionService subscriptions,
-                                  RequestUserResolver requestUserResolver) {
+                                  RequestUserResolver requestUserResolver,
+                                  PlatformOwnerPolicy platformOwner) {
         this.subscriptions = subscriptions;
         this.requestUserResolver = requestUserResolver;
+        this.platformOwner = platformOwner;
     }
 
     /** The current subscription, or {@code subscribed: false} when there is none. */
@@ -51,6 +65,7 @@ public class SubscriptionController {
             @RequestHeader(value = "Authorization", required = false) String authorization) {
         TenantContext context =
                 requestUserResolver.requirePermission(authorization, Permission.ACCOUNT_BILLING_READ);
+        platformOwner.requirePlatformOwner(context);
 
         JsonNode subscription = subscriptions.current(context.accountId());
         // Whether this caller may act, sent alongside the state so the UI does not have to
@@ -63,6 +78,7 @@ public class SubscriptionController {
     public JsonNode invoices(@RequestHeader(value = "Authorization", required = false) String authorization) {
         TenantContext context =
                 requestUserResolver.requirePermission(authorization, Permission.ACCOUNT_BILLING_READ);
+        platformOwner.requirePlatformOwner(context);
         return subscriptions.invoices(context.accountId());
     }
 
@@ -71,6 +87,7 @@ public class SubscriptionController {
                               @Valid @RequestBody SubscribeRequest request) {
         TenantContext context =
                 requestUserResolver.requirePermission(authorization, Permission.ACCOUNT_BILLING);
+        platformOwner.requirePlatformOwner(context);
         return subscriptions.subscribe(context.accountId(), request.plan(),
                 request.billingInterval(), request.successUrl(), request.cancelUrl());
     }
@@ -79,6 +96,7 @@ public class SubscriptionController {
     public JsonNode pause(@RequestHeader(value = "Authorization", required = false) String authorization) {
         TenantContext context =
                 requestUserResolver.requirePermission(authorization, Permission.ACCOUNT_BILLING);
+        platformOwner.requirePlatformOwner(context);
         return subscriptions.pause(context.accountId());
     }
 
@@ -86,6 +104,7 @@ public class SubscriptionController {
     public JsonNode resume(@RequestHeader(value = "Authorization", required = false) String authorization) {
         TenantContext context =
                 requestUserResolver.requirePermission(authorization, Permission.ACCOUNT_BILLING);
+        platformOwner.requirePlatformOwner(context);
         return subscriptions.resume(context.accountId());
     }
 
@@ -101,6 +120,7 @@ public class SubscriptionController {
                            @RequestBody(required = false) CancelRequest request) {
         TenantContext context =
                 requestUserResolver.requirePermission(authorization, Permission.ACCOUNT_BILLING);
+        platformOwner.requirePlatformOwner(context);
         return subscriptions.cancel(context.accountId(), request != null && request.immediate());
     }
 
@@ -108,7 +128,8 @@ public class SubscriptionController {
     @GetMapping("/plans")
     public java.util.List<PlanOption> plans(
             @RequestHeader(value = "Authorization", required = false) String authorization) {
-        requestUserResolver.requirePermission(authorization, Permission.ACCOUNT_BILLING_READ);
+        platformOwner.requirePlatformOwner(
+                requestUserResolver.requirePermission(authorization, Permission.ACCOUNT_BILLING_READ));
         return java.util.Arrays.stream(PlanPolicy.values())
                 .map(plan -> new PlanOption(
                         plan.key(),

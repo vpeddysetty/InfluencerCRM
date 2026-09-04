@@ -324,12 +324,22 @@ export const BILLING_LIVE = import.meta?.env?.VITE_BILLING_LIVE === 'true'
 /**
  * Tiers to show a signed-out visitor.
  *
- * <p>Just the free tier until billing is live — which is honest rather than empty: free is what
- * the signup button actually gets you today, and describing it accurately is the whole job of
- * that section right now.
+ * <p><b>None, while pricing is undecided (2026-09).</b> The product is being taken to brands and
+ * agencies to build a case study before there is a price, so the honest answer to "what does this
+ * cost?" is that it has not been set — and a tier table is a worse answer than no tier table.
+ *
+ * <p>Previously this showed the free tier alone, which was honest when free was what the signup
+ * button got you. It no longer is: the default plan is `agency` during this period, so a visitor
+ * reading "25 creators" would be told a limit that will not be applied to them. A stated limit
+ * that is wrong is worse than a missing section — the section can be asked about, the number just
+ * misleads.
+ *
+ * <p>`BILLING_LIVE` still restores the full table in one flag, and PUBLIC_TIERS below is kept
+ * intact rather than deleted: the copy was written carefully and the numbers track `PlanPolicy`.
+ * When pricing is decided, set VITE_BILLING_LIVE=true and the table returns.
  */
 export function visiblePublicTiers(billingLive = BILLING_LIVE) {
-  return billingLive ? PUBLIC_TIERS : PUBLIC_TIERS.filter((tier) => tier.key === 'free')
+  return billingLive ? PUBLIC_TIERS : []
 }
 
 export const PUBLIC_TIERS = Object.freeze([

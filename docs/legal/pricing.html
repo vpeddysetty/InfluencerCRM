@@ -90,189 +90,54 @@
 <header>
   <p class="brand"><a href="https://www.tejdux.com/">Tejdux</a></p>
   <h1>Pricing</h1>
-  <p class="meta">Every price is on this page. No demo call, no contract, no minimum term.</p>
+  <p class="meta">Early access &mdash; pricing is being set with our first customers.</p>
 </header>
 
-<nav class="cadence" aria-label="Billing period">
-  <a href="#monthly" class="on">Monthly</a>
-  <a href="#yearly">Yearly</a>
-  <span class="save">Yearly saves 20% &mdash; about two and a half months free.</span>
-</nav>
+<!--
+  EARLY ACCESS, 2026-09. The tier tables that were here (Free $0 / Pro $39 / Agency $119, with the
+  full limit matrix) are NOT deleted -- they are in git, and in InfluencerUI/src/shell/plan.js as
+  PUBLIC_TIERS, which one flag restores.
 
-<section id="yearly" aria-label="Yearly pricing">
-  <div class="tiers">
-    <div class="tier">
-      <span class="tag ph">.</span>
-      <h3>Free</h3>
-      <p class="who">One person running one brand.</p>
-      <p class="price">$0</p>
-      <p class="billed">Free forever</p>
-      <ul>
-        <li>1 brand</li>
-        <li>25 creators</li>
-        <li>1 seat</li>
-        <li>3 landing pages</li>
-        <li>Workflow board, coupon attribution, CSV import</li>
-      </ul>
-    </div>
-    <div class="tier featured">
-      <span class="tag ph">.</span>
-      <h3>Pro</h3>
-      <p class="who">A brand with a team.</p>
-      <p class="price">$39<span class="per"> /mo</span></p>
-      <p class="billed">$470 billed yearly</p>
-      <ul>
-        <li>1 brand</li>
-        <li>250 creators</li>
-        <li>10 seats, with roles</li>
-        <li>25 landing pages</li>
-        <li>Everything in Free</li>
-      </ul>
-    </div>
-    <div class="tier">
-      <span class="tag">30-day free trial</span>
-      <h3>Agency</h3>
-      <p class="who">Managing several clients at once.</p>
-      <p class="price">$119<span class="per"> /mo</span></p>
-      <p class="billed">$1,430 billed yearly</p>
-      <ul>
-        <li>Unlimited brands</li>
-        <li>Unlimited creators</li>
-        <li>Unlimited seats</li>
-        <li>Unlimited landing pages</li>
-        <li>Per-brand rates for a shared creator</li>
-      </ul>
-    </div>
-  </div>
-</section>
+  Why they came down: the product is being taken to brands and agencies to build a case study
+  before pricing is set, and the app now defaults an account with no plan of its own to `agency`
+  limits. A page stating "25 creators" for a free tier would name a limit nobody is subject to.
+  A published number that is not applied is worse than no number: the missing page invites a
+  question, the wrong one just misleads.
 
-<section id="monthly" aria-label="Monthly pricing">
-  <div class="tiers">
-    <div class="tier">
-      <span class="tag ph">.</span>
-      <h3>Free</h3>
-      <p class="who">One person running one brand.</p>
-      <p class="price">$0</p>
-      <p class="billed">Free forever</p>
-      <ul>
-        <li>1 brand</li>
-        <li>25 creators</li>
-        <li>1 seat</li>
-        <li>3 landing pages</li>
-        <li>Workflow board, coupon attribution, CSV import</li>
-      </ul>
-    </div>
-    <div class="tier featured">
-      <span class="tag ph">.</span>
-      <h3>Pro</h3>
-      <p class="who">A brand with a team.</p>
-      <p class="price">$49<span class="per"> /mo</span></p>
-      <p class="billed">Billed monthly</p>
-      <ul>
-        <li>1 brand</li>
-        <li>250 creators</li>
-        <li>10 seats, with roles</li>
-        <li>25 landing pages</li>
-        <li>Everything in Free</li>
-      </ul>
-    </div>
-    <div class="tier">
-      <span class="tag">30-day free trial</span>
-      <h3>Agency</h3>
-      <p class="who">Managing several clients at once.</p>
-      <p class="price">$149<span class="per"> /mo</span></p>
-      <p class="billed">Billed monthly</p>
-      <ul>
-        <li>Unlimited brands</li>
-        <li>Unlimited creators</li>
-        <li>Unlimited seats</li>
-        <li>Unlimited landing pages</li>
-        <li>Per-brand rates for a shared creator</li>
-      </ul>
-    </div>
-  </div>
-</section>
+  Restore by reverting this block and setting VITE_BILLING_LIVE=true.
+-->
 
-<p class="meta">Prices in USD, excluding sales tax where applicable. Any tax is shown at checkout before you pay.</p>
-
-<h2>What each plan includes</h2>
-
-<div class="tablewrap">
-<table>
-  <thead>
-    <tr><th>&nbsp;</th><th>Free</th><th>Pro</th><th>Agency</th></tr>
-  </thead>
-  <tbody>
-    <tr><td>Brands</td><td class="n">1</td><td class="n">1</td><td class="n">Unlimited</td></tr>
-    <tr><td>Creators</td><td class="n">25</td><td class="n">250</td><td class="n">Unlimited</td></tr>
-    <tr><td>Team seats</td><td class="n">1</td><td class="n">10</td><td class="n">Unlimited</td></tr>
-    <tr><td>Landing pages</td><td class="n">3</td><td class="n">25</td><td class="n">Unlimited</td></tr>
-    <tr><td>Roles and permissions</td><td class="n">&mdash;</td><td class="n">Yes</td><td class="n">Yes</td></tr>
-    <tr><td>Workflow board</td><td class="n">Yes</td><td class="n">Yes</td><td class="n">Yes</td></tr>
-    <tr><td>Coupon attribution</td><td class="n">Yes</td><td class="n">Yes</td><td class="n">Yes</td></tr>
-    <tr><td>Creator payouts</td><td class="n">Yes</td><td class="n">Yes</td><td class="n">Yes</td></tr>
-    <tr><td>Per-brand rates, shared creator</td><td class="n">&mdash;</td><td class="n">&mdash;</td><td class="n">Yes</td></tr>
-    <tr><td>Free trial</td><td class="n">n/a</td><td class="n">&mdash;</td><td class="n">30 days</td></tr>
-  </tbody>
-</table>
-</div>
-
-<p class="meta">
-  Limits are per account, not per brand &mdash; an agency with three brands is one customer with one
-  bill. Reaching a limit stops you adding more of that one thing; it never deletes anything you
-  already have.
+<p>
+  <strong>Tejdux is in early access, and prices are not set yet.</strong>
 </p>
 
-<div class="note">
-  <h2>What Tejdux does not do</h2>
-  <p>Worth knowing before you sign up, because finding out afterwards wastes your time:</p>
-  <ul>
-    <li>
-      <strong>No creator discovery database.</strong> Tejdux manages creators you already know or
-      found elsewhere. It will not search a catalogue of influencers for you.
-    </li>
-    <li>
-      <strong>No follower-authenticity scoring.</strong> The data needed to judge this honestly is
-      not available from the platforms, so we do not estimate it.
-    </li>
-    <li>
-      <strong>No social publishing.</strong> Tejdux tracks the relationship and the results; it does
-      not post on your behalf.
-    </li>
-  </ul>
-</div>
-
-<h2>Billing questions</h2>
-
-<h3>Can I cancel?</h3>
 <p>
-  Yes, from inside the app, without contacting anyone. You keep the time you already paid for &mdash;
-  cancelling on day 2 of a month leaves the other 28 days intact. There is no minimum term and no
-  cancellation fee.
+  We are working with a small number of brands and agencies to shape the product before deciding
+  what it costs. That is a deliberate order: a price set before anyone has run a real campaign on
+  the tool is a guess, and it tends to be the kind of guess that is hard to walk back.
 </p>
 
-<h3>What happens when the Agency trial ends?</h3>
 <p>
-  The trial runs 30 days. It converts to a paid subscription when it ends, and you are emailed
-  before that happens. Cancel at any point during the trial and you are not charged.
+  During this period there is no charge, and no card is asked for. Everyone in early access has the
+  full product &mdash; unlimited brands, creators, seats and landing pages &mdash; because a
+  constraint invented before there is a plan to sell would only get in the way of finding out
+  whether the thing works.
 </p>
 
-<h3>What if I go over a limit?</h3>
+<h2>If you are running influencer campaigns</h2>
+
 <p>
-  You are stopped from adding more of that one thing &mdash; creators, brands, seats or pages &mdash;
-  and everything already in the account keeps working. Nothing is deleted and nobody is locked out.
+  We would like to talk to you, particularly if you are an agency handling several clients at once.
+  Write to <a href="mailto:hello@tejdux.com">hello@tejdux.com</a> and tell us roughly how many
+  creators and brands you work with.
 </p>
 
-<h3>What happens if I downgrade?</h3>
-<p>
-  Your data stays. If you end up over a limit you keep what exists but cannot add more until you are
-  back under it. Team members keep the roles they already hold.
-</p>
+<h2>When pricing arrives</h2>
 
-<h3>Do you offer refunds?</h3>
 <p>
-  Email <a href="mailto:support@tejdux.com">support@tejdux.com</a> and we will sort it out. We would
-  rather refund someone than argue with them.
+  It will be published on this page in full &mdash; every price, no demo call required to see a
+  number. Anyone in early access will be told before anything changes, and nothing will start
+  charging without an explicit decision to subscribe.
 </p>
 
 <footer>

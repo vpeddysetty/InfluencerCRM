@@ -61,6 +61,18 @@ class EntitlementServiceTest {
         });
     }
 
+    /** As {@link #serviceOnPlan}, with the default plan a deployment would configure. */
+    private static EntitlementService serviceOnPlan(String plan, String defaultPlan) {
+        return new EntitlementService(new StubDao() {
+            @Override
+            public JsonNode get(String path, Map<String, String> query) {
+                return plan == null
+                        ? MAPPER.createObjectNode()
+                        : MAPPER.createObjectNode().put("plan", plan);
+            }
+        }, defaultPlan);
+    }
+
     /** A gateway whose every read blows up — a DAO outage. */
     private static EntitlementService serviceThatCannotRead() {
         return new EntitlementService(new StubDao() {
@@ -235,5 +247,36 @@ class EntitlementServiceTest {
         // would render as a cap.
         assertEquals(PlanPolicy.UNLIMITED,
                 serviceOnPlan("agency").remainingCapacity(ACCOUNT, PlanPolicy.Resource.MEMBER, 10_000));
+    }
+
+    @Test
+    @DisplayName("the configured default applies to an account with no plan of its own")
+    void defaultPlanIsConfigurable() {
+        // Case-study period (2026-09): a prospect evaluating the product must not meet a
+        // 25-creator wall with no pricing page to explain it and no way to upgrade. The tiers
+        // themselves are untouched -- only which one an unset account gets.
+        EntitlementService service = serviceOnPlan(null, "agency");
+
+        assertEquals(PlanPolicy.AGENCY, service.planFor(ACCOUNT));
+    }
+
+    @Test
+    @DisplayName("an explicit plan still wins over the default")
+    void explicitPlanBeatsTheDefault() {
+        // The default is for accounts that have no plan. One that does is unaffected, which is what
+        // makes this reversible: set the property back and nothing else has to be undone.
+        EntitlementService service = serviceOnPlan("free", "agency");
+
+        assertEquals(PlanPolicy.FREE, service.planFor(ACCOUNT));
+    }
+
+    @Test
+    @DisplayName("an unrecognised STORED plan still fails closed to free, whatever the default")
+    void typosStillFailClosed() {
+        // The distinction worth keeping: a deliberate default is configurable, a typo is not. An
+        // unmigrated or misspelled value must never become a grant of everything.
+        EntitlementService service = serviceOnPlan("freee", "agency");
+
+        assertEquals(PlanPolicy.FREE, service.planFor(ACCOUNT));
     }
 }

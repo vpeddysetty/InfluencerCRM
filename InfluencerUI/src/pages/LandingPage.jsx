@@ -100,8 +100,8 @@ function LandingPage({
           Every creator, from first DM to final payout, on one board.
         </h1>
         <p className="lead landing-lead landing-reveal delay-3">
-          Import your list, launch campaigns, and pay creators without a spreadsheet. Free for one
-          person and 25 creators — no card, no time limit.
+          Import your list, launch campaigns, and pay creators without a spreadsheet. Built for
+          brands and the agencies running campaigns for them.
         </p>
 
         {/* A visible product UI is table stakes for this category — GRIN, Modash and Klaviyo all
@@ -153,6 +153,10 @@ function LandingPage({
             PAID TIERS ARE HIDDEN until VITE_BILLING_LIVE=true. Advertising a plan nobody can buy
             is worse than advertising nothing: someone who wants to pay finds no way to, and
             someone who signs up expecting those limits gets the free ones instead. */}
+        {/* Nothing renders when no tier is on offer (2026-09). Guarding the whole block, not just
+            the grid: an empty grid under a live heading is a section that says a price exists and
+            then fails to name one, which is worse than the section being absent. */}
+        {tiers.length > 0 && (
         <div className="landing-tiers landing-reveal delay-5">
           {/* h3, not h2: this is a subsection of the hero. As an h2 it was a sibling of the
               auth panel's "Create your operator workspace", so a screen reader navigating by
@@ -160,7 +164,7 @@ function LandingPage({
           <h3 className="landing-tiers-title">
             {billingLive
               ? 'Start free. Grow when the ceiling gets close.'
-              : 'Free while we are in early access.'}
+              : 'Early access.'}
           </h3>
           <div className={`landing-tier-grid${tiers.length === 1 ? ' landing-tier-grid-single' : ''}`}>
             {tiers.map((tier) => (
@@ -185,6 +189,7 @@ function LandingPage({
               : 'Paid plans are not open yet. Limits cap what you can add, never what you already have — nothing is deleted or hidden if you reach one.'}
           </p>
         </div>
+        )}
       </section>
 
       <section className="auth-panel landing-auth-panel landing-reveal delay-3">

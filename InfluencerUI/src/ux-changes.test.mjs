@@ -11,7 +11,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
 import { createImportMappingJsonFromAgent, MAPPING_CONFIDENCE_THRESHOLD } from './constants.js'
-import { NAV_GROUPS, ROUTE_MANIFEST, DEFAULT_ROUTE, groupedVisibleRoutes } from './shell/routeManifest.js'
+import { NAV_GROUPS, ROUTE_MANIFEST, DEFAULT_ROUTE, groupedVisibleRoutes, visibleRoutes } from './shell/routeManifest.js'
 import { EVENTS, analyticsProvider, identify, resetIdentity, track } from './api/analytics.js'
 import { toCsv } from './api/csv.js'
 import { rangeToParams, toIsoDate } from './shell/dateRange.js'
@@ -226,11 +226,32 @@ test('a permission set that excludes a whole group drops that group', () => {
   assert.deepEqual(grouped[1].routes.map((r) => r.path), ['/settings'])
 })
 
-test('empty permissions still show everything', () => {
+test('empty permissions still show everything a non-owner may see', () => {
   // Tokens predating permission claims must not produce an empty nav.
+  //
+  // Updated 2026-09: "everything" now excludes routes marked `platformOwnerOnly`. That branch
+  // exists so an old token is permissive rather than empty, and a surface hidden because it is not
+  // on offer yet must not ride in on it. The rule is narrow and worth stating: a permissive
+  // fallback for one axis is not permission to ignore a different one.
   const grouped = groupedVisibleRoutes([])
   const total = grouped.reduce((n, g) => n + g.routes.length, 0)
+  const ownerOnly = ROUTE_MANIFEST.filter((r) => r.platformOwnerOnly).length
+  assert.equal(total, ROUTE_MANIFEST.length - ownerOnly)
+  assert.ok(ownerOnly > 0, 'this test is only meaningful while some route is owner-only')
+})
+
+test('the platform owner sees the owner-only routes', () => {
+  const grouped = groupedVisibleRoutes([], true)
+  const total = grouped.reduce((n, g) => n + g.routes.length, 0)
   assert.equal(total, ROUTE_MANIFEST.length)
+})
+
+test('billing is hidden from a non-owner and shown to the owner', () => {
+  // The nav is an affordance only -- /api/billing/* answers 404 to a non-owner, and that server
+  // check is the real gate. This asserts the affordance agrees with it.
+  const billing = (owner) => visibleRoutes(['account:billing:read'], owner).some((r) => r.path === '/billing')
+  assert.equal(billing(false), false)
+  assert.equal(billing(true), true)
 })
 
 // ── P5: first-run checklist step derivation ─────────────────────────────────
@@ -1585,14 +1606,17 @@ test('an unparseable date renders as nothing rather than "Invalid Date"', () => 
 
 // ── Stripe sandbox: paid tiers stay hidden until billing is live ───────────
 
-test('only the free tier is advertised while billing is not live', () => {
+test('no tier is advertised while billing is not live', () => {
   // Advertising a plan nobody can buy is worse than advertising nothing: someone who wants to pay
-  // finds no way to, and someone who signs up expecting those limits gets the free ones.
+  // finds no way to, and someone who signs up expecting those limits gets different ones.
+  //
+  // Updated 2026-09: this used to show the free tier alone, which was honest while free was what
+  // the signup button got you. It no longer is -- the default plan is `agency` during the
+  // case-study period, so "25 creators" would state a limit nobody will hit. A wrong number is
+  // worse than a missing section: the section can be asked about, the number just misleads.
   const hidden = visiblePublicTiers(false)
 
-  assert.equal(hidden.length, 1)
-  assert.equal(hidden[0].key, 'free')
-  assert.ok(!hidden.some((tier) => tier.key === 'pro' || tier.key === 'agency'))
+  assert.equal(hidden.length, 0)
 })
 
 test('all tiers return once billing is live', () => {
@@ -1612,12 +1636,15 @@ test('the free-only landing copy does not promise plans that cannot be bought', 
   assert.match(page, /Paid plans are not open yet/)
 })
 
-test('the free tier still reads correctly as the only tier', () => {
-  // It is described by its ceiling rather than as a lesser version of something unavailable.
-  const [free] = visiblePublicTiers(false)
+test('the tier copy is kept intact for when pricing returns', () => {
+  // PUBLIC_TIERS is not deleted while the table is hidden: the copy was written carefully, the
+  // numbers track PlanPolicy in the BFF, and one flag restores it. Asserting on the live-billing
+  // list rather than the hidden one, which is now empty by design.
+  const free = visiblePublicTiers(true).find((tier) => tier.key === 'free')
 
+  assert.ok(free, 'the free tier copy must survive the table being hidden')
   assert.match(free.note, /no time limit/i)
-  assert.doesNotMatch(free.tagline, /upgrade|paid|pro\b/i)
+  assert.doesNotMatch(free.tagline, /upgrade|paid|pro/i)
 })
 
 // ── Landing page: the accessibility pass ──────────────────────────────────

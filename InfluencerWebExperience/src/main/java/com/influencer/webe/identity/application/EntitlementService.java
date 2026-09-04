@@ -5,6 +5,7 @@ import com.influencer.webe.shared.infrastructure.DaoGatewayClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -36,25 +37,69 @@ public class EntitlementService {
     private static final Logger log = LoggerFactory.getLogger(EntitlementService.class);
 
     private final DaoGatewayClient dao;
+    private final PlanPolicy defaultPlan;
 
-    public EntitlementService(DaoGatewayClient dao) {
+    public EntitlementService(DaoGatewayClient dao,
+                              // The plan an account gets when it has none of its own.
+                              //
+                              // WHY THIS IS A PROPERTY AND NOT A CONSTANT. The product is being taken
+                              // to brands and agencies to build a case study BEFORE pricing exists.
+                              // A prospect evaluating it must not hit a 25-creator wall with no
+                              // pricing page to explain it and no way to upgrade -- that is a worse
+                              // first impression than any price would be. So the default is `agency`
+                              // for now.
+                              //
+                              // Every limit check, every 402 path and all of the Stripe billing stay
+                              // exactly as built. NOTHING here is deleted, because the enforcement is
+                              // the part that is expensive to get right and it is already right. When
+                              // pricing is decided, set this back to `free` and the tiers resume --
+                              // one property, no code change, no migration.
+                              //
+                              // An account with an explicit plan is unaffected: this is consulted
+                              // only when the column is null, blank or unrecognised.
+                              @Value("${web-experience.plans.default:free}") String defaultPlanKey) {
         this.dao = dao;
+        this.defaultPlan = PlanPolicy.forKey(defaultPlanKey);
     }
 
-    /** The plan currently on an account. Falls back to {@link PlanPolicy#FREE}, never to unlimited. */
+    /**
+     * The pre-configuration behaviour: default to {@code FREE}.
+     *
+     * <p>Kept so the many tests that construct this directly keep asserting the SHIPPED default
+     * rather than whichever value a deployment happens to carry. A test that silently inherited
+     * `agency` would stop testing the limits it was written to test, and would go green for the
+     * wrong reason the day the property changes.
+     */
+    EntitlementService(DaoGatewayClient dao) {
+        this(dao, PlanPolicy.FREE.key());
+    }
+
+    /**
+     * The plan currently on an account.
+     *
+     * <p>Falls back to the configured default (see the constructor), not to unlimited by accident.
+     * {@link PlanPolicy#forKey} itself still fails closed to {@code FREE} for an unrecognised
+     * string -- that behaviour is untouched, because a typo in a stored plan must never become a
+     * grant of everything. What is configurable is the deliberate default, which is a different
+     * thing from a typo.
+     */
     public PlanPolicy planFor(UUID accountId) {
         if (accountId == null) {
-            return PlanPolicy.FREE;
+            return defaultPlan;
         }
         try {
             JsonNode account = dao.get("/tenancy/accounts/" + accountId, null);
-            return PlanPolicy.forKey(account == null ? null : account.path("plan").asText(null));
+            String stored = account == null ? null : account.path("plan").asText(null);
+            if (stored == null || stored.isBlank()) {
+                return defaultPlan;
+            }
+            return PlanPolicy.forKey(stored);
         } catch (RuntimeException e) {
-            // Fail closed on the free tier rather than open. An unreachable DAO must not become a
-            // way to bypass limits — but it must also not lock out an account that is within its
-            // limits anyway, which the free tier still allows.
-            log.warn("Could not read the plan for account {}, assuming free: {}", accountId, e.toString());
-            return PlanPolicy.FREE;
+            // An unreachable DAO must not become a way to bypass limits, nor a way to lock out an
+            // account that is within its limits anyway. The configured default is the honest answer
+            // to "we could not ask": it is what an account with no plan would get regardless.
+            log.warn("Could not read the plan for account {}, assuming the default: {}", accountId, e.toString());
+            return defaultPlan;
         }
     }
 
