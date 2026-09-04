@@ -32,8 +32,21 @@ import java.util.UUID;
 @RestController
 public class AiGenerationUsageController {
 
-    /** Mirrors the check constraint in V48. Rejected here so a bad kind never reaches the insert. */
-    private static final Set<String> KINDS = Set.of("generate", "regenerate", "rewrite");
+    /**
+     * Mirrors the check constraint in V49. Rejected here so a bad kind never reaches the insert.
+     *
+     * <p><b>Keep this in step with the migration.</b> V48 defined three kinds and V49 widened it to
+     * six; this list was left at three, so every `classify` the BFF recorded came back 400 and the
+     * allowance silently went uncounted for three days -- AiGenerationAllowance logs the failure
+     * and continues, by design, because losing a creator classification is worse than losing a
+     * meter reading. That design is right and it is also why nothing surfaced: the only evidence
+     * was a WARN nobody was reading.
+     *
+     * <p>The DATABASE was never wrong here -- V49's constraint has allowed all six since it ran.
+     * Only this mirror drifted, which is the failure mode a hand-maintained mirror has.
+     */
+    private static final Set<String> KINDS =
+            Set.of("generate", "regenerate", "rewrite", "classify", "brief_draft", "column_mapping");
 
     private final AiGenerationEventRepository repository;
 

@@ -7,6 +7,13 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Set;
+import java.util.TreeSet;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -59,5 +66,50 @@ class AiGenerationUsageControllerTest {
         AiGenerationEvent free = new AiGenerationEvent();
         free.setGenerator("template");
         assertThat(free.getGenerator()).isEqualTo("template");
+    }
+
+    /**
+     * The accepted kinds must equal the migration's CHECK constraint.
+     *
+     * <p><b>This is the bug that shipped.</b> V48 defined three kinds; V49 widened it to six. The
+     * constant here was left at three, so every {@code classify} the BFF recorded came back 400
+     * and was dropped. Nothing broke loudly: {@code AiGenerationAllowance.record()} catches and
+     * continues on purpose, because losing a creator classification is worse than losing a meter
+     * reading. The ceiling was live and counting nothing -- the same shape as the defect the class
+     * note above describes, arriving a second time by a different route.
+     *
+     * <p><b>Read from the migration rather than restated.</b> A second hand-written list would be
+     * a second thing to forget, which is precisely what happened. Parsing the .sql means the only
+     * way to pass is to change the constraint the database actually enforces.
+     */
+    @Test
+    @DisplayName("the accepted kinds match the CHECK constraint the database enforces")
+    void kindsMatchTheMigration() throws Exception {
+        Path migration = Path.of("..", "schema", "flyway", "V49__ai_generation_openai_kinds.sql");
+        assertThat(Files.exists(migration))
+                .as("V49 must be readable from the DAO module; this test is worthless if the path drifts")
+                .isTrue();
+        String sql = Files.readString(migration, StandardCharsets.UTF_8);
+
+        int at = sql.indexOf("ai_generation_events_kind_check");
+        assertThat(at).as("V49 must declare the kind CHECK constraint").isGreaterThan(-1);
+        int listStart = sql.indexOf("(", sql.indexOf("kind in", at));
+        int listEnd = sql.indexOf(")", listStart);
+        String literals = sql.substring(listStart + 1, listEnd);
+
+        Set<String> fromMigration = new TreeSet<>();
+        Matcher lit = Pattern.compile("'([a-z_]+)'").matcher(literals);
+        while (lit.find()) {
+            fromMigration.add(lit.group(1));
+        }
+
+        Field kinds = AiGenerationUsageController.class.getDeclaredField("KINDS");
+        kinds.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        Set<String> accepted = new TreeSet<>((Set<String>) kinds.get(null));
+
+        assertThat(accepted)
+                .as("the controller rejects a kind the database would accept, so it is dropped and never counted")
+                .isEqualTo(fromMigration);
     }
 }
