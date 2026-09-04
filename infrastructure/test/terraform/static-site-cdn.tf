@@ -47,7 +47,11 @@ locals {
   # AccessDenied through the shell. A public pricing page that 403s is worse than no pricing page --
   # it is linked from the marketing copy and is the last step before signup. Adding a prefix here
   # WITHOUT uploading the object produces that same 403, so the two changes belong together.
-  legal_path_patterns = ["/privacy/*", "/terms/*", "/data-deletion/*", "/pricing/*", "/dpa/*", "/subprocessors/*"]
+  #
+  # /government-requests/ is linked from Meta's Data Protection Assessment, so it is fetched by a
+  # reviewer rather than by a user who can be told to try again later. Upload the object BEFORE
+  # applying this, for the reason the paragraph above gives.
+  legal_path_patterns = ["/privacy/*", "/terms/*", "/data-deletion/*", "/pricing/*", "/dpa/*", "/subprocessors/*", "/government-requests/*"]
 
   # The shell is the only distribution that claims the hostname the policies are linked under, so it
   # is the only one that needs the origin.
