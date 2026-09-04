@@ -57,7 +57,22 @@ DEFAULT_APP_ID = "1532612907951511"
 # business_discovery needs instagram_basic; resolving which Page carries the Instagram account
 # needs the two pages_ scopes. Requesting more than the adapter uses would be a review risk —
 # reviewers check that every granted permission is actually exercised.
+#
+# KEPT FOR DOCUMENTATION ONLY — THIS APP IGNORES IT. A Business-type app does not read `scope`;
+# permissions come from a Business Login Configuration referenced by `config_id`, which REPLACES
+# it (see docs/platform-app-registration.md, learned the slow way). Sending scope here was not
+# merely inert: with no configuration existing, Meta fell back to the app's entire permission set
+# and minted a token carrying 15 scopes — ads_management and business_management among them —
+# while this constant said three. Verified 2026-09-03 by debug_token on the resulting token.
+#
+# That mattered because the App Review screencast films the consent dialog: a reviewer asked for
+# three permissions would have watched fifteen being granted.
 SCOPES = "instagram_basic,pages_show_list,pages_read_engagement"
+
+# The Business Login Configuration built in the dashboard, holding exactly the three permissions
+# above. This is what the dialog actually honours, so the grant is now defined in one place a
+# human can inspect rather than by an app-wide default nothing names.
+DEFAULT_CONFIG_ID = "2021219268570991"
 
 # ENVIRONMENTS, NAMED RATHER THAN ASSUMED. The `influencrm-prod/` prefix is historical: that
 # account is becoming the TEST environment, and a second, genuinely production one follows when
@@ -206,16 +221,29 @@ class ConsentCallback(http.server.BaseHTTPRequestHandler):
         pass  # the script narrates its own progress; the HTTP log is noise
 
 
-def await_consent(app_id):
-    """Open the dialog and block until Meta redirects back."""
+def await_consent(app_id, config_id=DEFAULT_CONFIG_ID):
+    """Open the dialog and block until Meta redirects back.
+
+    Sends `config_id`, NOT `scope`. This is a Business-type app, where the two are not alternatives
+    of equal standing: config_id replaces scope, and a scope parameter is ignored. Sending scope
+    alone is what produced a 15-scope token on 2026-09-03 — Meta fell back to the app's whole
+    permission set because no configuration was named.
+    """
     state = secrets.token_urlsafe(16)
-    url = f"{DIALOG}?" + urllib.parse.urlencode({
+    params = {
         "client_id": app_id,
         "redirect_uri": REDIRECT_URI,
-        "scope": SCOPES,
         "response_type": "code",
         "state": state,
-    })
+    }
+    if config_id:
+        params["config_id"] = config_id
+    else:
+        # No configuration named. Correct only for a Consumer app; on the Business app this grants
+        # the app-wide set, so say so rather than letting a silent fallback look like success.
+        print("    WARNING: no config_id — a Business app will grant its FULL permission set.")
+        params["scope"] = SCOPES
+    url = f"{DIALOG}?" + urllib.parse.urlencode(params)
 
     server = http.server.HTTPServer(("localhost", REDIRECT_PORT), ConsentCallback)
     thread = threading.Thread(target=server.handle_request, daemon=True)
@@ -404,7 +432,7 @@ def run_cli(args):
 
     try:
         app_secret = load_app_secret(environment)
-        code = await_consent(config["app_id"])
+        code = await_consent(config["app_id"], getattr(args, "config_id", DEFAULT_CONFIG_ID))
         print("    approved")
         result = exchange_for_page_token(code, config["app_id"], app_secret,
                                          lambda line: print(f"    {line}"))
@@ -448,6 +476,9 @@ def main():
     parser.add_argument("--ui", action="store_true",
                         help="serve the local admin console instead of running once on the CLI")
     parser.add_argument("--port", type=int, default=8766, help="port for --ui")
+    parser.add_argument("--config-id", dest="config_id", default=DEFAULT_CONFIG_ID,
+                        help="Business Login Configuration id the dialog honours. Pass empty to "
+                             "fall back to scope, which a Business app ignores.")
     parser.add_argument("--dry-run", action="store_true",
                         help="run the whole chain but write nothing to Secrets Manager")
     parser.add_argument("--print-only", action="store_true",

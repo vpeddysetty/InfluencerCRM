@@ -262,6 +262,7 @@ and `PR-47` (5d) belong before the agency conversations — **read §11.5 before
 | Product-analytics pipeline | M0.2 ext. | 1+ | When there are retained users to measure |
 | Social publishing **via platform API** (`PR-46`) | LPB-F | 6+ | **Decline reversed 2026-08-27** — see §10.3. `PR-27b` (Meta review, ~2d, dossier in `docs/platform-app-registration.md`) makes this reachable, where the predecessors assumed it was not. Still deferred: it needs `PR-45` first, and Instagram's `content_publish` screencast requires a working publish flow to record, which does not exist. Trigger: `PR-45` shipped **and** Meta approval granted |
 | Per-brand publishing to the **brand's own** handle | — | 8+ | Not the small follow-on it looks like: the current integration reads via `business_discovery` from *our own* single connected account. Publishing to a customer's handle needs per-brand Business Login with `config_id` (**not** `scope` — the Business app ignores it, learned the slow way per the dossier), a per-tenant token store, refresh, and a Page-selection screen. None exists |
+| Meta webhook receiver (`PR-57`) | — | 2 | **Not required for the `instagram_basic` submission** — verified 2026-09-03: no `hub.challenge`, `hub.verify_token` or `X-Hub-Signature` handler exists anywhere, and none is needed. Instagram webhooks push events about accounts that AUTHORISED the app; `InstagramProfileAdapter` does the opposite, reading creators who never will via `business_discovery`. Pull, not push — so an empty Webhooks section in the dashboard blocks nothing, and subscribing to a product the adapter does not use invites the same "where is this used?" question that withdrew `instagram_manage_insights` on 2026-08-16. Shape when it lands: `GET` echoing `hub.challenge` after a constant-time compare of `hub.verify_token` (a string WE invent and paste into both the dashboard and config — Meta does not issue it), plus `POST` verifying `X-Hub-Signature-256` HMAC over the **raw** body. `BillingWebhookController` is the working template for the raw-body half. Trigger: mention/comment tracking becomes a real feature, or `PR-46` publishing needs delivery receipts |
 
 **U2 is the clearest defer in the backlog:** a quarter of the remaining product budget on scale work
 for zero users. Nobody has enough rows to page.
@@ -817,6 +818,7 @@ something a static object can do — see the corrected rows below.
 | GAPS Tier 1 #1/#2 | `PR-20` / `IN-02` | Billing; deploy |
 | EXEC §1 "the tax" | `PR-16` | Duplication cleanup (deferred) |
 | Payout draft Phases 1–4 | `PR-47`..`PR-56`, `OP-21` | Payments and creator onboarding (§11) — the draft's four phases do not map one-to-one, because §11.1 found most of Phase 4 already shipped |
+| — | `PR-57` | **New ID, no predecessor.** Meta webhook receiver, deferred at birth — opened 2026-09-03 after verifying no `hub.challenge`/`X-Hub-Signature` handler exists and that `business_discovery` (pull) needs none. Deliberately NOT in the `instagram_basic` submission; see Stage 4 |
 
 ## Appendix B — Archived documents
 

@@ -20,8 +20,11 @@ competition to beat is Excel, not Grin."*
 
 **Instagram publishing is not in this script.** It was in the brief and it is not built: the
 `SocialPlatformAdapter` interface has `platform()`, `isConfigured()` and `fetch(handle)` and no
-publish method anywhere. The live Meta token is real and non-expiring but carries `instagram_basic`
-and `instagram_manage_comments` — **not `instagram_content_publish`**, which only App Review grants.
+publish method anywhere. The live Meta token is real and non-expiring, and carries neither
+`instagram_content_publish` nor any other publish permission — that is App-Review-only. (Its exact
+scope list is wider than this product uses: fifteen as of 2026-09-03, an artefact of how the
+Business app's grant was issued, not of anything the adapter asks for. See the superseded banner in
+`screencast-business-app.md`. Publish is absent from it either way.)
 Implementing it would produce correct code and a permission error on every call.
 
 What replaces it is true and demonstrable: **the creator gets their own tracked link and coupon
