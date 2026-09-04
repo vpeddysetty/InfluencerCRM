@@ -224,6 +224,38 @@
   </p>
 </div>
 
+<h3>4.5 Automated creator classification</h3>
+<p>
+  Separately from the import feature above, the Service can sort a creator into a content category
+  &mdash; &ldquo;fitness&rdquo;, &ldquo;beauty&rdquo; and so on &mdash; and raise brand-safety
+  flags for a brand to review. To do this it sends to our AI provider, OpenAI, the creator&rsquo;s
+  <strong>public social handle, public display name, public follower count, and the text of up to
+  twelve of their recent public posts</strong>. The provider returns category labels only.
+</p>
+<div class="callout">
+  <strong>This feature sends more than column headings, and we describe it separately for that
+  reason.</strong>
+  <p style="margin:8px 0 0">
+    What is sent is information the creator already publishes on their public social profile. What
+    is <em>not</em> sent: email addresses, phone numbers or any other contact detail; private
+    messages; and anything a brand recorded privately, such as a fee, a rate or a private note. The
+    model is asked only to apply a label &mdash; it is never asked to produce a follower count,
+    engagement rate or any other figure, because a plausible invented number is worse than no
+    number. Classification is advisory: a brand can change any label, and a creator record is never
+    rejected on the strength of one.
+  </p>
+</div>
+
+<h3>4.6 Automated landing-page drafting</h3>
+<p>
+  Where a brand asks the Service to draft landing-page copy for a campaign, it sends the campaign
+  brief that brand wrote &mdash; its goal, audience description and offer &mdash; together with the
+  named creator&rsquo;s <strong>public social handle and platform name</strong>, to our AI provider
+  Anthropic. No follower count, post content, email address or contact detail is sent. The draft is
+  a starting point that the brand edits and must publish deliberately; nothing is published
+  automatically.
+</p>
+
 <h2 id="use">5. How we use personal data</h2>
 <p>Where we act as a controller, we use personal data to:</p>
 <ul>
@@ -284,8 +316,17 @@
     </tr>
     <tr>
       <td>OpenAI</td>
-      <td>Suggesting spreadsheet column mappings</td>
-      <td>Column headings and field names only — not row data (Section 4.4)</td>
+      <td>Suggesting spreadsheet column mappings; classifying a creator into a content category</td>
+      <td>
+        For mapping: column headings and field names only — not row data (Section 4.4). For
+        classification: a creator's public handle, public display name, public follower count and
+        the text of up to twelve recent public posts (Section 4.5)
+      </td>
+    </tr>
+    <tr>
+      <td>Anthropic</td>
+      <td>Drafting landing-page copy from a campaign brief</td>
+      <td>The campaign brief, plus the named creator's public handle and platform (Section 4.6)</td>
     </tr>
     <tr>
       <td>Google, Facebook</td>

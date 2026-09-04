@@ -110,11 +110,21 @@
   </tr>
   <tr>
     <td>OpenAI, L.L.C.</td>
-    <td>Suggesting how spreadsheet columns map to fields during an import</td>
     <td>
-      Column headings and target field names only &mdash; for example &ldquo;Instagram
-      Handle&rdquo;, &ldquo;Fee Paid&rdquo;. <b>The rows beneath those headings are never
-      transmitted.</b>
+      Two features: suggesting how spreadsheet columns map to fields during an import, and
+      classifying a creator into a content category
+    </td>
+    <td>
+      <b>Import mapping:</b> column headings and target field names only &mdash; for example
+      &ldquo;Instagram Handle&rdquo;, &ldquo;Fee Paid&rdquo;. The rows beneath those headings are
+      never transmitted.
+      <br><br>
+      <b>Creator classification:</b> a creator&rsquo;s public social handle, public display name,
+      public follower count, and the text of up to twelve of their recent public post captions.
+      These are sent so the model can return a content category (for example &ldquo;fitness&rdquo;)
+      and brand-safety flags. <b>No email address, contact detail, private message, or figure a
+      brand recorded privately &mdash; such as a fee &mdash; is ever sent.</b> The model returns
+      labels only and is never asked to produce a metric.
     </td>
     <td>United States</td>
   </tr>
@@ -181,27 +191,57 @@
     <td>Anthropic, PBC</td>
     <td>Generating draft landing-page copy from a campaign brief</td>
     <td>
-      <b>Disabled.</b> The feature is off by default and is not enabled in production. If it is
-      turned on, this page and Annex C of the DPA are updated and the 30 days' notice is given
-      before it is enabled.
+      The campaign brief a brand writes &mdash; its goal, audience description and offer &mdash;
+      together with the named creator&rsquo;s public social handle and platform name, so the draft
+      can address the right audience and name the right creator. <b>No follower count, post
+      content, email address or contact detail is sent.</b>
     </td>
   </tr>
 </table>
 </div>
 
-<!-- INTERNAL, not rendered: [ENGINEERING: the Anthropic row was verified disabled on 2026-08-23:
-     web-experience.landing.generation.provider defaults to `template`, AnthropicPageGenerator is
-     @ConditionalOnProperty(havingValue = "anthropic"), and the deployed compose template does not
-     set WEBE_PAGE_GENERATION_PROVIDER. If that changes, this page, DPA Annex C, and the Privacy
-     Policy sharing table must all change in the SAME commit, and notice must precede enablement. A
-     sub-processor list that is quietly false is worse than none - it is a contractual
-     representation, not a description.] -->
+<!-- INTERNAL, not rendered: [ENGINEERING: the Anthropic row was corrected on 2026-09-04. The
+     2026-08-23 note said the deployed compose template "does not set WEBE_PAGE_GENERATION_PROVIDER".
+     That is no longer true and the note went stale without anyone noticing: templates/
+     docker-compose.yml.tftpl:226 sets it from var.page_generation_provider, and prod.tfvars sets
+     that variable to "anthropic". The row is now written to describe what the code SENDS rather
+     than to assert an enablement state, because the enablement state is the part that drifted.
 
-<!-- INTERNAL, not rendered: [ENGINEERING: outbound third-party hosts found in the Java sources on
-     2026-08-23 were api.stripe.com, api.anthropic.com, graph.facebook.com and www.googleapis.com.
+     What reaches Anthropic: AnthropicPageGenerator appends brief.creatorHandle() and
+     brief.creatorPlatform() (:179, :267, :287), and BriefEnricher.enrichFromCreator (:212-230)
+     fills those from the creator record - which is populated from the Instagram Graph API. So a
+     public handle derived from Meta data does reach Anthropic. No follower count or caption text
+     does.
+
+     One thing this note deliberately does NOT assert: whether a key is present in production.
+     WEBE_PAGE_GENERATION_API_KEY passes through from the host env-file at deploy time
+     (docker-compose.yml.tftpl:231), is not in Secrets Manager, and is not in the repo - so it
+     cannot be determined from source, and AnthropicPageGenerator returns null when it is blank
+     (:107, :143). The row is written to be TRUE EITHER WAY: it describes what is sent when the
+     feature runs, and does not claim the feature is off. That is the safer shape for a
+     contractual representation, because "disabled" is a claim that silently expires.
+
+     If the data SENT changes, this page, DPA Annex C, and the Privacy Policy sharing table must
+     all change in the SAME commit. A sub-processor list that is quietly false is worse than none -
+     it is a contractual representation, not a description.] -->
+
+<!-- INTERNAL, not rendered: [ENGINEERING: outbound third-party hosts, re-verified 2026-09-04:
+     api.stripe.com, api.anthropic.com, graph.facebook.com, www.googleapis.com AND api.openai.com.
+
+     WHY OPENAI WAS MISSED on 2026-08-23: that search covered the JAVA sources only, and the OpenAI
+     calls are made from the Python agent_service via the `openai` SDK - so there is no host literal
+     in any .java file to find. Searching one language and concluding "these are the outbound hosts"
+     is the specific mistake; agent_service/ is a second runtime and has to be searched separately.
+
      AWS and Google Workspace do not appear as literals because they are reached by SDK/SMTP
-     configuration. Re-run that search when adding an integration, and reconcile it against this
-     page.] -->
+     configuration. Re-run this search across BOTH Java and Python when adding an integration, and
+     reconcile it against this page.
+
+     Confirmed absent on 2026-09-04 across .java/.js/.jsx/.html/.json/.yml/.properties/.tf: Sentry,
+     Datadog, New Relic, Segment, Mixpanel, Amplitude, Google Analytics, PostHog, Hotjar,
+     FullStory. InfluencerUI/src/api/analytics.js is a vendor-neutral port with only `none` and
+     `console` sinks. This is a source-level finding: dependency trees have not been audited for a
+     transitive package that phones home.] -->
 
 <h2 id="contact">Questions</h2>
 
