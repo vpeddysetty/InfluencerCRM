@@ -5,6 +5,7 @@ import com.influencer.webe.shared.infrastructure.DaoGatewayClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -39,6 +40,7 @@ public class EntitlementService {
     private final DaoGatewayClient dao;
     private final PlanPolicy defaultPlan;
 
+    @Autowired
     public EntitlementService(DaoGatewayClient dao,
                               // The plan an account gets when it has none of its own.
                               //
@@ -64,6 +66,12 @@ public class EntitlementService {
 
     /**
      * The pre-configuration behaviour: default to {@code FREE}.
+     *
+     * <p><b>The constructor above carries {@code @Autowired} because this one exists.</b> With two
+     * constructors and no annotation Spring looks for a no-arg one, finds neither, and the whole
+     * BFF fails to start -- which is exactly what happened on the v1.0.58 roll: every container
+     * came up, the API was down for ten minutes, and the instance refresh still reported Successful.
+     * Do not remove the annotation while this overload exists.
      *
      * <p>Kept so the many tests that construct this directly keep asserting the SHIPPED default
      * rather than whichever value a deployment happens to carry. A test that silently inherited

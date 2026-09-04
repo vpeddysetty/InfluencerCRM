@@ -279,4 +279,25 @@ class EntitlementServiceTest {
 
         assertEquals(PlanPolicy.FREE, service.planFor(ACCOUNT));
     }
+
+    @Test
+    @DisplayName("exactly one constructor is the injectable one, so Spring can start")
+    void springCanChooseAConstructor() {
+        // THE BUG THIS EXISTS FOR. Adding the test-only overload below gave this class two
+        // constructors with no @Autowired. Spring then looks for a no-arg constructor, finds none,
+        // and the entire BFF fails to start -- the API was down for ten minutes on the v1.0.58 roll
+        // while every unit test passed, because unit tests call constructors directly and never ask
+        // the container to choose.
+        //
+        // Asserted structurally rather than by booting a context: this module's WebMvcTest recipe
+        // needs two filters excluded and Mockito does not run on this JDK, so a full-context test
+        // here would be more machinery than the fact deserves.
+        long injectable = java.util.Arrays.stream(EntitlementService.class.getDeclaredConstructors())
+                .filter(c -> c.isAnnotationPresent(
+                        org.springframework.beans.factory.annotation.Autowired.class))
+                .count();
+
+        assertEquals(1, injectable,
+                "with more than one constructor, exactly one must carry @Autowired or Spring cannot start");
+    }
 }
