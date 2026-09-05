@@ -5,7 +5,9 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.influencer.webe.identity.application.EntitlementService;
 import com.influencer.webe.identity.application.PlanPolicy;
 import com.influencer.webe.shared.infrastructure.DaoGatewayClient;
+import com.influencer.webe.creator.application.SharedCreatorService;
 import com.influencer.webe.security.Permission;
+import com.influencer.webe.security.TenantContext;
 import com.influencer.webe.shared.application.RequestUserResolver;
 import com.influencer.webe.shared.application.ResponseShapeService;
 import org.springframework.http.HttpStatus;
@@ -23,15 +25,18 @@ public class CreatorsController {
     private final RequestUserResolver requestUserResolver;
     private final ResponseShapeService responseShapeService;
     private final EntitlementService entitlements;
+    private final SharedCreatorService sharedCreators;
 
     public CreatorsController(DaoGatewayClient daoGatewayClient,
                               RequestUserResolver requestUserResolver,
                               ResponseShapeService responseShapeService,
-                              EntitlementService entitlements) {
+                              EntitlementService entitlements,
+                              SharedCreatorService sharedCreators) {
         this.daoGatewayClient = daoGatewayClient;
         this.requestUserResolver = requestUserResolver;
         this.responseShapeService = responseShapeService;
         this.entitlements = entitlements;
+        this.sharedCreators = sharedCreators;
     }
 
     /**
@@ -67,6 +72,21 @@ public class CreatorsController {
         query.put("minFollowers", minFollowers == null ? null : minFollowers.toString());
         query.put("maxFollowers", maxFollowers == null ? null : maxFollowers.toString());
         return responseShapeService.creatorsList(daoGatewayClient.get("/creators", query), page, size);
+    }
+
+    /**
+     * Which of the caller's OTHER brands work with this same creator (roadmap PR-66).
+     *
+     * <p>`CREATOR_READ`, the same permission as viewing the record it hangs off — it exposes no
+     * creator the caller could not already open, only the fact that they appear in more than one
+     * of the caller's own workspaces.
+     */
+    @GetMapping("/{id}/also-at")
+    public JsonNode alsoAt(@RequestHeader(value = "Authorization", required = false) String authorization,
+                           @PathVariable UUID id) {
+        TenantContext context =
+                requestUserResolver.requirePermission(authorization, Permission.CREATOR_READ);
+        return sharedCreators.alsoWorkingWith(context.userId(), context.brandId(), id);
     }
 
     @GetMapping("/{id}")

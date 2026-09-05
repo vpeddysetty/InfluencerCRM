@@ -72,6 +72,30 @@ public interface CreatorRepository extends JpaRepository<Creator, UUID> {
 	Optional<Creator> findByBrandIdAndPlatformAndHandle(@Param("brandId") UUID brandId, @Param("platform") String platform, @Param("handle") String handle);
 
 	/**
+	 * The same creator's rows across a GIVEN set of brands (roadmap PR-66).
+	 *
+	 * <p><b>The brand list is a parameter, not a query.</b> This deliberately does not ask "which
+	 * brands work with this handle" -- that question spans tenants, and its answer would leak one
+	 * customer's roster to another. The caller passes the brands it has already been granted, and
+	 * this only sorts the rows within them. A caller that passed the wrong list would be the bug;
+	 * a query that computed the list here would be the vulnerability.
+	 *
+	 * <p>Matched on {@code (platform, handle)} because that is what identifies a person across
+	 * brands -- {@code uq_creators_brand_platform_handle} makes the row itself per-brand by design,
+	 * so there is no shared id to join on and nothing here merges the rows.
+	 */
+	@Query(value = """
+			select * from creators
+			 where platform = cast(:platform as platform_type)
+			   and lower(handle) = lower(:handle)
+			   and brand_id in (:brandIds)
+			 order by created_at asc
+			""", nativeQuery = true)
+	List<Creator> findAcrossBrands(@Param("platform") String platform,
+	                               @Param("handle") String handle,
+	                               @Param("brandIds") List<UUID> brandIds);
+
+	/**
 	 * By email within a brand, for redeeming an invitation sent to an address.
 	 *
 	 * <p>NOT the natural key -- that is (brand, platform, handle), and email is deliberately not

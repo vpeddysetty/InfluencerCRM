@@ -56,6 +56,24 @@ public class CreatorController {
         return repository.findAll();
     }
 
+    /**
+     * Where else a creator appears, within brands the caller already reaches (roadmap PR-66).
+     *
+     * <p><b>{@code brandIds} is required and comes from the caller.</b> Without it this would be a
+     * cross-tenant lookup: "which brands work with this handle" is a question whose answer belongs
+     * to other customers. Empty means nothing to search, not everything.
+     */
+    @GetMapping("/across-brands")
+    public List<Creator> findAcrossBrands(@RequestParam String platform,
+                                          @RequestParam String handle,
+                                          @RequestParam(required = false) List<UUID> brandIds) {
+        if (brandIds == null || brandIds.isEmpty()
+                || platform == null || platform.isBlank() || handle == null || handle.isBlank()) {
+            return List.of();
+        }
+        return repository.findAcrossBrands(platform.trim(), handle.trim().replaceFirst("^@", ""), brandIds);
+    }
+
     @GetMapping("/{id}")
     public Creator findById(@PathVariable UUID id) {
         return repository.findById(id).orElseThrow(() -> new RuntimeException("Creator not found"));
