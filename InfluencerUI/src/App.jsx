@@ -64,6 +64,7 @@ import {
   connectMarketplace,
   deleteMarketplaceConnection,
   simulateOrder,
+  getCreatorAlsoAt,
   getInfluencerRevenue,
   getPortfolio,
   getPortfolioCsv,
@@ -1649,6 +1650,11 @@ function App() {
 
   // Same shape and the same reason: PortfolioPage calls this in an effect, so an unstable
   // identity would re-fetch every render.
+  const loadCreatorAlsoAt = useCallback(
+    async (creatorId) => getCreatorAlsoAt(authToken, creatorId),
+    [authToken],
+  )
+
   const loadPortfolio = useCallback(
     async (range) => getPortfolio(authToken, range),
     [authToken],
@@ -2440,6 +2446,7 @@ function App() {
                   onUpdateCreator={updateCreatorRecord}
                   onLookupHandle={lookupCreatorHandle}
                   onDeleteCreator={deleteCreatorRecord}
+                  onLoadAlsoAt={loadCreatorAlsoAt}
                   // Passed rather than read from context: the federated remote that serves this
                   // page in production has no SessionContext, and a prop works in both copies.
                   canDeleteCreator={permissions.includes('creator:delete')}

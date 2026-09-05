@@ -65,3 +65,13 @@ export async function updateCampaignCreator(token, id, payload) {
 }
 
 // ---- workflow boards ----
+
+/**
+ * Which of the caller's OTHER brands work with this same creator (roadmap PR-66).
+ *
+ * Scoped server-side to brands the caller already reaches — there is no brand parameter here
+ * because there is nothing for a client to choose.
+ */
+export async function getCreatorAlsoAt(token, creatorId) {
+  return request(`/api/creators/${creatorId}/also-at`, { token })
+}

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import './components/ui/ui.css'
 import CustomAttributesEditor from './components/CustomAttributesEditor'
 import {
@@ -96,6 +96,7 @@ function CreatorsPage({
   onUpdateCreator,
   onLookupHandle,
   onDeleteCreator,
+  onLoadAlsoAt,
   canDeleteCreator = false,
 }) {
   const toast = useToast()
@@ -104,6 +105,9 @@ function CreatorsPage({
   // directory owns the first screen, and an edit is the same form with different initial values.
   const [drawerMode, setDrawerMode] = useState('')
   const [editingId, setEditingId] = useState('')
+  // PR-66. Where else this agency already books the same creator. Loaded only when a record is
+  // opened for editing, because it is context for a decision being made, not list furniture.
+  const [alsoAt, setAlsoAt] = useState([])
   const [editDraft, setEditDraft] = useState(EMPTY_DRAFT)
   const [editSnapshot, setEditSnapshot] = useState('')
   const [saving, setSaving] = useState(false)
@@ -285,6 +289,28 @@ function CreatorsPage({
     setEditSnapshot(buildSnapshot(nextDraft))
     setDrawerMode('edit')
   }
+
+  // Fetched when the edit drawer opens on a specific creator. Failure is silent: this is a nice
+  // thing to know while agreeing a rate, and an error banner over the edit form would obstruct the
+  // job the drawer is actually for.
+  useEffect(() => {
+    if (!editingId || !onLoadAlsoAt) {
+      setAlsoAt([])
+      return undefined
+    }
+    let cancelled = false
+    ;(async () => {
+      try {
+        const payload = await onLoadAlsoAt(editingId)
+        if (!cancelled) setAlsoAt(Array.isArray(payload?.alsoAt) ? payload.alsoAt : [])
+      } catch {
+        if (!cancelled) setAlsoAt([])
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [editingId, onLoadAlsoAt])
 
   const closeDrawer = () => {
     setDrawerMode('')
@@ -695,6 +721,26 @@ function CreatorsPage({
               </button>
             </div>
           </form>
+
+          {/* PR-66. Read-only, and shown only when there is something to say -- an empty "also
+              works with" panel on every creator would be noise on the many single-brand accounts.
+              Rates come from the OTHER brand's own record; nothing here is merged or editable. */}
+          {drawerMode === 'edit' && alsoAt.length > 0 ? (
+            <section className="drawer-aside">
+              <h4>Also on your other clients</h4>
+              <ul className="also-at-list">
+                {alsoAt.map((entry) => (
+                  <li key={entry.brandId}>
+                    <strong>{entry.brandName}</strong>
+                    {/* An unrecorded rate says so. "No rate recorded" and "works for nothing" are
+                        very different things to carry into a negotiation. */}
+                    {entry.preferredRate ? ` — rate ${entry.preferredRate}` : ' — no rate recorded'}
+                    {entry.vettingStatus ? ` (${entry.vettingStatus})` : ''}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
         </Drawer>
       ) : null}
 
