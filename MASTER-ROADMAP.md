@@ -91,6 +91,64 @@ deploy were local-to-AWS, and the git remote has none of it.
 brands and one creator, created to verify the deploy end to end. RDS is not publicly reachable, so
 it cannot be removed from a developer machine; delete it from inside the VPC when convenient.
 
+### 2.0b Known gaps — verified 2026-09-05, none of them blocking
+
+Each was checked against the code, not recalled. They are recorded because every one of them is the
+kind of thing that is invisible until it costs an afternoon.
+
+**1. Five remotes have no test script, holding 14 unmounted components.**
+
+| Project | Test script | Top-level components |
+|---|---|---|
+| `InfluencerUI` | ✅ 282 tests | — |
+| `InfluencerCreatorsUI` | ✅ render check (`OP-42`) | — |
+| `InfluencerCreatorPortalUI` | ✅ `node --test` | — |
+| `InfluencerCampaignsUI` | ❌ | 3 |
+| `InfluencerContentUI` | ❌ | 2 |
+| `InfluencerWorkflowUI` | ❌ | 2 |
+| `InfluencerCommerceUI` | ❌ | 5 |
+| `InfluencerFinanceUI` | ❌ | 2 |
+
+`OP-42` proved a page can throw `ReferenceError` on render while `vite build` reports success, so
+these 14 components have nothing standing between a runtime fault and an agency demo. The fix is
+mechanical — copy `InfluencerCreatorsUI/scripts/render-check.mjs` and adjust the props. **≈1 day for
+all five.** `PortfolioPage` lives in `InfluencerCommerceUI`, so the portfolio dashboard §12 was
+built around is currently in the untested set.
+
+**2. Eight pages are duplicated shell↔remote; ONE is guarded.**
+
+`remoteCopies.test.mjs` guards `handleLookup.js`, `provenance.js`, `activation.js`,
+`pageTemplates.js`, `sampleImport.js` and `PortfolioPage.jsx`. Unguarded: `CampaignsPage`,
+`ContentPage`, `CouponsPage`, `CreatorsPage`, `DashboardPage`, `ImportPage`, `MarketplacePage`,
+`PayoutsPage`.
+
+**`CreatorsPage` has already diverged and it is not a defect to fix by copying.** `PR-67`'s three
+filters and `PR-66`'s panel exist only in the remote (`nicheFilter`, `minFollowers`,
+`vettingFilter`, `alsoAt` — all zero occurrences in the shell copy). Production serves the remote,
+so the live behaviour is correct; the shell's bundled fallback is a smaller page. The decision worth
+making explicitly: **either the fallback is a real fallback and must match, or it is dead code and
+should go.** Today it is neither, and the repo's own answer — extracting `@influencer/ui` — remains
+the intended repair.
+
+**3. `PR-68` ships the data model, not the evidence.** A usage-rights grant is columns anyone with
+`creator:write` can edit: *"our record says we had rights"*, not proof of what the creator agreed.
+Binding a grant to the `agreement_id` that granted it is a foreign key plus a signing flow, and it
+waits on `PR-53`. Recorded on the row itself.
+
+**4. A test account sits in the production database** — `prodcheck.1788626867@example.test`, two
+brands and one creator, created to verify the v1.0.60 deploy end to end. RDS is not publicly
+reachable, so it cannot be removed from a developer machine.
+
+**5. `master` is 38 commits ahead of `origin`.** The merge and the deploy were local-to-AWS; the git
+remote has none of it. Everything shipped in v1.0.60 exists on exactly one machine.
+
+**6. The OpenAI key recorded at `secrets.tf:181` still needs rotating.** It was committed to a
+working tree. `.env` is gitignored and untracked now, but the exposure already happened.
+
+**Not gaps, recorded so they are not re-investigated:** `EXTRACTED SERVICES` remain dark by design
+(§1); the outbox relay is in-process by design (§4); `daily_attribution_stats` is deliberately
+unpopulated (§12.2b); and the shell E2E suites are local-only by decision (`OP-33`).
+
 ### 2.1 The honest headline
 
 **The product is much closer to charging money than the paperwork suggested.** Roughly 45–50 of
