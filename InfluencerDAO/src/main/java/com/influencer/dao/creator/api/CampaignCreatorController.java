@@ -6,6 +6,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.ArrayList;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -24,6 +25,22 @@ public class CampaignCreatorController {
             return repository.findAll();
         }
         return repository.findByBrandId(brandId);
+    }
+
+    /**
+     * Engagements whose content licence lapses in a window (roadmap PR-68).
+     *
+     * <p>Declared before {@code /{id}} for readability only — Spring prefers the literal pattern
+     * regardless, and {@code id} binds a UUID which "expiring-rights" is not.
+     */
+    @GetMapping("/expiring-rights")
+    public List<CampaignCreator> expiringRights(
+            @RequestParam UUID brandId,
+            @RequestParam @org.springframework.format.annotation.DateTimeFormat(
+                    iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE_TIME) Instant from,
+            @RequestParam @org.springframework.format.annotation.DateTimeFormat(
+                    iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE_TIME) Instant until) {
+        return repository.findExpiringRights(brandId, from, until);
     }
 
     @GetMapping("/{id}")
@@ -61,6 +78,16 @@ public class CampaignCreatorController {
         existing.setContractSignedAt(campaignCreator.getContractSignedAt());
         existing.setContentDueAt(campaignCreator.getContentDueAt());
         existing.setContentReviewStatus(campaignCreator.getContentReviewStatus());
+        // Content usage rights (roadmap PR-68). This method copies field by field, so a column the
+        // entity has and this list omits is silently dropped: the write returns 200, the response
+        // echoes the request, and the value never reaches the database. Adding a column to the
+        // entity means adding a line HERE.
+        existing.setUsageScopes(campaignCreator.getUsageScopes());
+        existing.setUsagePlatforms(campaignCreator.getUsagePlatforms());
+        existing.setRightsStartAt(campaignCreator.getRightsStartAt());
+        existing.setRightsEndAt(campaignCreator.getRightsEndAt());
+        existing.setExclusivityDays(campaignCreator.getExclusivityDays());
+        existing.setUsageRightsNote(campaignCreator.getUsageRightsNote());
         existing.setContentReviewRequestedAt(campaignCreator.getContentReviewRequestedAt());
         existing.setContentReviewCompletedAt(campaignCreator.getContentReviewCompletedAt());
         existing.setContentReviewNotes(campaignCreator.getContentReviewNotes());

@@ -3,6 +3,7 @@ package com.influencer.webe.creator.api;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.influencer.webe.shared.infrastructure.DaoGatewayClient;
+import com.influencer.webe.creator.application.UsageRightsService;
 import com.influencer.webe.security.Permission;
 import com.influencer.webe.shared.application.RequestUserResolver;
 import com.influencer.webe.shared.application.ResponseShapeService;
@@ -17,16 +18,20 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/campaign-creators")
 public class CampaignCreatorsController {
+
+    private final UsageRightsService usageRights;
     private final DaoGatewayClient daoGatewayClient;
     private final RequestUserResolver requestUserResolver;
     private final ResponseShapeService responseShapeService;
 
     public CampaignCreatorsController(DaoGatewayClient daoGatewayClient,
                                       RequestUserResolver requestUserResolver,
-                                      ResponseShapeService responseShapeService) {
+                                      ResponseShapeService responseShapeService,
+                                      UsageRightsService usageRights) {
         this.daoGatewayClient = daoGatewayClient;
         this.requestUserResolver = requestUserResolver;
         this.responseShapeService = responseShapeService;
+        this.usageRights = usageRights;
     }
 
     @GetMapping
@@ -99,5 +104,40 @@ public class CampaignCreatorsController {
             return null;
         }
         return UUID.fromString(payload.get(fieldName).asText());
+    }
+
+    /**
+     * Record the content usage rights agreed on one engagement (roadmap PR-68).
+     *
+     * <p>`CAMPAIGN_CREATOR_ASSIGN`: agreeing what a brand may do with the content is part of
+     * agreeing the engagement, done by whoever books the creator. Not a finance permission —
+     * §5 records that FINANCE builds on READ_ONLY and cannot edit a campaign at all.
+     */
+    @PutMapping("/{id}/usage-rights")
+    public JsonNode recordUsageRights(
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @PathVariable UUID id,
+            @RequestBody ObjectNode payload) {
+        UUID brandId = requestUserResolver.requirePermissionForBrand(
+                authorization, Permission.CAMPAIGN_CREATOR_ASSIGN);
+        return usageRights.record(brandId, id, payload);
+    }
+
+    /**
+     * Licences lapsing soon (roadmap PR-68).
+     *
+     * <p>The half with operational value: it stops a brand running an ad it no longer has the right
+     * to run, and it is a renewal prompt. Read permission, because it reports what is already
+     * recorded.
+     */
+    @GetMapping("/expiring-rights")
+    public JsonNode expiringRights(
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @RequestParam(required = false, defaultValue = "30") int days) {
+        UUID brandId = requestUserResolver.requirePermissionForBrand(
+                authorization, Permission.CAMPAIGN_READ);
+        // Clamped rather than rejected: a nonsensical window is a UI slip, and an empty list is a
+        // more useful answer than a 400 on a read-only report.
+        return usageRights.expiringWithin(brandId, Math.max(1, Math.min(days, 365)));
     }
 }

@@ -78,6 +78,28 @@ public class CampaignCreator {
     @Column(name = "contract_signed_at")
     private Instant contractSignedAt;
 
+    // Content usage rights (roadmap PR-68). NULL means NOT RECORDED, never granted -- failing open
+    // on a legal question is worse than an empty field, because an empty field prompts a question
+    // and a green tick stops one.
+    @Column(name = "usage_scopes", columnDefinition = "text[]")
+    private String[] usageScopes;
+
+    @Column(name = "usage_platforms", columnDefinition = "text[]")
+    private String[] usagePlatforms;
+
+    @Column(name = "rights_start_at")
+    private Instant rightsStartAt;
+
+    /** NULL with a start set means perpetual; both NULL means not recorded. */
+    @Column(name = "rights_end_at")
+    private Instant rightsEndAt;
+
+    @Column(name = "exclusivity_days")
+    private Integer exclusivityDays;
+
+    @Column(name = "usage_rights_note")
+    private String usageRightsNote;
+
     @Column(name = "content_due_at")
     private Instant contentDueAt;
 
@@ -440,5 +462,53 @@ public class CampaignCreator {
 
     public void setUpdatedAt(Instant updatedAt) {
         this.updatedAt = updatedAt;
+    }
+
+    public String[] getUsageScopes() {
+        return usageScopes;
+    }
+
+    public void setUsageScopes(String[] usageScopes) {
+        this.usageScopes = usageScopes;
+    }
+
+    public String[] getUsagePlatforms() {
+        return usagePlatforms;
+    }
+
+    public void setUsagePlatforms(String[] usagePlatforms) {
+        this.usagePlatforms = usagePlatforms;
+    }
+
+    public Instant getRightsStartAt() {
+        return rightsStartAt;
+    }
+
+    public void setRightsStartAt(Instant rightsStartAt) {
+        this.rightsStartAt = rightsStartAt;
+    }
+
+    public Instant getRightsEndAt() {
+        return rightsEndAt;
+    }
+
+    public void setRightsEndAt(Instant rightsEndAt) {
+        this.rightsEndAt = rightsEndAt;
+    }
+
+    public Integer getExclusivityDays() {
+        return exclusivityDays;
+    }
+
+    public void setExclusivityDays(Integer exclusivityDays) {
+        this.exclusivityDays = exclusivityDays;
+    }
+
+    public String getUsageRightsNote() {
+        return usageRightsNote;
+    }
+
+    public void setUsageRightsNote(String usageRightsNote) {
+        this.usageRightsNote = usageRightsNote;
     }
 }

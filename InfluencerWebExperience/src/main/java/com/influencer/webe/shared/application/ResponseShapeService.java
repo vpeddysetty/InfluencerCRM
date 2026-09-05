@@ -160,7 +160,13 @@ public class ResponseShapeService {
     }
 
     public JsonNode campaignCreator(JsonNode source) {
-        ObjectNode out = pick(source, "id", "brandId", "campaignId", "creatorId", "notes", "createdAt", "updatedAt");
+        // Content usage rights (PR-68) are listed here because this allow-list is where a populated
+        // column silently stops existing: the column is written, the DAO returns it, and without
+        // this line the UI shows "not recorded" for a grant that was recorded. On a legal question
+        // that is the worst possible failure -- it reads as an answer.
+        ObjectNode out = pick(source, "id", "brandId", "campaignId", "creatorId", "notes", "createdAt", "updatedAt",
+                "usageScopes", "usagePlatforms", "rightsStartAt", "rightsEndAt", "exclusivityDays",
+                "usageRightsNote");
         if (source != null && source.hasNonNull("agreedFee")) {
             out.set("fee", source.get("agreedFee"));
         } else if (source != null && source.hasNonNull("fee")) {
