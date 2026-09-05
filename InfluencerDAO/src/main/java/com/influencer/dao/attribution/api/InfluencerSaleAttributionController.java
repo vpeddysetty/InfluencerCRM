@@ -5,6 +5,7 @@ import com.influencer.dao.attribution.infrastructure.InfluencerSaleAttributionRe
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -21,7 +22,21 @@ public class InfluencerSaleAttributionController {
     public List<InfluencerSaleAttribution> findAll(
             @RequestParam(required = false) UUID brandId,
             @RequestParam(required = false) UUID campaignCodeId,
-            @RequestParam(required = false) UUID campaignCreatorId) {
+            @RequestParam(required = false) UUID campaignCreatorId,
+            // Half-open window (roadmap OP-39). `until` is the start of the day AFTER the inclusive
+            // end date -- see the repository note. Both must be present to narrow: one alone is
+            // ambiguous, and guessing the missing half would silently change what a caller asked
+            // for. Absent, the behaviour is exactly what it was before this parameter existed.
+            @RequestParam(required = false)
+            @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE_TIME)
+            Instant from,
+            @RequestParam(required = false)
+            @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE_TIME)
+            Instant until) {
+        if (brandId != null && from != null && until != null) {
+            return repository
+                    .findByBrandIdAndOccurredAtGreaterThanEqualAndOccurredAtLessThan(brandId, from, until);
+        }
         if (brandId != null && campaignCreatorId != null) {
             return repository.findByBrandIdAndCampaignCreatorId(brandId, campaignCreatorId);
         }

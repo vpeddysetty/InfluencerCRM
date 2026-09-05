@@ -17,6 +17,9 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Guards the analytics date window.
@@ -91,8 +94,12 @@ class AnalyticsWindowTest {
             this.byPath = byPath;
         }
 
+        /** What each path was asked, so a test can assert the range reached the DAO (OP-39). */
+        final Map<String, Map<String, String>> queries = new java.util.LinkedHashMap<>();
+
         @Override
         public JsonNode get(String path, Map<String, String> query) {
+            queries.put(path, query == null ? Map.of() : new java.util.LinkedHashMap<>(query));
             return byPath.get(path);
         }
     }
@@ -250,5 +257,46 @@ class AnalyticsWindowTest {
                 .influencerRevenue(BRAND, LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 7));
 
         assertEquals("100.00", revenue(ranged), "a corrupt date must not silently land at 1970");
+    }
+
+    @Test
+    @DisplayName("the date range is sent TO the DAO, not applied after fetching everything")
+    void theRangeReachesTheDao() {
+        // OP-39. This used to fetch every attribution a brand had ever had and filter in Java --
+        // O(all rows ever) per render, degrading as a customer uses the product. The window has to
+        // arrive as a query parameter or the fetch is unbounded however well the filtering works.
+        StubDao dao = new StubDao(Map.of(
+                "/influencer-sale-attributions", mapper.createArrayNode(),
+                "/creators", mapper.createArrayNode(),
+                "/workflow-cards", mapper.createArrayNode()));
+        AnalyticsService service = new AnalyticsService(dao, new ResponseShapeService(mapper));
+
+        service.influencerRevenue(BRAND, LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 31));
+
+        Map<String, String> asked = dao.queries.get("/influencer-sale-attributions");
+        assertNotNull(asked.get("from"), "the window's start must reach the DAO");
+        assertNotNull(asked.get("until"), "the window's end must reach the DAO");
+        // Half-open: `until` is the start of the day AFTER the inclusive end date, so the 31st is
+        // included in full. A closed bound would silently drop a day's sales from every report.
+        assertTrue(asked.get("until").startsWith("2026-09-01"),
+                "until must be the day AFTER the inclusive end date, got " + asked.get("until"));
+        assertTrue(asked.get("from").startsWith("2026-08-01"),
+                "from must be the inclusive start date, got " + asked.get("from"));
+    }
+
+    @Test
+    @DisplayName("an all-time report asks for everything rather than guessing a bound")
+    void allTimeSendsNoRange() {
+        // One bound alone is ambiguous, and inventing the other would silently change the question.
+        StubDao dao = new StubDao(Map.of(
+                "/influencer-sale-attributions", mapper.createArrayNode(),
+                "/creators", mapper.createArrayNode(),
+                "/workflow-cards", mapper.createArrayNode()));
+        AnalyticsService service = new AnalyticsService(dao, new ResponseShapeService(mapper));
+
+        service.influencerRevenue(BRAND, null, null);
+
+        assertNull(dao.queries.get("/influencer-sale-attributions").get("from"),
+                "an all-time report must not invent a bound");
     }
 }

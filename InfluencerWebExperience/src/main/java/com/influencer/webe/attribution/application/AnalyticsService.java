@@ -61,7 +61,12 @@ public class AnalyticsService {
         // everything that happened during that day rather than only the instant at midnight.
         Instant toInstant = to == null ? null : to.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant();
 
-        JsonNode attributions = listForUser(brandId, "/influencer-sale-attributions");
+        // Narrowed AT THE SOURCE (roadmap OP-39). This used to fetch every attribution the brand
+        // had ever had and filter below; the DAO now takes the window, so the rows that arrive are
+        // the rows that count. `withinRange` still runs over them -- see the note there for why
+        // that is deliberate rather than redundant.
+        JsonNode attributions = listInRange(brandId, "/influencer-sale-attributions",
+                fromInstant, toInstant);
         JsonNode creators = listForUser(brandId, "/creators");
         JsonNode cards = listForUser(brandId, "/workflow-cards");
 
@@ -211,6 +216,15 @@ public class AnalyticsService {
      * which is when this system heard about it. A Shopify backfill imported today would otherwise
      * land every historical order in "last 7 days".
      */
+    /**
+     * Kept after the DAO narrowing (roadmap OP-39), deliberately.
+     *
+     * <p>It is no longer the thing doing the work, and it is not redundant. The narrowed call falls
+     * back to an unnarrowed list whenever either bound is absent, so this is what applies the range
+     * on an all-time report that later grows one. It also means the answer does not depend on the
+     * DAO having honoured the parameters — a defence-in-depth check over a handful of rows costs
+     * nothing, where the fetch it replaced cost everything.
+     */
     private boolean withinRange(JsonNode attribution, Instant from, Instant to) {
         return withinRange(attribution, "occurredAt", from, to);
     }
@@ -251,6 +265,24 @@ public class AnalyticsService {
         }
         // `to` is already the exclusive start of the day after the inclusive end date.
         return to == null || at.isBefore(to);
+    }
+
+    /**
+     * As {@link #listForUser}, narrowed to a half-open window at the DAO (roadmap OP-39).
+     *
+     * <p>Falls back to the unnarrowed list when either bound is absent — an all-time report asks
+     * for everything, and there is nothing to narrow. Passing one bound alone would be ambiguous,
+     * and guessing the other would silently change the question.
+     */
+    private JsonNode listInRange(UUID brandId, String path, Instant from, Instant until) {
+        if (from == null || until == null) {
+            return listForUser(brandId, path);
+        }
+        Map<String, String> q = new LinkedHashMap<>();
+        q.put("brandId", brandId.toString());
+        q.put("from", from.toString());
+        q.put("until", until.toString());
+        return dao.get(path, q);
     }
 
     private JsonNode listForUser(UUID brandId, String path) {
