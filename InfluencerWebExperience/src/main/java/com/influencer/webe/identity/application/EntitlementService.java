@@ -57,8 +57,10 @@ public class EntitlementService {
                               // pricing is decided, set this back to `free` and the tiers resume --
                               // one property, no code change, no migration.
                               //
-                              // An account with an explicit plan is unaffected: this is consulted
-                              // only when the column is null, blank or unrecognised.
+                              // An account that has PAID is unaffected -- a subscription writes
+                              // `pro` or `agency` over the column. This applies to accounts sitting
+                              // on the schema default, which is every account that has chosen
+                              // nothing. See planFor for why `free` has to count as unset.
                               @Value("${web-experience.plans.default:free}") String defaultPlanKey) {
         this.dao = dao;
         this.defaultPlan = PlanPolicy.forKey(defaultPlanKey);
@@ -98,7 +100,18 @@ public class EntitlementService {
         try {
             JsonNode account = dao.get("/tenancy/accounts/" + accountId, null);
             String stored = account == null ? null : account.path("plan").asText(null);
-            if (stored == null || stored.isBlank()) {
+            // `free` counts as UNSET, and that is not a shortcut.
+            //
+            // `identity.accounts.plan` is `not null default 'free'` (V11:66), so the column is
+            // never null and an "only when unset" rule reached nothing -- WEBE_DEFAULT_PLAN=agency
+            // shipped to production and changed the plan of exactly zero accounts. Found by
+            // creating a second brand on a fresh agency signup and being refused.
+            //
+            // The distinction that keeps this honest: an account that has PAID is never affected,
+            // because a subscription writes `pro` or `agency` over this value. Only an account
+            // sitting on the column default -- one that has chosen nothing -- takes the configured
+            // plan. Set the property back to `free` and the tiers resume exactly as before.
+            if (stored == null || stored.isBlank() || PlanPolicy.FREE.key().equalsIgnoreCase(stored.trim())) {
                 return defaultPlan;
             }
             return PlanPolicy.forKey(stored);

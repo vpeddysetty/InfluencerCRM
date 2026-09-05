@@ -261,13 +261,15 @@ class EntitlementServiceTest {
     }
 
     @Test
-    @DisplayName("an explicit plan still wins over the default")
+    @DisplayName("a PAID plan still wins over the default")
     void explicitPlanBeatsTheDefault() {
-        // The default is for accounts that have no plan. One that does is unaffected, which is what
-        // makes this reversible: set the property back and nothing else has to be undone.
-        EntitlementService service = serviceOnPlan("free", "agency");
+        // Written when the rule was "only an unset plan takes the default", and asserting `free`.
+        // That rule reached nothing: identity.accounts.plan is `not null default 'free'`, so the
+        // column is never unset and the shipped property changed no account. `free` now counts as
+        // unset; a PAID plan is what must survive, and that is what this asserts.
+        EntitlementService service = serviceOnPlan("pro", "agency");
 
-        assertEquals(PlanPolicy.FREE, service.planFor(ACCOUNT));
+        assertEquals(PlanPolicy.PRO, service.planFor(ACCOUNT));
     }
 
     @Test
@@ -299,5 +301,28 @@ class EntitlementServiceTest {
 
         assertEquals(1, injectable,
                 "with more than one constructor, exactly one must carry @Autowired or Spring cannot start");
+    }
+
+    @Test
+    @DisplayName("a stored 'free' takes the configured default, because the column is never null")
+    void storedFreeCountsAsUnset() {
+        // THE BUG THIS EXISTS FOR. identity.accounts.plan is `not null default 'free'` (V11:66),
+        // so an "only when the column is null" rule reached nothing: WEBE_DEFAULT_PLAN=agency
+        // shipped to production and changed the plan of zero accounts. Found by signing up and
+        // being refused a second brand, not by a test.
+        EntitlementService service = serviceOnPlan("free", "agency");
+
+        assertEquals(PlanPolicy.AGENCY, service.planFor(ACCOUNT));
+    }
+
+    @Test
+    @DisplayName("a PAID plan is never overridden by the default")
+    void paidPlansAreUntouched() {
+        // The line that keeps the rule honest. A subscription writes `pro` or `agency` over the
+        // column, so only an account that has chosen nothing takes the configured plan -- and
+        // setting the property back to `free` restores the tiers for everyone.
+        EntitlementService service = serviceOnPlan("pro", "agency");
+
+        assertEquals(PlanPolicy.PRO, service.planFor(ACCOUNT));
     }
 }
