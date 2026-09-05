@@ -203,7 +203,12 @@ done
 # lives in tests/e2e; if it is not installed the check says so and is skipped rather than failing a
 # deploy over a missing devDependency.
 echo "==> smoke check"
-if node "${REPO_ROOT}/infrastructure/scripts/smoke-ui.mjs" "${REQUESTED[@]}"; then
+# A NATIVE path. Git Bash gives $REPO_ROOT as /c/AI/... and node.exe reads that as a relative path
+# off the current drive, producing "Cannot find module C:\c\AI\..." -- which this script then
+# reports as "the deployed UI does not run", the most alarming message it has, for a check that
+# never ran. cygpath -w translates; on a real POSIX host it is absent and the path already works.
+SMOKE="$(cygpath -w "${REPO_ROOT}/infrastructure/scripts/smoke-ui.mjs" 2>/dev/null || echo "${REPO_ROOT}/infrastructure/scripts/smoke-ui.mjs")"
+if node "$SMOKE" "${REQUESTED[@]}"; then
     :
 else
     echo
