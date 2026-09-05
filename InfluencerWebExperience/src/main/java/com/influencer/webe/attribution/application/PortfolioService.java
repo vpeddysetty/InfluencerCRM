@@ -122,7 +122,12 @@ public class PortfolioService {
             }
             // Creator count comes from the per-creator breakdown the same call already computed,
             // rather than a second round trip for a number that is sitting right there.
-            row.put("creators", result.path("byCreator").isArray() ? result.get("byCreator").size() : 0);
+            //
+            // The field is `leaderboard`. `byCreator` is the LOCAL VARIABLE AnalyticsService
+            // accumulates into before writing it out under a different name -- reading the code and
+            // assuming the two matched put a silent 0 here and an empty CSV in PR-65, neither of
+            // which looked like a failure. Found by exporting a report and seeing only a header.
+            row.put("creators", result.path("leaderboard").isArray() ? result.get("leaderboard").size() : 0);
 
             totalRevenue = totalRevenue.add(revenue);
             totalCommission = totalCommission.add(commission);

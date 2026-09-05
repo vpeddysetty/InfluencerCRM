@@ -85,7 +85,11 @@ class PortfolioServiceTest {
         kpis.put("commission", commission);
         kpis.put("totalInfluencerCost", cost);
         for (int i = 0; i < creators; i++) {
-            out.withArray("byCreator").addObject().put("creatorId", UUID.randomUUID().toString());
+            // `leaderboard`, matching what AnalyticsService actually writes. The stub previously
+            // said `byCreator` -- the name of a LOCAL VARIABLE in that class -- so the test agreed
+            // with the bug and passed. A stub that mirrors the caller's assumption rather than the
+            // collaborator's contract verifies nothing.
+            out.withArray("leaderboard").addObject().put("creatorId", UUID.randomUUID().toString());
         }
         return out;
     }
@@ -220,5 +224,21 @@ class PortfolioServiceTest {
         assertTrue(out.get("brands").get(0).get("roi").isNull(),
                 "the row must not report 0.00x while the total above it reports nothing");
         assertTrue(out.get("totals").get("roi").isNull());
+    }
+
+    @Test
+    @DisplayName("the creator count reads the field AnalyticsService actually writes")
+    void creatorCountReadsTheRealField() {
+        // Found by exporting a report and getting a header with no rows. The wrong field name
+        // produced a silent 0 here and an empty CSV in PR-65 -- neither looked like a failure,
+        // which is what made it survive a green suite.
+        StubAccess access = new StubAccess(List.of(access(BRAND_A, "Aurora")));
+        StubAnalytics analytics = new StubAnalytics(Map.of(
+                BRAND_A, analyticsFor("100.00", 2, "10.00", "50.00", 3)));
+
+        JsonNode out = service(access, analytics).portfolio(USER, null, null);
+
+        assertEquals(3, out.get("brands").get(0).get("creators").asInt(),
+                "three creators in the leaderboard must be counted as three");
     }
 }
