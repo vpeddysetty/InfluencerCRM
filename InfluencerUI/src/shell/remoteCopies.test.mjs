@@ -26,6 +26,7 @@ const REMOTE = resolve(here, '../../../InfluencerCreatorsUI/src')
 const CONTENT_REMOTE = resolve(here, '../../../InfluencerContentUI/src')
 const WORKFLOW_REMOTE = resolve(here, '../../../InfluencerWorkflowUI/src')
 const CAMPAIGNS_REMOTE = resolve(here, '../../../InfluencerCampaignsUI/src')
+const COMMERCE_REMOTE = resolve(here, '../../../InfluencerCommerceUI/src')
 
 /** Everything from the first line after the module's opening block comment. */
 function bodyOf(path) {
@@ -93,5 +94,30 @@ test('the campaigns remote carries the same sample import file', () => {
     bodyOf(resolve(CAMPAIGNS_REMOTE, 'sampleImport.js')),
     bodyOf(resolve(here, 'sampleImport.js')),
     'InfluencerCampaignsUI/src/sampleImport.js has drifted from shell/sampleImport.js — copy the change across',
+  )
+})
+
+/**
+ * PortfolioPage is duplicated into the commerce remote (roadmap PR-64).
+ *
+ * <p>Unlike the modules above it is a PAGE, and CLAUDE.md notes that the duplicated pages are the
+ * unguarded ones — which is precisely why this exists. Production serves the remote copy, so a fix
+ * applied only to `pages/` would work in development and change nothing for a signed-in agency.
+ *
+ * <p>Compared with the import line normalised: the shell reaches `../components/Mds`, the remote
+ * `./components/Mds`. That single line is the whole legitimate difference, and normalising exactly
+ * it means anything else that drifts still fails.
+ */
+test('the commerce remote carries the same portfolio page', () => {
+  const normalise = (path) =>
+    readFileSync(path, 'utf8')
+      .replace(new RegExp(String.fromCharCode(13) + String.fromCharCode(10), 'g'), String.fromCharCode(10))
+      .replace(/from '\.\.?\/components\/Mds'/, "from '<mds>'")
+      .trim()
+
+  assert.equal(
+    normalise(resolve(COMMERCE_REMOTE, 'PortfolioPage.jsx')),
+    normalise(resolve(here, '../pages/PortfolioPage.jsx')),
+    'InfluencerCommerceUI/src/PortfolioPage.jsx has drifted from pages/PortfolioPage.jsx — copy the change across',
   )
 })

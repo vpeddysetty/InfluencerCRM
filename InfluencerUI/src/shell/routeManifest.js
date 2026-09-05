@@ -48,6 +48,7 @@ const WorkflowPage = contextPage('mf_workflow/WorkflowPage', () => import('../pa
 const CouponsPage = contextPage('mf_commerce/CouponsPage', () => import('../pages/CouponsPage'))
 const MarketplacePage = contextPage('mf_commerce/MarketplacePage', () => import('../pages/MarketplacePage'))
 const DashboardPage = contextPage('mf_commerce/DashboardPage', () => import('../pages/DashboardPage'))
+const PortfolioPage = contextPage('mf_commerce/PortfolioPage', () => import('../pages/PortfolioPage'))
 const PayoutsPage = contextPage('mf_finance/PayoutsPage', () => import('../pages/PayoutsPage'))
 // Account administration belongs to the shell, which already owns the session and the account.
 // A plain lazy import rather than contextPage(): there is no identity remote to fall back to.
@@ -110,6 +111,18 @@ export const ROUTE_MANIFEST = [
     permission: 'attribution:read',
     component: DashboardPage,
     apiSlice: 'commerce',
+  },
+  {
+    // The one ACCOUNT-scoped screen. Every other route here is answered per brand; this one asks
+    // what the caller can reach and rolls up across it, which is the question an agency has and
+    // nothing else answered. Same permission as Revenue: it shows the same figures, wider.
+    context: 'attribution',
+    path: '/portfolio',
+    label: 'Portfolio',
+    group: 'Money',
+    permission: 'attribution:read',
+    component: PortfolioPage,
+    apiSlice: 'core',
   },
   {
     context: 'attribution',

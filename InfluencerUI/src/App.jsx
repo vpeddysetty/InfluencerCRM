@@ -16,6 +16,7 @@ import WorkflowPage from './pages/WorkflowPage'
 import CouponsPage from './pages/CouponsPage'
 import MarketplacePage from './pages/MarketplacePage'
 import DashboardPage from './pages/DashboardPage'
+import PortfolioPage from './pages/PortfolioPage'
 import PayoutsPage from './pages/PayoutsPage'
 import MembersPage from './pages/MembersPage'
 import SettingsPage from './pages/SettingsPage'
@@ -64,6 +65,7 @@ import {
   deleteMarketplaceConnection,
   simulateOrder,
   getInfluencerRevenue,
+  getPortfolio,
   listCommissions,
   acceptInvitation,
   approveCommission,
@@ -1644,6 +1646,13 @@ function App() {
     [authToken],
   )
 
+  // Same shape and the same reason: PortfolioPage calls this in an effect, so an unstable
+  // identity would re-fetch every render.
+  const loadPortfolio = useCallback(
+    async (range) => getPortfolio(authToken, range),
+    [authToken],
+  )
+
   const simulateOrderRecord = async (payload) => {
     const result = await simulateOrder(authToken, { userId, ...payload })
     // `simulated: true` is not decoration. This path is the debug-gated simulator, so without
@@ -2518,6 +2527,10 @@ function App() {
                   onSimulateOrder={simulateOrderRecord}
                 />
               }
+            />
+            <Route
+              path="portfolio"
+              element={<PortfolioPage onLoadPortfolio={loadPortfolio} />}
             />
             <Route
               path="payouts"

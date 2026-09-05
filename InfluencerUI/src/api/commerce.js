@@ -94,4 +94,23 @@ export async function getInfluencerRevenue(token, { from, to } = {}) {
   return request(`/api/analytics/influencer-revenue${query ? `?${query}` : ''}`, { token })
 }
 
+/**
+ * The same figures across every brand the caller can reach (roadmap PR-64).
+ *
+ * Deliberately takes no brandId. The set of brands comes from the caller's own access on the
+ * server, so there is nothing here for a client to name — which is also why this is the one
+ * analytics call that does not send the active brand header's worth of scope.
+ */
+export async function getPortfolio(token, { from, to } = {}) {
+  const params = new URLSearchParams()
+  if (from) {
+    params.set('from', from)
+  }
+  if (to) {
+    params.set('to', to)
+  }
+  const query = params.toString()
+  return request(`/api/analytics/portfolio${query ? `?${query}` : ''}`, { token })
+}
+
 // ---- campaign briefs (content Phase 1) ----

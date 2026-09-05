@@ -24,6 +24,7 @@ export default defineConfig({
         './CouponsPage': './src/CouponsPage.jsx',
         './MarketplacePage': './src/MarketplacePage.jsx',
         './DashboardPage': './src/DashboardPage.jsx',
+        './PortfolioPage': './src/PortfolioPage.jsx',
       },
       shared: {
         react: { singleton: true, requiredVersion: '^19.0.0' },
