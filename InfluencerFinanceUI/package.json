@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite --port 5178 --strictPort",
     "build": "vite build",
-    "preview": "vite preview --port 5178 --strictPort"
+    "preview": "vite preview --port 5178 --strictPort",
+    "test": "node scripts/render-check.mjs"
   },
   "dependencies": {
     "react": "^19.2.0",
