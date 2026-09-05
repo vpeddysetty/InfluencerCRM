@@ -10,6 +10,7 @@ import com.influencer.webe.shared.infrastructure.DaoGatewayClient;
 import com.influencer.webe.payout.PayoutProvider;
 import com.influencer.webe.payout.PayoutProviderRegistry;
 import org.springframework.http.HttpStatus;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -33,15 +34,25 @@ public class PayoutService {
     private final PayoutProviderRegistry registry;
 
     private final TaxThresholdService taxThreshold;
+    private final BigDecimal minimumPayout;
+    private final String payoutSchedule;
 
     public PayoutService(DaoGatewayClient dao,
                          ResponseShapeService shape,
                          PayoutProviderRegistry registry,
-                         TaxThresholdService taxThreshold) {
+                         TaxThresholdService taxThreshold,
+                         // A floor, not a fee. See the check in createPayout for why it delays
+                         // rather than deducts. Configurable because the sensible figure depends on
+                         // what a provider charges to send, which differs per rail and per country;
+                         // 50 matches the roadmap's ~$50 and is a default, not a rule.
+                         @Value("${web-experience.payout.minimum-amount:50.00}") String minimumAmount,
+                         @Value("${web-experience.payout.schedule:Monthly, net 30}") String payoutSchedule) {
         this.dao = dao;
         this.shape = shape;
         this.registry = registry;
         this.taxThreshold = taxThreshold;
+        this.minimumPayout = new BigDecimal(minimumAmount);
+        this.payoutSchedule = payoutSchedule;
     }
 
     /** Provider catalog for the UI. */
@@ -52,6 +63,26 @@ public class PayoutService {
             node.put("key", p.key());
             node.put("displayName", p.displayName());
         }
+        return out;
+    }
+
+    /**
+     * The payout terms a brand is operating under (roadmap PR-56).
+     *
+     * <p>Exposed so the UI can state the floor and the schedule BEFORE someone tries to pay
+     * someone. A minimum discovered only as a 409 at the moment of paying is the same mistake
+     * `PR-49` was written to avoid on tax forms: the rule is fine, learning it at the worst moment
+     * is not.
+     *
+     * <p>The schedule is a STATEMENT, not a promise the software keeps. Nothing here runs payouts
+     * on a timer, and a scheduler this product does not have would be a worse thing to imply than
+     * a sentence a brand configured.
+     */
+    public JsonNode payoutTerms() {
+        ObjectNode out = shape.objectMapper().createObjectNode();
+        out.put("minimumAmount", minimumPayout.toPlainString());
+        out.put("schedule", payoutSchedule);
+        out.put("scheduleEnforced", false);
         return out;
     }
 
@@ -103,6 +134,29 @@ public class PayoutService {
         if (toSettle.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "No approved commissions to pay for this creator");
+        }
+
+        // MINIMUM PAYOUT (PR-56). Checked before the tax gate because it is the cheaper question
+        // and the commoner answer: it needs no DAO read, and dust accumulates far more often than
+        // anyone crosses $600.
+        //
+        // WHY A FLOOR EXISTS AT ALL. Every payout costs money to send -- a provider fee, and on the
+        // manual rail somebody's attention -- so settling $1.40 can cost more than it moves. It is
+        // also worse for the creator: a stream of trivial payments is harder to reconcile than one
+        // monthly total, and on some rails each arrival is its own line to explain to an accountant.
+        //
+        // NOTHING IS LOST BY WAITING. The commissions stay `approved` and roll into the next run,
+        // which is what makes this a delay rather than a deduction. That distinction is the whole
+        // justification: a floor that forfeited the balance would be taking money off a creator for
+        // the crime of a small month.
+        if (total.compareTo(minimumPayout) < 0) {
+            // 409 rather than 400: the request is well formed and will succeed later, unchanged.
+            // The message names both figures, because "below the minimum" without the numbers
+            // sends a brand looking for a setting rather than telling them to wait.
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "This creator has " + currency + " " + total.toPlainString()
+                            + " outstanding, below the " + currency + " " + minimumPayout.toPlainString()
+                            + " minimum payout. The balance stays approved and rolls into the next run.");
         }
 
         // TAX GATE (PR-49). Placed HERE deliberately: after the amount is known -- the question is

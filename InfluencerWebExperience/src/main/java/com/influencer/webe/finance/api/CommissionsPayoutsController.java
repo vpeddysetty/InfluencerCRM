@@ -147,6 +147,18 @@ public class CommissionsPayoutsController {
         return payoutService.listProviders();
     }
 
+    /**
+     * The minimum payout and the stated schedule (roadmap PR-56).
+     *
+     * <p>No permission beyond being signed in: these are the terms of the product, not one brand's
+     * data, and the same two values for everyone. Gating them behind a finance permission would
+     * stop a marketer explaining to a creator why a small balance has not arrived.
+     */
+    @GetMapping("/payout-terms")
+    public JsonNode payoutTerms() {
+        return payoutService.payoutTerms();
+    }
+
     @PostMapping("/influencer-commissions/{id}/approve")
     public JsonNode approveCommission(@RequestHeader(value = "Authorization", required = false) String authorization,
                                       @PathVariable UUID id,
