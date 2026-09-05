@@ -109,11 +109,14 @@ kind of thing that is invisible until it costs an afternoon.
 | `InfluencerCommerceUI` | ❌ | 5 |
 | `InfluencerFinanceUI` | ❌ | 2 |
 
-`OP-42` proved a page can throw `ReferenceError` on render while `vite build` reports success, so
-these 14 components have nothing standing between a runtime fault and an agency demo. The fix is
-mechanical — copy `InfluencerCreatorsUI/scripts/render-check.mjs` and adjust the props. **≈1 day for
-all five.** `PortfolioPage` lives in `InfluencerCommerceUI`, so the portfolio dashboard §12 was
-built around is currently in the untested set.
+✅ **RESOLVED 2026-09-05.** All five now have a `test` script, and **all nine exposed components
+render**: `CampaignsPage`, `ImportPage`, `ContentPage`, `WorkflowPage`, `CouponsPage`,
+`MarketplacePage`, `DashboardPage`, `PortfolioPage`, `PayoutsPage`. One shared harness in
+`packages/ui/renderCheck.mjs` rather than five copies — it takes `react`/`react-dom`/`vite` from the
+caller, because `packages/ui` has no `node_modules` and a bare import there fails even though every
+remote has one. Props are supplied by convention (`onX` → async no-op, plurals → empty array) rather
+than hand-written per component: nine fixtures for pages taking 6–18 props each would rot at the
+first signature change, and the empty state is where a first-render fault surfaces anyway.
 
 **2. Eight pages are duplicated shell↔remote; ONE is guarded.**
 
@@ -135,12 +138,15 @@ the intended repair.
 Binding a grant to the `agreement_id` that granted it is a foreign key plus a signing flow, and it
 waits on `PR-53`. Recorded on the row itself.
 
-**4. A test account sits in the production database** — `prodcheck.1788626867@example.test`, two
-brands and one creator, created to verify the v1.0.60 deploy end to end. RDS is not publicly
-reachable, so it cannot be removed from a developer machine.
+**4. Two test accounts remain in the production database.** `prodcheck.1788626867@example.test`
+and `uicheck.1788629709@example.test`, created to verify the v1.0.60 deploy and the `OP-43` fix end
+to end. **Their creators have been deleted through the API**; the accounts and their brands cannot
+be, because no brand- or account-deletion endpoint exists and `PR-37`'s deletion flow needs an
+emailed approval token that `OP-06` blocks. RDS is not publicly reachable, so what is left needs
+removing from inside the VPC. Two rows in an otherwise-empty database at zero subscribers.
 
-**5. `master` is 38 commits ahead of `origin`.** The merge and the deploy were local-to-AWS; the git
-remote has none of it. Everything shipped in v1.0.60 exists on exactly one machine.
+~~**5. `master` is 38 commits ahead of `origin`.**~~ ✅ **Pushed 2026-09-05** (`c82afc3..03cb35f`,
+45 commits, fast-forward). The work no longer exists on one machine.
 
 **6. The OpenAI key recorded at `secrets.tf:181` still needs rotating.** It was committed to a
 working tree. `.env` is gitignored and untracked now, but the exposure already happened.
