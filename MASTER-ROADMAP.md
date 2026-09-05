@@ -96,18 +96,18 @@ it cannot be removed from a developer machine; delete it from inside the VPC whe
 Each was checked against the code, not recalled. They are recorded because every one of them is the
 kind of thing that is invisible until it costs an afternoon.
 
-**1. Five remotes have no test script, holding 14 unmounted components.**
+~~**1. Five remotes have no test script, holding 14 unmounted components.**~~ ✅ **RESOLVED 2026-09-05.**
 
 | Project | Test script | Top-level components |
 |---|---|---|
 | `InfluencerUI` | ✅ 282 tests | — |
 | `InfluencerCreatorsUI` | ✅ render check (`OP-42`) | — |
 | `InfluencerCreatorPortalUI` | ✅ `node --test` | — |
-| `InfluencerCampaignsUI` | ❌ | 3 |
-| `InfluencerContentUI` | ❌ | 2 |
-| `InfluencerWorkflowUI` | ❌ | 2 |
-| `InfluencerCommerceUI` | ❌ | 5 |
-| `InfluencerFinanceUI` | ❌ | 2 |
+| `InfluencerCampaignsUI` | ✅ render check | 3 |
+| `InfluencerContentUI` | ✅ render check | 2 |
+| `InfluencerWorkflowUI` | ✅ render check | 2 |
+| `InfluencerCommerceUI` | ✅ render check | 5 |
+| `InfluencerFinanceUI` | ✅ render check | 2 |
 
 ✅ **RESOLVED 2026-09-05.** All five now have a `test` script, and **all nine exposed components
 render**: `CampaignsPage`, `ImportPage`, `ContentPage`, `WorkflowPage`, `CouponsPage`,
@@ -124,6 +124,11 @@ first signature change, and the empty state is where a first-render fault surfac
 `pageTemplates.js`, `sampleImport.js` and `PortfolioPage.jsx`. Unguarded: `CampaignsPage`,
 `ContentPage`, `CouponsPage`, `CreatorsPage`, `DashboardPage`, `ImportPage`, `MarketplacePage`,
 `PayoutsPage`.
+
+**`OP-43` changed what this gap means.** When it was written, production served the shell's copies
+and the guard was protecting files the deployed app never loaded — so divergence was invisible.
+Production now serves the remotes, which makes the seven unguarded pages a live risk rather than a
+theoretical one: an edit to a shell copy now reaches nobody, silently, and nothing fails.
 
 **`CreatorsPage` has already diverged and it is not a defect to fix by copying.** `PR-67`'s three
 filters and `PR-66`'s panel exist only in the remote (`nicheFilter`, `minFollowers`,
