@@ -113,4 +113,23 @@ export async function getPortfolio(token, { from, to } = {}) {
   return request(`/api/analytics/portfolio${query ? `?${query}` : ''}`, { token })
 }
 
+/**
+ * The portfolio as a CSV file (roadmap PR-65).
+ *
+ * <p>Fetched rather than linked. A plain `<a href>` cannot carry the Authorization header, so the
+ * endpoint would answer 401 -- and putting the token in the URL to work around that would write it
+ * into browser history and any proxy log between here and the server.
+ */
+export async function getPortfolioCsv(token, { from, to } = {}) {
+  const params = new URLSearchParams()
+  if (from) {
+    params.set('from', from)
+  }
+  if (to) {
+    params.set('to', to)
+  }
+  const query = params.toString()
+  return request(`/api/analytics/portfolio.csv${query ? `?${query}` : ''}`, { token, raw: true })
+}
+
 // ---- campaign briefs (content Phase 1) ----

@@ -66,6 +66,7 @@ import {
   simulateOrder,
   getInfluencerRevenue,
   getPortfolio,
+  getPortfolioCsv,
   listCommissions,
   acceptInvitation,
   approveCommission,
@@ -1653,6 +1654,11 @@ function App() {
     [authToken],
   )
 
+  const downloadPortfolioCsv = useCallback(
+    async (range) => getPortfolioCsv(authToken, range),
+    [authToken],
+  )
+
   const simulateOrderRecord = async (payload) => {
     const result = await simulateOrder(authToken, { userId, ...payload })
     // `simulated: true` is not decoration. This path is the debug-gated simulator, so without
@@ -2530,7 +2536,7 @@ function App() {
             />
             <Route
               path="portfolio"
-              element={<PortfolioPage onLoadPortfolio={loadPortfolio} />}
+              element={<PortfolioPage onLoadPortfolio={loadPortfolio} onDownloadCsv={downloadPortfolioCsv} />}
             />
             <Route
               path="payouts"

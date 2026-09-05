@@ -20,11 +20,44 @@ function money(value) {
  * The row order is the server's, which is the same order the brand switcher uses. Sorting is
  * client-side and additive: the default view must match what an agency already recognises.
  */
-function PortfolioPage({ onLoadPortfolio }) {
+function PortfolioPage({ onLoadPortfolio, onDownloadCsv }) {
   const [data, setData] = useState(EMPTY)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [sort, setSort] = useState({ key: '', dir: 'desc' })
+  const [downloading, setDownloading] = useState(false)
+  const [downloadError, setDownloadError] = useState('')
+
+  /**
+   * Saves the server-rendered CSV (roadmap PR-65).
+   *
+   * The file comes from the server, not from the rows on screen: the figures in it are the ones
+   * the attribution context computed, and it carries its own BOM and escaping. Nothing here
+   * re-renders it -- adding a second BOM would show a stray character in the first cell, and
+   * re-escaping would undo the formula guard.
+   */
+  const download = async () => {
+    if (!onDownloadCsv) return
+    setDownloading(true)
+    setDownloadError('')
+    try {
+      const csv = await onDownloadCsv()
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `portfolio-${new Date().toISOString().slice(0, 10)}.csv`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      // Next tick: revoking synchronously cancels the download in some browsers.
+      setTimeout(() => URL.revokeObjectURL(url), 0)
+    } catch (err) {
+      setDownloadError(err instanceof Error ? err.message : 'Could not download the report.')
+    } finally {
+      setDownloading(false)
+    }
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -72,6 +105,17 @@ function PortfolioPage({ onLoadPortfolio }) {
     <article className="card mds-surface mds-prose form-card page-stack">
       <MdsKicker>Portfolio</MdsKicker>
       <h3>Every client, on one screen</h3>
+
+      {/* Offered only once there is something to export -- a button that downloads a header row
+          and nothing else looks like a broken feature rather than an empty portfolio. */}
+      {!loading && !error && data.brands.length > 0 && onDownloadCsv ? (
+        <p>
+          <button type="button" className="ghost-btn" onClick={download} disabled={downloading}>
+            {downloading ? 'Preparing…' : 'Download CSV'}
+          </button>
+        </p>
+      ) : null}
+      {downloadError ? <MdsNote className="mds-note-error">{downloadError}</MdsNote> : null}
 
       {loading && <MdsNote>Loading your portfolio…</MdsNote>}
       {error && <MdsNote className="mds-note-error">{error}</MdsNote>}

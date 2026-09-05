@@ -149,9 +149,12 @@ export function buildHeaders(token, extraHeaders = {}) {
   return headers
 }
 
-async function readResponse(response) {
+async function readResponse(response, { raw = false } = {}) {
   const text = await response.text()
-  const data = text ? JSON.parse(text) : null
+  // A CSV export is text, not JSON, and JSON.parse would throw on the first cell. Errors are
+  // still JSON even for a raw request -- the server sends its error shape whatever was asked for
+  // -- so parsing is attempted for the failure path and simply skipped when it is not JSON.
+  const data = raw && response.ok ? null : safeJson(text)
 
   if (!response.ok) {
     const message = data?.message || data?.error || `Request failed with status ${response.status}`
@@ -165,7 +168,19 @@ async function readResponse(response) {
     throw error
   }
 
-  return data
+  return raw ? text : data
+}
+
+/** Parses when it can. A raw endpoint that fails still answers with a JSON error body. */
+function safeJson(text) {
+  if (!text) {
+    return null
+  }
+  try {
+    return JSON.parse(text)
+  } catch {
+    return null
+  }
 }
 
 // Access tokens are now short-lived (30 min by default) and paired with a longer-lived refresh
@@ -223,7 +238,7 @@ async function refreshAccessToken() {
 
 export async function request(
   path,
-  { method = 'GET', token, body, headers, isFormData = false, skipRefresh = false } = {},
+  { method = 'GET', token, body, headers, isFormData = false, skipRefresh = false, raw = false } = {},
 ) {
   const extraHeaders = isFormData ? headers : { 'Content-Type': 'application/json', ...headers }
   const payload = body == null ? undefined : isFormData ? body : JSON.stringify(body)
@@ -270,7 +285,7 @@ export async function request(
     sessionExpiredHandler()
   }
 
-  return readResponse(response)
+  return readResponse(response, { raw })
 }
 
 export async function signup(payload) {
