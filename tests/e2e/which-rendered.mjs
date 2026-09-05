@@ -1,0 +1,20 @@
+import { chromium } from 'playwright'
+import { readFileSync } from 'node:fs'
+const [email, password] = readFileSync(process.env.UI_CHECK_CREDS, 'utf8').trim().split('\n')
+const b = await chromium.launch(); const p = await b.newPage()
+const creatorPageChunks = []
+p.on('response', (r) => { if (/CreatorsPage-[A-Za-z0-9_-]+\.js/.test(r.url())) creatorPageChunks.push(r.url()) })
+await p.goto('https://app.tejdux.com/', { waitUntil: 'networkidle', timeout: 60000 })
+await p.getByRole('button', { name: /^log in$/i }).first().click()
+await p.waitForTimeout(1200)
+await p.locator('input[name="email"]').first().fill(email)
+await p.locator('input[name="password"]').first().fill(password)
+await p.getByRole('button', { name: /enter workspace/i }).first().click()
+await p.waitForTimeout(6000)
+await p.getByRole('link', { name: /^creators$/i }).first().click()
+await p.waitForTimeout(4000)
+console.log('  CreatorsPage chunks fetched:')
+console.log(creatorPageChunks.length ? creatorPageChunks.map(u => '    ' + u).join('\n') : '    NONE')
+const selects = await p.locator('select').evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')))
+console.log('  selects on page:', JSON.stringify(selects))
+await b.close()
