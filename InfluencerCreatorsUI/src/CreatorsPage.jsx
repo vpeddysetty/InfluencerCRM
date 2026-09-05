@@ -144,6 +144,13 @@ function CreatorsPage({
   const availablePlatforms = useMemo(() => {
     const seen = new Set()
     ;(creators || []).forEach((creator) => {
+      const platform = String(creator?.platform || '').trim().toLowerCase()
+      if (platform) {
+        seen.add(platform)
+      }
+    })
+    return [...seen].sort()
+  }, [creators])
 
   // Derived from the roster rather than a fixed list: the niches on offer are the ones this brand
   // actually works with, so the control never shows an option that would return nothing.
@@ -152,13 +159,6 @@ function CreatorsPage({
     ;(creators || []).forEach((creator) => {
       const niche = String(creator?.niche || '').toLowerCase().trim()
       if (niche) seen.add(niche)
-    })
-    return [...seen].sort()
-  }, [creators])
-      const platform = String(creator?.platform || '').trim().toLowerCase()
-      if (platform) {
-        seen.add(platform)
-      }
     })
     return [...seen].sort()
   }, [creators])
