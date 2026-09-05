@@ -160,3 +160,4 @@ tests/e2e/narration/
 influencrm-demo.mp4
 tests/e2e/.demo-build/
 .legal-publish-tmp/
+.local-certs/

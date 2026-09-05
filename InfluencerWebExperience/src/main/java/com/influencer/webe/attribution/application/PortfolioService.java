@@ -107,7 +107,19 @@ public class PortfolioService {
             row.put("orders", orders);
             row.put("commission", commission.toPlainString());
             row.put("influencerCost", cost.toPlainString());
-            row.put("roi", kpis.path("roi").asText(null));
+            // RECOMPUTED, not copied. AnalyticsService answers "0.00" or "∞" when nothing was
+            // spent, which is right for a single-brand dashboard where the reader is looking at
+            // one campaign's economics. On a portfolio it is wrong twice over: the row would read
+            // 0.00x for a client that simply has no recorded cost, while the totals row -- which
+            // uses this class's rule -- shows a dash for the same situation. Two ROI figures
+            // disagreeing on one screen is worse than either convention alone, so the per-brand
+            // figure follows the same rule as the total it sits under.
+            String brandRoi = roi(revenue, cost);
+            if (brandRoi == null) {
+                row.putNull("roi");
+            } else {
+                row.put("roi", brandRoi);
+            }
             // Creator count comes from the per-creator breakdown the same call already computed,
             // rather than a second round trip for a number that is sitting right there.
             row.put("creators", result.path("byCreator").isArray() ? result.get("byCreator").size() : 0);

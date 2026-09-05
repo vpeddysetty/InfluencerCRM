@@ -62,6 +62,10 @@ class PortfolioServiceTest {
             this.byBrand = byBrand;
         }
 
+        JsonNode byBrandNode(UUID brandId) {
+            return byBrand.get(brandId);
+        }
+
         @Override
         public JsonNode influencerRevenue(UUID brandId, LocalDate from, LocalDate to) {
             asked.add(brandId);
@@ -196,5 +200,25 @@ class PortfolioServiceTest {
 
         assertTrue(out.get("totals").get("roi").isNull(),
                 "revenue with no recorded cost has an ROI nobody can compute");
+    }
+
+    @Test
+    @DisplayName("a brand row and the totals agree about ROI when nothing was spent")
+    void perBrandRoiFollowsTheSameRuleAsTheTotal() {
+        // Found by running the stack, not by a unit test. AnalyticsService answers "0.00" (or "∞")
+        // for a zero cost, which suits a single-brand dashboard; this class answers null. Copying
+        // the per-brand figure straight through put both conventions on one screen -- a row reading
+        // 0.00x directly under a total reading "—", for the same situation.
+        StubAccess access = new StubAccess(List.of(access(BRAND_A, "Aurora")));
+        StubAnalytics analytics = new StubAnalytics(Map.of(
+                BRAND_A, analyticsFor("0", 0, "0", "0", 0)));
+        // What AnalyticsService would really have said for this brand.
+        ((ObjectNode) analytics.byBrandNode(BRAND_A).get("kpis")).put("roi", "0.00");
+
+        JsonNode out = service(access, analytics).portfolio(USER, null, null);
+
+        assertTrue(out.get("brands").get(0).get("roi").isNull(),
+                "the row must not report 0.00x while the total above it reports nothing");
+        assertTrue(out.get("totals").get("roi").isNull());
     }
 }

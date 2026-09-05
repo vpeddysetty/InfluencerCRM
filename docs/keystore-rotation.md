@@ -27,6 +27,60 @@ remove it from previous commits.
 
 ## What still must be done
 
+## Running the stack locally — the certificate pair must MATCH
+
+**The symptom, and why it is hard to place.** The BFF answers `502 Unable to call DAO users
+endpoint` for every request that reaches the DAO, and logs nothing about why: the TLS failure is
+swallowed and only the gateway error survives. Signup, login and anything else touching the DAO
+fail identically, which reads like a broken DAO rather than a certificate problem.
+
+**The cause.** `dao-truststore.p12` is committed and holds a certificate for `CN=influencer-dao`.
+The DAO's keystore is NOT committed — deliberately, it is a private key — so a developer generates
+one, and unless it is generated with exactly the DN below the BFF refuses it. A keystore left in
+`target/classes` from an earlier experiment (`CN=localhost`) will start the DAO happily and fail
+every BFF call.
+
+Diagnose by comparing the two:
+
+```bash
+keytool -list -v -keystore <the DAO keystore> -storepass password -storetype PKCS12 | grep -E "Owner:|SHA256:"
+keytool -list -v -keystore InfluencerWebExperience/src/main/resources/dao-truststore.p12   -storepass changeit -storetype PKCS12 | grep -E "Owner:|SHA256:"
+```
+
+Different fingerprints mean the pair does not match, whatever the subjects say.
+
+**LOCAL AND PRODUCTION ARE SEPARATE PAIRS, on purpose.** Production's keystore comes from Secrets
+Manager and is never on a developer machine; the local pair is generated per machine and never
+committed. Sharing one pair across both would put a production private key in a working tree — the
+same mistake `docs/legal` had to unwind for the OpenAI key. Generate a local pair into
+`.local-certs/` (gitignored) and point both services at it:
+
+```bash
+mkdir -p .local-certs
+keytool -genkeypair -alias influencerdao -keyalg RSA -keysize 2048 -validity 825   -storetype PKCS12 -keystore .local-certs/keystore.p12 -storepass password -keypass password   -dname "CN=influencer-dao,OU=platform,O=influencrm,C=US"   -ext "SAN=dns:localhost,dns:influencer-dao,ip:127.0.0.1"
+
+keytool -exportcert -alias influencerdao -keystore .local-certs/keystore.p12   -storetype PKCS12 -storepass password -file .local-certs/dao-cert.crt
+keytool -importcert -noprompt -alias influencerdao -file .local-certs/dao-cert.crt   -keystore .local-certs/dao-truststore.p12 -storetype PKCS12 -storepass changeit
+```
+
+The SAN matters: without `dns:localhost` the certificate is trusted but hostname verification still
+rejects `https://localhost:8443`.
+
+Then run each service against the LOCAL pair, leaving the committed truststore untouched:
+
+```bash
+# DAO
+DAO_KEYSTORE="file:/abs/path/.local-certs/keystore.p12" DAO_KEYSTORE_PASSWORD=password DAO_DB_URL="jdbc:postgresql://localhost:15432/influencercrm_db?stringtype=unspecified"   mvn -o spring-boot:run
+
+# BFF
+WEBE_DAO_TRUST_STORE="file:/abs/path/.local-certs/dao-truststore.p12" WEBE_DAO_TRUST_STORE_PASSWORD=changeit   mvn -o spring-boot:run -Dspring-boot.run.profiles=local
+```
+
+Note the database port: local Postgres publishes **15432**, not 5432. A DAO started against 5432
+boots and then 500s on the first query.
+
+---
+
 ### 1. Generate a new keystore (per environment)
 
 Do **not** reuse the committed key. Generate a fresh one, and never commit it.
