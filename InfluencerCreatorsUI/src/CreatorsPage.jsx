@@ -127,6 +127,12 @@ function CreatorsPage({
 
   const [search, setSearch] = useState('')
   const [platformFilter, setPlatformFilter] = useState('')
+  // PR-67. Niche, audience size and vetting status -- the three an agency actually screens on.
+  // Search and platform were already here; these are what "filter to beauty creators over 50k"
+  // needed and could not do.
+  const [nicheFilter, setNicheFilter] = useState('')
+  const [minFollowers, setMinFollowers] = useState('')
+  const [vettingFilter, setVettingFilter] = useState('')
   const [sortBy, setSortBy] = useState('name')
   const [sortDir, setSortDir] = useState('asc')
 
@@ -134,6 +140,17 @@ function CreatorsPage({
   const availablePlatforms = useMemo(() => {
     const seen = new Set()
     ;(creators || []).forEach((creator) => {
+
+  // Derived from the roster rather than a fixed list: the niches on offer are the ones this brand
+  // actually works with, so the control never shows an option that would return nothing.
+  const availableNiches = useMemo(() => {
+    const seen = new Set()
+    ;(creators || []).forEach((creator) => {
+      const niche = String(creator?.niche || '').toLowerCase().trim()
+      if (niche) seen.add(niche)
+    })
+    return [...seen].sort()
+  }, [creators])
       const platform = String(creator?.platform || '').trim().toLowerCase()
       if (platform) {
         seen.add(platform)
@@ -148,6 +165,18 @@ function CreatorsPage({
     return (creators || [])
       .filter((creator) => matchesQuery(creator, query, customAttributesToPairs))
       .filter((creator) => !platformFilter || String(creator?.platform || '').toLowerCase() === platformFilter)
+      .filter((creator) => !nicheFilter || String(creator?.niche || '').toLowerCase() === nicheFilter)
+      .filter((creator) => !vettingFilter || String(creator?.vettingStatus || '') === vettingFilter)
+      .filter((creator) => {
+        // A creator with no follower count is EXCLUDED once a minimum is set, not treated as zero.
+        // "We do not know their audience" is not the same as "their audience is too small", and a
+        // brand filtering for reach is asking which creators it can verify, not which it can guess.
+        if (!minFollowers) return true
+        const floor = Number(minFollowers)
+        if (Number.isNaN(floor)) return true
+        const actual = Number(creator?.followerCount)
+        return !Number.isNaN(actual) && actual >= floor
+      })
       .sort((a, b) => {
         const text = (value) => String(value || '').toLowerCase()
         const primary = text(a?.[sortBy]).localeCompare(text(b?.[sortBy])) * direction
@@ -155,14 +184,17 @@ function CreatorsPage({
         // platform stay stable rather than reshuffling rows on every click.
         return primary || text(a?.name).localeCompare(text(b?.name))
       })
-  }, [creators, search, platformFilter, sortBy, sortDir, customAttributesToPairs])
+  }, [creators, search, platformFilter, nicheFilter, vettingFilter, minFollowers, sortBy, sortDir, customAttributesToPairs])
 
   const totalCount = (creators || []).length
-  const isFiltered = Boolean(search.trim() || platformFilter)
+  const isFiltered = Boolean(search.trim() || platformFilter || nicheFilter || vettingFilter || minFollowers)
 
   const clearFilters = () => {
     setSearch('')
     setPlatformFilter('')
+    setNicheFilter('')
+    setMinFollowers('')
+    setVettingFilter('')
   }
 
   const toggleSort = (key) => {
@@ -436,6 +468,40 @@ function CreatorsPage({
             {availablePlatforms.map((platform) => (
               <option key={platform} value={platform}>{platformLabel(platform)}</option>
             ))}
+          </select>
+          {availableNiches.length > 0 ? (
+            <select
+              value={nicheFilter}
+              onChange={(event) => setNicheFilter(event.target.value)}
+              aria-label="Filter by niche"
+            >
+              <option value="">All niches</option>
+              {availableNiches.map((niche) => (
+                <option key={niche} value={niche}>{niche.charAt(0).toUpperCase() + niche.slice(1)}</option>
+              ))}
+            </select>
+          ) : null}
+          <select
+            value={minFollowers}
+            onChange={(event) => setMinFollowers(event.target.value)}
+            aria-label="Filter by minimum followers"
+          >
+            <option value="">Any audience</option>
+            <option value="1000">1k+</option>
+            <option value="10000">10k+</option>
+            <option value="50000">50k+</option>
+            <option value="100000">100k+</option>
+            <option value="1000000">1M+</option>
+          </select>
+          <select
+            value={vettingFilter}
+            onChange={(event) => setVettingFilter(event.target.value)}
+            aria-label="Filter by vetting status"
+          >
+            <option value="">Any status</option>
+            <option value="approved">Approved</option>
+            <option value="pending">Pending</option>
+            <option value="rejected">Rejected</option>
           </select>
           {isFiltered ? (
             <button type="button" className="ghost-btn" onClick={clearFilters}>Clear</button>

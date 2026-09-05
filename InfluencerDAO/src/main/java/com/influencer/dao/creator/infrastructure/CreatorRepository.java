@@ -18,6 +18,53 @@ public interface CreatorRepository extends JpaRepository<Creator, UUID> {
 	/** The review queue (C2.6): everything a rule did not resolve. */
 	List<Creator> findByBrandIdAndVettingStatus(UUID brandId, String vettingStatus);
 
+	/**
+	 * Search and filter one brand's roster (roadmap PR-67).
+	 *
+	 * <p><b>Why native SQL.</b> {@code platform} is a Postgres enum, and the existing handle lookups
+	 * above already cast it for the same reason -- a JPQL parameter binds as text and the comparison
+	 * fails at runtime rather than at compile time. Keeping this consistent with its neighbours
+	 * matters more than the derived-query style it gives up.
+	 *
+	 * <p><b>Every filter is optional, and null means "do not filter".</b> The
+	 * {@code :param is null or ...} shape lets one query serve every combination without building
+	 * SQL by hand -- string concatenation here would be the injection surface, on a table holding
+	 * other people's contact details.
+	 *
+	 * <p><b>The text search is case-insensitive across handle, name and email.</b> A marketer
+	 * looking for someone types whichever of the three they remember, and a search that only
+	 * matched one of them would read as "this creator is not here".
+	 *
+	 * <p><b>Every parameter is cast explicitly.</b> Postgres cannot infer the type of a parameter
+	 * whose only use is {@code :p is null}, and reports "could not determine data type of parameter
+	 * $2" at runtime -- not at startup, so it passes every check short of executing the query. The
+	 * casts are load-bearing; removing them for tidiness reintroduces a 500.
+	 *
+	 * <p><b>Follower bounds are inclusive.</b> A filter for "50k and up" that excluded exactly
+	 * 50,000 would be wrong in the one case a user is most likely to test.
+	 */
+	@Query(value = """
+			select * from creators
+			 where brand_id = :brandId
+			   and (cast(:q as text) is null or (
+			         lower(coalesce(handle, '')) like lower(concat('%', cast(:q as text), '%'))
+			      or lower(coalesce(name, ''))   like lower(concat('%', cast(:q as text), '%'))
+			      or lower(coalesce(email, ''))  like lower(concat('%', cast(:q as text), '%'))))
+			   and (cast(:niche as text) is null or lower(coalesce(niche, '')) = lower(cast(:niche as text)))
+			   and (cast(:platform as text) is null or platform = cast(:platform as platform_type))
+			   and (cast(:vettingStatus as text) is null or vetting_status = cast(:vettingStatus as text))
+			   and (cast(:minFollowers as integer) is null or coalesce(follower_count, 0) >= cast(:minFollowers as integer))
+			   and (cast(:maxFollowers as integer) is null or coalesce(follower_count, 0) <= cast(:maxFollowers as integer))
+			 order by created_at desc
+			""", nativeQuery = true)
+	List<Creator> search(@Param("brandId") UUID brandId,
+	                     @Param("q") String q,
+	                     @Param("niche") String niche,
+	                     @Param("platform") String platform,
+	                     @Param("vettingStatus") String vettingStatus,
+	                     @Param("minFollowers") Integer minFollowers,
+	                     @Param("maxFollowers") Integer maxFollowers);
+
 	@Query(value = "select * from creators where user_id = :userId and platform = cast(:platform as platform_type) and handle = :handle", nativeQuery = true)
 	Optional<Creator> findByUserIdAndPlatformAndHandle(@Param("userId") UUID userId, @Param("platform") String platform, @Param("handle") String handle);
 

@@ -24,9 +24,29 @@ public class CreatorController {
         this.repository = repository;
     }
 
+    /**
+     * The roster, optionally searched and filtered (roadmap PR-67).
+     *
+     * <p>The filters take effect only WITH a brandId. Searching every brand on the platform at once
+     * is not a question this endpoint should answer, and letting the filters apply without a tenant
+     * scope would make it one.
+     */
     @GetMapping
     public List<Creator> findAll(@RequestParam(required = false) UUID brandId,
-                                 @RequestParam(required = false) String vettingStatus) {
+                                 @RequestParam(required = false) String vettingStatus,
+                                 @RequestParam(required = false) String q,
+                                 @RequestParam(required = false) String niche,
+                                 @RequestParam(required = false) String platform,
+                                 @RequestParam(required = false) Integer minFollowers,
+                                 @RequestParam(required = false) Integer maxFollowers) {
+        boolean filtered = q != null || niche != null || platform != null
+                || minFollowers != null || maxFollowers != null;
+        if (brandId != null && filtered) {
+            // Blank is not a filter. An empty search box submits "" and must return the whole
+            // roster, not the rows whose handle contains the empty string by accident of LIKE.
+            return repository.search(brandId, blankToNull(q), blankToNull(niche),
+                    blankToNull(platform), blankToNull(vettingStatus), minFollowers, maxFollowers);
+        }
         if (brandId != null && vettingStatus != null) {
             return repository.findByBrandIdAndVettingStatus(brandId, vettingStatus);
         }
@@ -191,6 +211,11 @@ public class CreatorController {
             existing.setTaxFormKind(text(payload.get("taxFormKind")));
         }
         return repository.save(existing);
+    }
+
+    /** Treats a blank parameter as absent — see the note on the search branch above. */
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
     }
 
     private String text(Object value) {

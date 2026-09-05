@@ -34,14 +34,38 @@ public class CreatorsController {
         this.entitlements = entitlements;
     }
 
+    /**
+     * The roster, optionally searched and filtered (roadmap PR-67).
+     *
+     * <p><b>The brand scope is never taken from the request.</b> {@code brandId} is accepted for
+     * shape compatibility and then discarded — {@code requirePermissionForBrand} resolves the real
+     * one from the verified token, as everywhere else here. A filter parameter is a narrowing
+     * within that scope and can never widen it.
+     *
+     * <p>Filters are forwarded verbatim rather than applied here: the DAO can answer them with an
+     * indexed query, and filtering a fully-fetched list in the BFF is the shape `OP-39` had to
+     * undo on the analytics path.
+     */
     @GetMapping
     public JsonNode list(@RequestHeader(value = "Authorization", required = false) String authorization,
                          @RequestParam(required = false) UUID brandId,
                          @RequestParam(required = false) Integer page,
-                         @RequestParam(required = false) Integer size) {
+                         @RequestParam(required = false) Integer size,
+                         @RequestParam(required = false) String q,
+                         @RequestParam(required = false) String niche,
+                         @RequestParam(required = false) String platform,
+                         @RequestParam(required = false) String vettingStatus,
+                         @RequestParam(required = false) Integer minFollowers,
+                         @RequestParam(required = false) Integer maxFollowers) {
         UUID resolvedBrandId = requestUserResolver.requirePermissionForBrand(authorization, Permission.CREATOR_READ);
         Map<String, String> query = new LinkedHashMap<>();
         query.put("brandId", resolvedBrandId.toString());
+        query.put("q", q);
+        query.put("niche", niche);
+        query.put("platform", platform);
+        query.put("vettingStatus", vettingStatus);
+        query.put("minFollowers", minFollowers == null ? null : minFollowers.toString());
+        query.put("maxFollowers", maxFollowers == null ? null : maxFollowers.toString());
         return responseShapeService.creatorsList(daoGatewayClient.get("/creators", query), page, size);
     }
 
