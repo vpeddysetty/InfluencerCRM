@@ -784,10 +784,92 @@ argument for not building them yet.
 X names one of `PR-49`..`PR-56`. Then build X, not the phase X belongs to. If no agency names any of
 them, that is information too, bought for 5.5 days instead of 34.
 
+> **Amended 2026-09-04 — read §12.** The rule above assumes the choice is *build now* or *wait for a
+> request*. The founder's decision adds a third: show agencies a coherent feature set and ask them
+> what to enhance. That does not repeal this rule — it changes what is being asked. §12 builds a
+> narrow ~8-day agency story so there is something specific to react to, and explicitly holds
+> `PR-53`, `PR-55`, `PR-50`, `PR-51`, `PR-52` and `PR-54` under this rule. The distinction worth
+> keeping: **building four rows to prompt a better conversation is not the same as building
+> twenty-nine on speculation**, and the second is what this section exists to prevent.
+
 **The caveat against my own answer:** if the first conversation is with an agency already running
 paid campaigns that wants to switch *this month*, then `PR-47` + `PR-48` + `PR-49` (10d) become
 urgent together — you cannot pay a US creator more than $600 in a year without the tax form on file.
 ~~**Do not promise a payout date before `PR-49` exists.**~~ `PR-49` now exists (2026-09-02), so a payout date may be promised — but note the gate is only as good as the rail: on Connect it defers to `payouts_enabled`, which `PR-47` ships switched OFF (`provider=manual`).
+
+---
+
+## 12. The agency feature set (added 2026-09-04)
+
+### 12.1 Why this section exists, and what changed
+
+Until now the roadmap's answer on agency work was §11.5's: **wait for an agency to name what it
+needs.** That rule was right while nothing was being shown to anyone. The founder's decision on
+2026-09-04 changes the input — the product is going to agencies for review *now*, with pricing
+deliberately unset (`PR-63`), and the ask is for enhancements to react to rather than a blank sheet.
+
+A demo that prompts "what's missing?" gets better answers when there is something coherent to react
+to. So this section builds a deliberately **narrow** agency story — four rows, ~8 days — and stops.
+It is not the ~29-day payments block, and §11.5's rule still governs that: `PR-53`..`PR-56` beyond
+what is listed here waits for someone to ask.
+
+### 12.2 The finding this section is built on
+
+**The product is architecturally multi-brand and experientially single-brand.**
+
+An agency account can already hold many clients — `BrandRepository.findAccessibleBrands` works, the
+brand switcher works, and `OWNER`/`ADMIN`/`FINANCE` reach every brand without a grant (§5). But
+**every read endpoint is `requirePermissionForBrand`**, verified across
+`attribution/api/AnalyticsController.java:40` and the whole `CouponController`. There is no
+account-scoped rollup anywhere, and no `allBrands`/`portfolio` view in any of the seven UI projects.
+
+So an agency with eight clients sees eight workspaces and switches between them one at a time. Every
+screen answers *"how is this brand doing?"*; nothing answers *"how is my agency doing?"* That is the
+gap an agency notices in the first ninety seconds, and it is what §12.3 closes.
+
+**A second fact worth stating because it looks like a bug and is not:**
+`uq_creators_brand_platform_handle` (`V11:415`) makes the same creator a **separate row per brand**.
+That is correct for tenancy — one client must not see another's notes or rates on a shared creator —
+and `PR-66` deliberately does not change it.
+
+### 12.3 The rows
+
+| ID | What | Days | Why this one |
+|---|---|---|---|
+| `PR-64` | **Portfolio dashboard — one screen, every client.** An account-scoped sibling to the brand-scoped analytics: revenue attributed, active campaigns, creators engaged and commissions owed, per client, sortable, for brands the caller can already reach. **Reuses `findAccessibleBrands` for the scope** — it must not become a second definition of who sees what, which §5 warns is how a user ends up seeing one set of brands and being refused on another | 3 | **The demo opener.** It is the screen that makes the product look built for an agency rather than adapted to one. Also the cheapest: the data is already there, only the aggregation is missing |
+| `PR-65` | **Client-ready reporting export.** Per-brand results for a date range as PDF/CSV, carrying the agency's own name. There is **no export in the attribution context at all** today | 2 | Agencies re-key these numbers into a slide deck monthly — that is the labour they will describe unprompted. It is also the cheapest route to the product appearing in front of the customer's customer |
+| `PR-56` | **Payout hygiene** — minimum payout threshold (~$50) to avoid dust payments, and a fixed schedule. Already scoped in §11.4; pulled forward | 1 | Small, and it moves the payout story from theoretical to operational. Cheap to build, cheap to demo |
+| `PR-66` | **The shared-creator picture.** A read-only panel: "you also work with this creator for X and Y, at these rates" — scoped to brands the caller can already reach, changing no tenancy rule and merging no rows | 2 | The insight **only an agency-aware tool can offer**. An agency knows it books @someone for three clients; today the product cannot say so |
+
+**Total: ~8 days.**
+
+### 12.4 What this section deliberately does NOT include
+
+- **`PR-53` (campaign agreement + e-signature, 5d)** — the most requested-*sounding* row and the one
+  to hold. E-signature means a vendor, a legal template and an audit trail, and agencies typically
+  already have DocuSign and a contract their own lawyers wrote. Build it when one says "we would
+  move if it did contracts", not in anticipation.
+- **`PR-55` (fraud and code-leakage controls, 4d)** — real, but it is a problem at volume, and
+  detection thresholds cannot be tuned against no traffic.
+- **`PR-50` (PayPal fallback), `PR-51`, `PR-52`, `PR-54`** — unchanged, still governed by §11.5.
+
+### 12.5 The positioning point, recorded because it is a product decision
+
+The defensible story is not the feature count. It is **attribution to actual sales with the payout
+attached**: most influencer tools stop at reach and engagement, and this one has coupon-level sale
+attribution, commission computed on the net of discounts (`OP-21`), a 1099 threshold gate (`PR-49`)
+and Connect onboarding (`PR-47`).
+
+`PR-64` matters because it makes that story visible **across a book of clients** rather than one at a
+time. That is the difference between a tool an agency uses and a tool an agency buys.
+
+### 12.6 Two things to clear before demoing
+
+Neither is in this section, and both would undercut it:
+
+- **`OP-06`** — no email is delivered. A creator invitation that silently does not arrive is the
+  worst thing to discover during a live demo.
+- **`PR-04`** — Stripe is on test keys. Fine to demo; do not promise a start date.
 
 ---
 
