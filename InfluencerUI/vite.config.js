@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import { fileURLToPath, URL } from 'node:url'
 import react from '@vitejs/plugin-react'
 import { federation } from '@module-federation/vite'
@@ -17,7 +17,23 @@ import { federationRemotes } from './src/shell/gateway/originRegistry.js'
  * React is shared as a singleton: two copies in one page break hooks, and that is also what lets a
  * remote read the gateway's React context despite being served from a different origin.
  */
-const useRemotes = process.env.VITE_USE_REMOTES === 'true'
+// Read from .env.production via loadEnv, NOT from process.env.
+//
+// THE BUG THIS FIXES (roadmap OP-43). `deploy-ui.sh` writes VITE_USE_REMOTES=true into
+// .env.production, and Vite loads that file into `import.meta.env` for APPLICATION code -- never
+// into `process.env` for the config file itself. So this read `undefined` on every production
+// build, the federation plugin below was never added, and the shell shipped with its bundled
+// fallback pages and no remote wiring at all.
+//
+// It failed silently in the worst way: no error, no warning, no request to a remote origin. The
+// deployed creators page rendered perfectly while missing every control that lives in the remote,
+// and CLAUDE.md section 1 -- "production serves remotes" -- was inverted without anyone noticing.
+//
+// loadEnv reads the same .env files Vite would, so the config and the application now agree about
+// what the environment says. `process.env` is still honoured as an override, because exporting a
+// variable on the command line is a reasonable thing to expect to work.
+const env = loadEnv(process.env.NODE_ENV || 'production', process.cwd(), 'VITE_')
+const useRemotes = (process.env.VITE_USE_REMOTES ?? env.VITE_USE_REMOTES) === 'true'
 
 export default defineConfig({
   // `@influencer/ui` is a source directory, not an npm package (packages/ui). Aliased rather than
@@ -43,7 +59,11 @@ export default defineConfig({
           federation({
             name: 'shell',
             dts: false,
-            remotes: federationRemotes(),
+            // Origins passed in explicitly. `originRegistry` reads `import.meta.env`, which is
+            // populated for application code and EMPTY here -- so called from the config it
+            // returned every localhost fallback, and a build that did enable federation would
+            // still have pointed production at http://localhost:5176.
+            remotes: federationRemotes(env),
             shared: {
               react: { singleton: true, requiredVersion: '^19.0.0' },
               'react-dom': { singleton: true, requiredVersion: '^19.0.0' },
