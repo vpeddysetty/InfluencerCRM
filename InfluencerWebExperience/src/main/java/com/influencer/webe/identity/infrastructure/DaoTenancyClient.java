@@ -21,7 +21,7 @@ import java.util.UUID;
  * login rather than whenever a cache happens to expire.
  */
 @Component
-public class DaoTenancyClient {
+public class DaoTenancyClient implements com.influencer.webe.identity.application.BrandAccessPort {
 
     private final DaoGatewayClient gatewayClient;
 
@@ -203,6 +203,26 @@ public class DaoTenancyClient {
     private String text(JsonNode node, String field) {
         JsonNode value = node.get(field);
         return value == null || value.isNull() ? null : value.asText();
+    }
+
+    /**
+     * The same answer, in the published port's type (roadmap PR-64).
+     *
+     * <p>A second method rather than a changed signature: {@code findAccessibleBrands} is called
+     * from five places inside this context, and rewriting all of them to satisfy a boundary rule
+     * they do not cross would be churn for its own sake. Both delegate to the one query, so there
+     * is still exactly one definition of who sees what — which is the whole point of §5's warning.
+     */
+    @Override
+    public java.util.List<com.influencer.webe.identity.application.BrandAccessPort.BrandAccess>
+            findAccessibleBrandsForPort(UUID userId) {
+        java.util.List<com.influencer.webe.identity.application.BrandAccessPort.BrandAccess> out =
+                new ArrayList<>();
+        for (BrandAccess b : findAccessibleBrands(userId)) {
+            out.add(new com.influencer.webe.identity.application.BrandAccessPort.BrandAccess(
+                    b.brandId(), b.brandName(), b.accountId(), b.accountType(), b.role()));
+        }
+        return out;
     }
 
     public record BrandAccess(
