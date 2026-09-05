@@ -3,25 +3,31 @@ import { useCallback, useEffect, useState } from 'react'
 import './App.css'
 import './components/ui/ui.css'
 import { SessionExpiredDialog, ToastProvider, WorkspaceOnboardingDialog } from './components/ui'
-import { DEFAULT_ROUTE } from './shell/routeManifest'
+// The FEDERATED components, not the bundled pages (roadmap OP-43). Importing
+// `./pages/<Page>` here rendered the shell's own copy and bypassed federation entirely -- the
+// manifest described remotes the routes never used, and a fix applied in a remote reached nobody.
+// These wrappers try the remote and fall back to the same bundled page on failure.
+import {
+  DEFAULT_ROUTE,
+  ImportPage,
+  CampaignsPage,
+  CreatorsPage,
+  ContentPage,
+  WorkflowPage,
+  CouponsPage,
+  MarketplacePage,
+  DashboardPage,
+  PayoutsPage,
+  PortfolioPage,
+} from './shell/routeManifest'
 import { msUntilRefresh } from './shell/sessionExpiry'
 import LandingPage from './pages/LandingPage'
 import AcceptInvitationPage from './pages/AcceptInvitationPage'
 import VerifyEmailPage from './pages/VerifyEmailPage'
-import ImportPage from './pages/ImportPage'
-import CampaignsPage from './pages/CampaignsPage'
-import CreatorsPage from './pages/CreatorsPage'
 import CreatorRecordPage from './pages/CreatorRecordPage'
-import WorkflowPage from './pages/WorkflowPage'
-import CouponsPage from './pages/CouponsPage'
-import MarketplacePage from './pages/MarketplacePage'
-import DashboardPage from './pages/DashboardPage'
-import PortfolioPage from './pages/PortfolioPage'
-import PayoutsPage from './pages/PayoutsPage'
 import MembersPage from './pages/MembersPage'
 import SettingsPage from './pages/SettingsPage'
 import BillingPage from './pages/BillingPage'
-import ContentPage from './pages/ContentPage'
 import WorkspaceLayout from './components/WorkspaceLayout'
 import { SessionProvider } from './shell/SessionContext'
 import {

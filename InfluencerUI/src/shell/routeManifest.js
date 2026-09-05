@@ -25,31 +25,55 @@ const USE_REMOTES = import.meta.env?.VITE_USE_REMOTES === 'true'
  * the bundler leaves it alone and the federation runtime resolves it in the browser — a literal
  * would be statically analysed and fail the build whenever remotes are disabled.
  */
-function contextPage(remoteSpecifier, localImport) {
+/**
+ * A page that loads from its remote, falling back to the bundled copy.
+ *
+ * <p><b>The remote import must be a LITERAL (roadmap OP-43).</b> This took
+ * `import(/* @vite-ignore *\/ remoteSpecifier)` — a variable, with a comment explicitly telling the
+ * bundler not to touch it — so the federation plugin never rewrote it and the browser was left to
+ * resolve a bare specifier it has no import map for. Every call failed with
+ * `TypeError: Failed to resolve module specifier`, the catch below quietly served the bundled page,
+ * and production ran the shell's own copies while the manifest said otherwise.
+ *
+ * <p>So the caller passes a THUNK containing a literal import. The plugin can see it, rewrite it,
+ * and emit the federation wiring; the fallback stays exactly as it was.
+ *
+ * <p>The fallback is not only for development: a remote failing at runtime should degrade to the
+ * bundled page rather than take the app down, and the warning is what tells an operator that a
+ * deploy is serving one.
+ */
+function contextPage(label, remoteImport, localImport) {
   if (!USE_REMOTES) {
     return lazy(localImport)
   }
   return lazy(() =>
-    import(/* @vite-ignore */ remoteSpecifier).catch((error) => {
+    remoteImport().catch((error) => {
       // Surfaced deliberately: a silently-substituted page hides a broken deploy, and the operator
       // needs to know the gateway is serving a fallback rather than the remote.
-      console.warn(`[gateway] remote ${remoteSpecifier} unavailable, using bundled page`, error)
+      console.warn(`[gateway] remote ${label} unavailable, using bundled page`, error)
       return localImport()
     }),
   )
 }
 
 // One entry per page. Each names the remote that owns it and the bundled fallback.
-const ImportPage = contextPage('mf_campaigns/ImportPage', () => import('../pages/ImportPage'))
-const CampaignsPage = contextPage('mf_campaigns/CampaignsPage', () => import('../pages/CampaignsPage'))
-const CreatorsPage = contextPage('mf_creators/CreatorsPage', () => import('../pages/CreatorsPage'))
-const ContentPage = contextPage('mf_content/ContentPage', () => import('../pages/ContentPage'))
-const WorkflowPage = contextPage('mf_workflow/WorkflowPage', () => import('../pages/WorkflowPage'))
-const CouponsPage = contextPage('mf_commerce/CouponsPage', () => import('../pages/CouponsPage'))
-const MarketplacePage = contextPage('mf_commerce/MarketplacePage', () => import('../pages/MarketplacePage'))
-const DashboardPage = contextPage('mf_commerce/DashboardPage', () => import('../pages/DashboardPage'))
-const PortfolioPage = contextPage('mf_commerce/PortfolioPage', () => import('../pages/PortfolioPage'))
-const PayoutsPage = contextPage('mf_finance/PayoutsPage', () => import('../pages/PayoutsPage'))
+//
+// EXPORTED, and that is the point (roadmap OP-43). These are the only components that can load a
+// remote: contextPage wraps each in a dynamic import of `mf_<scope>/<Page>` with the bundled copy
+// as its fallback. App.jsx used to import the bundled pages DIRECTLY from ../pages and render those
+// instead, so no route ever went through federation -- the manifest drove the nav rail and nothing
+// else, and "production serves remotes" was false from the day the shell was written. Rendering
+// these exact objects is what makes the manifest describe what actually loads.
+export const ImportPage = contextPage('mf_campaigns/ImportPage', () => import('mf_campaigns/ImportPage'), () => import('../pages/ImportPage'))
+export const CampaignsPage = contextPage('mf_campaigns/CampaignsPage', () => import('mf_campaigns/CampaignsPage'), () => import('../pages/CampaignsPage'))
+export const CreatorsPage = contextPage('mf_creators/CreatorsPage', () => import('mf_creators/CreatorsPage'), () => import('../pages/CreatorsPage'))
+export const ContentPage = contextPage('mf_content/ContentPage', () => import('mf_content/ContentPage'), () => import('../pages/ContentPage'))
+export const WorkflowPage = contextPage('mf_workflow/WorkflowPage', () => import('mf_workflow/WorkflowPage'), () => import('../pages/WorkflowPage'))
+export const CouponsPage = contextPage('mf_commerce/CouponsPage', () => import('mf_commerce/CouponsPage'), () => import('../pages/CouponsPage'))
+export const MarketplacePage = contextPage('mf_commerce/MarketplacePage', () => import('mf_commerce/MarketplacePage'), () => import('../pages/MarketplacePage'))
+export const DashboardPage = contextPage('mf_commerce/DashboardPage', () => import('mf_commerce/DashboardPage'), () => import('../pages/DashboardPage'))
+export const PortfolioPage = contextPage('mf_commerce/PortfolioPage', () => import('mf_commerce/PortfolioPage'), () => import('../pages/PortfolioPage'))
+export const PayoutsPage = contextPage('mf_finance/PayoutsPage', () => import('mf_finance/PayoutsPage'), () => import('../pages/PayoutsPage'))
 // Account administration belongs to the shell, which already owns the session and the account.
 // A plain lazy import rather than contextPage(): there is no identity remote to fall back to.
 const MembersPage = lazy(() => import('../pages/MembersPage'))
