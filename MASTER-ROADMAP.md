@@ -68,25 +68,28 @@ instead: `mvn -o test` per module, `npm test` in the UI.
 
 ### 2.0 Deploy status — read this first (2026-09-05)
 
-**Production runs `v1.0.59`, built from commit `0497317`. Twenty-seven commits since then are
-committed and NOT deployed**, all on `feat/agency-feature-set`, which has not been merged or pushed.
+**Production runs `v1.0.60`, built from commit `4c30af6` on a clean tree. `feat/agency-feature-set`
+is merged to `master` (fast-forward, no divergence) and everything below is LIVE.**
 
-What is live: everything through `PR-49`, `PR-63`'s pricing posture (landing page, pricing page,
-billing gated to the owner), and the `OP-36` startup fix.
-
-What is built and waiting:
+Deployed and verified against production, not inferred:
 
 | | |
 |---|---|
-| `OP-40` | **The one that is live-wrong.** `PR-63`'s agency default matched no account, so every prospect signing up today hits a 25-creator wall with no pricing page and no upgrade path |
-| §12 in full | `OP-39`, `PR-64`, `PR-65`, `PR-56`, `PR-66`, `PR-67`, `PR-68` (partial) |
-| `V54`, `V55` | Two migrations — a deploy needs the full 12-image build, not a subset (§6) |
-| `OP-42` | The render check for the creators remote |
+| `OP-40` | ✅ **The live-wrong bug is fixed.** A fresh agency signup now creates a second brand — the 25-creator wall is gone |
+| `PR-64` | ✅ `/api/analytics/portfolio` returns both brands with correct totals |
+| `PR-65` | ✅ `portfolio.csv` returns a BOM'd, headed CSV |
+| `PR-56` | ✅ `/api/payout-terms` returns the floor and `scheduleEnforced:false` |
+| `PR-67` | ✅ `?niche=beauty&minFollowers=50000` filters correctly |
+| `PR-68` | ✅ `expiring-rights` answers |
+| `V54`, `V55` | ✅ Applied in production — schema at v55, no collisions |
+| UI | ✅ All 8 remotes deployed, no JS errors |
 
-**Before deploying:** the branch is unmerged and unpushed, another session holds uncommitted work in
-`MASTER-ROADMAP.md`, and §6's rules apply — plan, enumerate every non-no-op change, read the
-RENDERED diff rather than the action counts, and remember that applying updates the launch template
-but ships nothing until the ASG rolls.
+**Still not pushed to `origin`.** `master` is 38 commits ahead of `origin/master`; the merge and
+deploy were local-to-AWS, and the git remote has none of it.
+
+**A test account exists in the production database** — `prodcheck.1788626867@example.test`, with two
+brands and one creator, created to verify the deploy end to end. RDS is not publicly reachable, so
+it cannot be removed from a developer machine; delete it from inside the VPC when convenient.
 
 ### 2.1 The honest headline
 
