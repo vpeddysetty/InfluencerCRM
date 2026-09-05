@@ -874,7 +874,40 @@ live query. That is most of CQRS's benefit at a fraction of its cost.
 | `PR-56` | **Payout hygiene** — minimum payout threshold (~$50) to avoid dust payments, and a fixed schedule. Already scoped in §11.4; pulled forward | 1 | Small, and it moves the payout story from theoretical to operational. Cheap to build, cheap to demo |
 | `PR-66` | **The shared-creator picture.** A read-only panel: "you also work with this creator for X and Y, at these rates" — scoped to brands the caller can already reach, changing no tenancy rule and merging no rows | 2 | The insight **only an agency-aware tool can offer**. An agency knows it books @someone for three clients; today the product cannot say so |
 
-**Total: ~8 days.**
+| `PR-67` | **Creator search and filtering.** `CreatorsController` accepts `brandId`, `page`, `size` and **nothing else** (`:39-41`) — no text search, no filters, no tags. Add: handle/name search, and filters on niche, platform, follower band, vetting status and `metricsSource`. Tags are a stretch goal, not the core | 2 | **The gap that bites hardest in a live demo.** Show an agency a roster and fail to filter it to "beauty creators over 50k in the US" and they conclude the product does not scale to their book — which is the exact objection this whole section exists to answer. Cheap, and it makes every other creator screen usable |
+| `PR-68` | **Content rights and usage tracking.** Nothing exists today — zero hits for usage rights, licensing, exclusivity or expiry across the schema and the BFF. Attach to the campaign–creator relationship, which is already modelled (`campaign_creators`, which already carries a legacy `contract_signed_at`). Four fields plus a note: **usage scope** (organic / paid amplification / brand channels / web / print), **platforms**, **term** (`rights_start_at`, `rights_end_at`), **exclusivity window**. Three surfaces: capture at assignment, display on the creator record, and an **expiry view** — the one with real value | 2 | Agencies hold this risk: they negotiated the terms and run the ads, so a creator's lawyer writes to them. Paying for a post buys the post existing on the creator's feed; running it as an ad without a grant is copyright infringement plus a likeness claim, and it is a routine source of demand letters. **The expiring-rights list is also a renewal prompt** — it tells an agency where next month's revenue is. **Two rules, both matching patterns already here:** unknown must read as "not recorded", NEVER as granted (`PR-49`/`PR-47`'s rule — failing open on a legal question is worse than a blank field); and it records the agreement, it is not the agreement (`TaxThresholdService` records that a W-9 arrived without storing the form). That distinction is what keeps this 2 days instead of 5, and keeps it out of `PR-53`'s e-signature territory |
+
+**Total: ~12 days.**
+
+### 12.3b Where `PR-67` and `PR-68` came from — an external review, checked against the code
+
+Both rows come from a third-party review of the product (2026-09-04). It is recorded here **with its
+error rate**, because the useful half is genuinely useful and the other half would have wasted days.
+
+**What it got wrong — it was reading an older roadmap, not the code.** It recommended building, before
+outreach: the creator handoff (shipped `PR-40`..`PR-44`, 2026-08-27, portal live at
+`portal.tejdux.com`), a campaign pipeline UI (the workflow board ships with seven customisable
+stages), and "team roles: Admin / Editor / Viewer" (six roles exist, with an account-vs-brand scope
+split and two separation-of-duties rules — more sophisticated than what it proposed). It also
+advised **against** multi-tenant brand switching, which already exists, and whose real gap is
+cross-brand aggregation — the single thing an agency notices first. That advice, followed, would
+have skipped `PR-64`.
+
+**What it got right, each verified against the code before being written down here:** creator search
+is absent (`CreatorsController:39-41`); content rights are absent entirely; communication logging is
+absent; exportable reports are absent (already `PR-65`); SES blocks email (already `OP-06`); and
+audience demographics are unavailable — which is **structural, not an omission**:
+`InstagramProfileAdapter` returns null by design because the `insights` edge answers only for the
+account that authorised the app.
+
+**Deliberately not taken: communication logging.** Real, but agencies live in email and Slack, and a
+log nobody fills in is worse than no log at all. It becomes worth building when someone asks for it.
+
+**The line worth keeping** is its closing one — agencies judge on workflow, collaboration, reporting
+and ease of use. That is an argument **for** `PR-64`, not against it: reporting is where this product
+is weakest relative to expectation. Its accompanying flattery ("stronger than 80% of influencer
+CRMs") is ungrounded and was discounted; a reviewer wrong this often about the product's current
+state has not earned a judgement about its standing.
 
 ### 12.4 What this section deliberately does NOT include
 
