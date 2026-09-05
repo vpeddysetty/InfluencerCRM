@@ -66,6 +66,28 @@ instead: `mvn -o test` per module, `npm test` in the UI.
 
 ## 2. Where we actually are
 
+### 2.0 Deploy status — read this first (2026-09-05)
+
+**Production runs `v1.0.59`, built from commit `0497317`. Twenty-seven commits since then are
+committed and NOT deployed**, all on `feat/agency-feature-set`, which has not been merged or pushed.
+
+What is live: everything through `PR-49`, `PR-63`'s pricing posture (landing page, pricing page,
+billing gated to the owner), and the `OP-36` startup fix.
+
+What is built and waiting:
+
+| | |
+|---|---|
+| `OP-40` | **The one that is live-wrong.** `PR-63`'s agency default matched no account, so every prospect signing up today hits a 25-creator wall with no pricing page and no upgrade path |
+| §12 in full | `OP-39`, `PR-64`, `PR-65`, `PR-56`, `PR-66`, `PR-67`, `PR-68` (partial) |
+| `V54`, `V55` | Two migrations — a deploy needs the full 12-image build, not a subset (§6) |
+| `OP-42` | The render check for the creators remote |
+
+**Before deploying:** the branch is unmerged and unpushed, another session holds uncommitted work in
+`MASTER-ROADMAP.md`, and §6's rules apply — plan, enumerate every non-no-op change, read the
+RENDERED diff rather than the action counts, and remember that applying updates the launch template
+but ships nothing until the ASG rolls.
+
 ### 2.1 The honest headline
 
 **The product is much closer to charging money than the paperwork suggested.** Roughly 45–50 of
@@ -237,6 +259,8 @@ and `PR-47` (5d) belong before the agency conversations — **read §11.5 before
 | `OP-36` | **v1.0.58 took the API down for 37 minutes** — ✅ **FIXED 2026-09-04 (v1.0.59).** Adding a test-only constructor gave `EntitlementService` two constructors and no `@Autowired`, so Spring looked for a no-arg one, found none, and the BFF refused to start: `BeanInstantiationException … No default constructor found`. **Every unit test passed** — they call constructors directly and never ask the container to choose — and the **instance refresh reported Successful throughout**, the exact failure the deploy runbook already warns about. The guard test asserts exactly one constructor carries `@Autowired`, verified failing with it removed. Structural rather than a booted context: §BFF-WebMvcTest needs two filters excluded and Mockito does not run on this JDK | 0.5 | A green unit suite says nothing about whether the container can wire the beans |
 | `OP-37` | **The deploy script reported a broken UI for a check that never ran** — ✅ **FIXED 2026-09-04.** `deploy-ui.sh` passed `$REPO_ROOT` to node as `/c/AI/…`, which `node.exe` reads as a relative path off the current drive (`Cannot find module C:\c\AI\…`). The script then printed its most alarming message — *"the upload succeeded and the deployed UI does not run"*, advising fix-forward because rollback is gone — for a smoke check that had not executed. The UI was fine both times. `cygpath -w` translates; absent on a real POSIX host, where the path already works. **A check that cannot run must not be indistinguishable from a check that failed** | 0.25 | Same class as the `mktemp -d` bug in `publish-legal.sh`; any script handing a Git Bash path to a native binary has it |
 | `OP-38` | **A published price survived in the page's own metadata and comments** — ✅ **FIXED 2026-09-04.** After rewriting `/pricing/` the body was clean, but `<meta name="description">` still advertised *"$49/mo Pro, $149/mo Agency"* — which is what search engines and link previews show — and the explanatory HTML comment repeated the old figures. **A comment is not rendered but it IS delivered**: `curl | grep '$'` on the live page found them, the same lesson as the internal COUNSEL notes in `OP-35`'s cleanup. Both scrubbed; verified 0 dollar figures in body, head and comments at the origin and after the CDN's 300s TTL cleared | 0.25 | Rewriting a page means the head and the comments too, not just what renders |
+| `OP-40` | **`PR-63`'s agency default reached zero accounts** — ✅ **FIXED 2026-09-05, NOT YET DEPLOYED.** `WEBE_DEFAULT_PLAN=agency` shipped to production in v1.0.59 and changed the plan of no account at all: `identity.accounts.plan` is `not null default 'free'` (`V11:66`), so the column is never null and an "only when unset" rule matched nothing. **Every prospect is still on free-tier limits right now** — 1 brand, 25 creators, 3 pages — which is the exact wall `PR-63` exists to prevent someone hitting with no pricing page to explain it and no upgrade path, because billing is gated to the owner. `free` now counts as unset; a PAID plan is never overridden, because a subscription writes `pro`/`agency` over the column. **Found by signing up as an agency and being refused a second brand** — the test asserted the rule as written rather than the outcome intended, and passed | 0.5 | The highest-priority undeployed change: it is live-wrong today |
+| `OP-42` | **A page can fail on render while `vite build` reports success** — ✅ **SHIPPED 2026-09-05.** Two runtime faults shipped in `PR-66`/`PR-67` behind a clean build: a const referenced before its declaration (`ReferenceError` on render) and a `useMemo` nested in another memo's loop. **Demonstrated, not asserted:** reintroducing the const gives `vite build` "✓ built in 448ms" and the new check `ReferenceError: Cannot access 'availableNiches' before initialization` with the component and line. `npm test` in `InfluencerCreatorsUI` now mounts `CreatorsPage` through Vite's SSR runner and asserts the filter controls render. **Root cause worth naming: the remote had no test script at all**, and the shell's suite covers only the two modules `remoteCopies.test.mjs` guards — the same gap applies to the other five remotes | 0.5 | A build gate compiles the module; only rendering runs the component |
 | `OP-34` | **The AI ceiling was live and counting nothing** — ✅ **SHIPPED 2026-09-04.** Found in the production logs, not by a test: every `classify` the BFF recorded came back **400** from the DAO — `"kind must be one of [rewrite, generate, regenerate]"`. `V48` defined those three, `V49` widened the CHECK constraint to six, and `AiGenerationUsageController:36` was left behind. **The database was never wrong** — it has accepted all six since V49 ran; only the hand-maintained mirror drifted. Nothing broke loudly because `AiGenerationAllowance.record()` catches and continues **by design** (losing a creator classification is worse than losing a meter reading), so the only evidence was a WARN nobody was reading — the **second** silent meter this class has shipped, different cause, same shape. The test now reads the accepted set **out of V49** rather than restating it, because a second hand-written list is a second thing to forget. **Verified:** fails against the old three-value constant, 68 DAO tests green. **Deployed v1.0.57 2026-09-04**, migrate clean, both endpoints healthy, zero `could not record a classify` since. (End-to-end proof of a counted `classify` still needs an authenticated call — the DAO is not publicly reachable, so the unit test plus the absent error is the evidence, not a live count.) | 0.5 | Live for 3 days. Free-tier enforcement was inert throughout; zero subscribers meant no billing consequence |
 | ~~`OP-27`~~ | **Creator classification has been silently keyword-matching in production** — ✅ **FIXED AND LIVE-VERIFIED 2026-09-01.** — measured 2026-09-01, not inferred. Every classification returns `source: "heuristic"`: on the public sign-up path, on the AUTHENTICATED `resolve-handle` path (which consults no rate limiter), and on `/api/content/draft`, a second endpoint sharing the same `OpenAIAdvisor`. Two independent features falling back together means `is_available()` is false — the agent container has no usable `OPENAI_API_KEY` — rather than anything specific to one call site. **The wiring is correct**, which is why this survived: `openai-api-key` exists in Secrets Manager, `compose-ec2.tf:354` maps it, and the agent's compose block passes it through. The failure is the VALUE, and `compose-boot.sh.tftpl`'s `fetch_secret` handles an empty secret by logging a warning to `logger` and skipping the line, so the container starts happily with the variable simply absent and `_llm_classify` returns `None` on every call by design. Nothing errors, nothing 500s, and a brand sees a plausible niche produced by substring matching. **Two consequences worth separating.** Quality: creator vetting — niche and risk flags — is running on keywords, which the code itself calls "genuinely weaker than a model at reading intent." Cost: the uncapped-OpenAI-spend risk in `OP-24`(c) and `PR-62` is currently **theoretical**, because that path spends nothing; `PR-62` is still worth doing, but it is insurance rather than a live leak. **Fix:** confirm the secret holds a real key, then re-run `tests/e2e/probe-op25-verify-sources.mjs`, which distinguishes the two sources on stored rows. Doing so also unblocks the half of `OP-25` that could not be verified — a ceiling cannot be observed switching off a model that is already off. **Fixed:** the key was present in the gitignored `.env` and valid (checked against the OpenAI API before writing: `/v1/models` 200, `gpt-4.1-mini` replied), and NOT the exposed key the secret's description warns about — `git log --all -S` finds it in no commit and no tracked file, so that older key had already been rotated. Written with `infrastructure/scripts/set-openai-key.bat`, which guards on the account id and never echoes the value. **The reload needed its own script.** A secret's VALUE is not part of the launch template, so `refresh-test-instance.bat` correctly reported "already on the current template" and would have terminated the instance for no configuration change — 3-5 minutes and every signed-in user logged out. `compose-boot.sh.tftpl:140` had already recorded the cheaper path ("a secret rotation is picked up by `systemctl restart influencrm-secrets influencrm` with no redeploy"), now `infrastructure/scripts/reload-secrets.bat`. **Verified live, not assumed:** the env file went from 22 secrets to 23 with `OPENAI_API_KEY` present and no fetch warnings, and `resolve-handle` now returns `source: "llm"` with real niches on both platforms — `fitness`, `gaming`, `lifestyle` — where every call returned `heuristic` before. One trap worth recording: `grep -c` against `platform.env` immediately after the restart returned 0 because the file is truncated and rewritten in place, so a check run too early reads an empty file and looks exactly like a failed fetch. | 0.5 | Found by trying to verify `OP-25` and failing honestly. The alarm this needs is `OP-02`-shaped: a fallback that never errors is invisible until someone measures it |
 | ~~`OP-26`~~ | **The one import endpoint with no ownership check** — ✅ **SHIPPED 2026-08-31.** — `ImportBatchesController.generateAgentColumnMapping` (`:70`) takes an id and fetches `/import-batches/{id}/columns` with **no `Authorization` parameter and no `requireOwnedImportBatch` call**. Every sibling in the file has both, and `columns` (`:59`) carries the comment that says why: an import batch's headers "describe the uploaded file, so this needs the same ownership check as the batch itself rather than being treated as harmless metadata." This endpoint is the one that does not follow it. Two consequences, and the first is the serious one: a caller passing another tenant's batch id gets **that tenant's column headers back in the response** (an IDOR on a surface that is, by definition, a customer's own spreadsheet), and each call also spends OpenAI budget. Fixed by adding `requireOwnedImportBatch` (the helper already existed and throws 403 on mismatch). **Verified by:** `campaign/api/ImportBatchOwnershipTest.java` (4 tests) — which asserts not only the 403 but that the refused path never reads the columns and never calls the agent, because a fix that returned 403 *after* paying for the mapping would look correct and still leak nothing while billing us. Confirmed the test catches the original defect by reverting the fix: 3 of 4 fail without it. **Deployed and live-verified 2026-09-01** in `v1.0.48`: the endpoint returns 401 to an unauthenticated caller where it previously served. | 0.5 | A tenancy leak, not a cost question. Fix it regardless of what is decided about metering |
@@ -872,10 +896,10 @@ live query. That is most of CQRS's benefit at a fraction of its cost.
 | `PR-64` | **Portfolio dashboard — one screen, every client.** An account-scoped sibling to the brand-scoped analytics: revenue attributed, active campaigns, creators engaged and commissions owed, per client, sortable, for brands the caller can already reach. **Reuses `findAccessibleBrands` for the scope** — it must not become a second definition of who sees what, which §5 warns is how a user ends up seeing one set of brands and being refused on another | 3 | **Build `OP-39` as part of this row — see §12.2b.** **The demo opener.** It is the screen that makes the product look built for an agency rather than adapted to one. Also the cheapest: the data is already there, only the aggregation is missing |
 | ~~`PR-65`~~ | **Client-ready reporting export** — ✅ **SHIPPED 2026-09-05.** `GET /api/analytics/portfolio.csv` and `/influencer-revenue.csv`, plus a Download button on the Portfolio page. **Built SERVER-side, changing this row's original plan:** what counts as revenue, how commission nets against a discount (`OP-21`) and what a window includes (`OP-39`) are decisions the attribution context owns, so a browser export would re-implement them per remote and could only serialise the rows a page happened to fetch. The shell's `api/csv.js` stays for exporting a table someone is looking at — a different job. **CSV injection is neutralised and verified end to end** with a creator named `=HYPERLINK("http://evil",...)`: a creator's name is attacker-influenced text landing in a spreadsheet an agency forwards to its client, under the agency's name. UTF-8 BOM, CRLF, empty cells rather than fabricated zeros. **Verified by:** `ReportCsvWriterTest` (9 tests) and a live export | 2 | Agencies re-key these numbers into a slide deck monthly |
 | ~~`PR-56`~~ | **Payout hygiene** — ✅ **SHIPPED 2026-09-05.** A minimum payout (`WEBE_PAYOUT_MINIMUM`, default 50.00) checked before the tax gate, and `GET /api/payout-terms` stating the floor and schedule up front. **The floor is a DELAY, not a deduction** — commissions stay `approved` and roll into the next run, and a test proves a refused payout writes NOTHING; a floor that stranded the balance would be charging a creator for a quiet month, and the two are indistinguishable from outside unless the ledger is untouched. Inclusive at the boundary. **The schedule is stated, never enforced**, and the response says `scheduleEnforced:false`: nothing runs payouts on a timer, and implying a scheduler this product lacks is worse than repeating a sentence a brand configured. **Traceability already existed** via `payout_id` on the commission row, as this row predicted. **Verified by:** `MinimumPayoutTest` (5 tests) | 1 | Moves the payout story from theoretical to operational |
-| `PR-66` | **The shared-creator picture.** A read-only panel: "you also work with this creator for X and Y, at these rates" — scoped to brands the caller can already reach, changing no tenancy rule and merging no rows | 2 | The insight **only an agency-aware tool can offer**. An agency knows it books @someone for three clients; today the product cannot say so |
+| ~~`PR-66`~~ | **The shared-creator picture** — ✅ **SHIPPED 2026-09-05.** `GET /api/creators/{id}/also-at` plus a read-only panel in the creator edit drawer: which of this agency's other clients already book the same person, and at what rate. **Merges nothing** — `uq_creators_brand_platform_handle` keeps each brand's creator its own row, which is correct tenancy, so this reports that the rows exist rather than joining them. **The brand list is a PARAMETER, never a query:** "which brands work with this handle" is a question whose answer belongs to other customers, so the list comes from `BrandAccessPort` and the DAO only sorts within it. The brand being viewed is excluded, and an unrecorded rate stays absent rather than becoming 0 — "no rate recorded" and "works for nothing" are different things to carry into a negotiation. **Live-verified:** a third party holding the same handle at 9999.00 is invisible to the agency. **Verified by:** `SharedCreatorServiceTest` (6 tests) | 2 | The insight only an agency-aware tool can offer |
 
-| `PR-67` | **Creator search and filtering.** `CreatorsController` accepts `brandId`, `page`, `size` and **nothing else** (`:39-41`) — no text search, no filters, no tags. Add: handle/name search, and filters on niche, platform, follower band, vetting status and `metricsSource`. Tags are a stretch goal, not the core | 2 | **The gap that bites hardest in a live demo.** Show an agency a roster and fail to filter it to "beauty creators over 50k in the US" and they conclude the product does not scale to their book — which is the exact objection this whole section exists to answer. Cheap, and it makes every other creator screen usable |
-| `PR-68` | **Content rights and usage tracking.** Nothing exists today — zero hits for usage rights, licensing, exclusivity or expiry across the schema and the BFF. Attach to the campaign–creator relationship, which is already modelled (`campaign_creators`, which already carries a legacy `contract_signed_at`). Four fields plus a note: **usage scope** (organic / paid amplification / brand channels / web / print), **platforms**, **term** (`rights_start_at`, `rights_end_at`), **exclusivity window**. Three surfaces: capture at assignment, display on the creator record, and an **expiry view** — the one with real value | 2 | Agencies hold this risk: they negotiated the terms and run the ads, so a creator's lawyer writes to them. Paying for a post buys the post existing on the creator's feed; running it as an ad without a grant is copyright infringement plus a likeness claim, and it is a routine source of demand letters. **The expiring-rights list is also a renewal prompt** — it tells an agency where next month's revenue is. **Two rules, both matching patterns already here:** unknown must read as "not recorded", NEVER as granted (`PR-49`/`PR-47`'s rule — failing open on a legal question is worse than a blank field); and it records the agreement, it is not the agreement (`TaxThresholdService` records that a W-9 arrived without storing the form). That distinction is what keeps this 2 days instead of 5, and keeps it out of `PR-53`'s e-signature territory |
+| ~~`PR-67`~~ | **Creator search and filtering** — ✅ **SHIPPED 2026-09-05.** Search across handle/name/email plus niche, platform, follower band and vetting status, answered by an indexed query. **One correction to the premise:** the UI already had client-side search and a platform filter; what was missing was niche, follower band, vetting status, and any server-side query at all. **Every SQL parameter is cast explicitly** — Postgres cannot infer the type of a parameter whose only use is `:p is null` and fails at RUNTIME with "could not determine data type of parameter $2", which nothing short of executing the query catches. A blank parameter is not a filter (`LIKE '%%'` matches everything), and filters apply only WITH a brand. **Live-verified** including the inclusive 50,000 boundary and cross-brand isolation under filtering. **Verified by:** `CreatorSearchRoutingTest` (6 tests) | 2 | The gap that bites hardest in a live demo | 
+| `PR-68` | **Content rights and usage tracking** — 🟡 **PARTIAL, data model SHIPPED 2026-09-05.** `V55` adds `usage_scopes`, `usage_platforms`, `rights_start_at`, `rights_end_at`, `exclusivity_days`, `usage_rights_note` to `creator.campaign_creators` (the ENGAGEMENT, because the same creator can grant paid-ad rights on one campaign and organic-only on the next), plus a partial expiry index; `PUT /api/campaign-creators/{id}/usage-rights` and `GET /api/campaign-creators/expiring-rights`. Unset reads as UNKNOWN, never granted. **WHAT REMAINS, and it is the valuable half:** as it stands a grant is columns anyone with `creator:write` can edit — that is *"our record says we had rights"*, not evidence of what the creator agreed. Binding a grant to the `agreement_id` that granted it is a foreign key and a signing flow, and it needs `PR-53` to exist first. **Two silent traps hit:** the projection allow-list would have stripped every field, and the DAO's field-by-field `PUT` dropped all six columns with a 200 and an echoed response — found by reading the table, not by a test. **Verified by:** `UsageRightsServiceTest` (7 tests) and a live round trip | 2 | Agencies hold this risk: they negotiated the terms and run the ads |
 
 **Total: ~12 days.**
 
@@ -936,6 +960,354 @@ Neither is in this section, and both would undercut it:
 - **`OP-06`** — no email is delivered. A creator invitation that silently does not arrive is the
   worst thing to discover during a live demo.
 - **`PR-04`** — Stripe is on test keys. Fine to demo; do not promise a start date.
+
+---
+
+## 13. Hybrid discovery and the creator network (added 2026-09-05)
+
+### 13.1 Why this section exists
+
+§11.5's rule — wait until a customer names it — governed integrations, and §12 narrowed the agency
+story to four rows on the same logic. This section is the one place that rule is deliberately set
+aside, and it is worth saying why rather than letting a future reader assume drift.
+
+**Discovery and outreach are the two capabilities every comparison page leads with, and their absence
+is visible to a buyer in the first five minutes.** `MARKET-ANALYSIS.md` §5 already records the first
+half — *"No creator discovery database. Unlike Upfluence, Modash, Influencity. Brands must already
+know their creators."* The second half was not previously recorded anywhere: **every `EmailPort` call
+site is transactional.** There is no campaign outreach, no template a brand can author, no sequence,
+no reply tracking. Discovery without outreach is a dead end — a brand is handed fifty matching
+creators and must leave the product to contact any of them.
+
+**Founder decision 2026-09-05:** hybrid — *rent the creator data, build the workflow* — targeting SMB
+DTC brands, with an IRM-plus-marketplace product rather than one or the other. Full analysis and
+file-level design in the planning document; this section carries the schedulable rows.
+
+### 13.2 The two constraints that shape it
+
+**Cost.** §4 caps production at ~$95–115/month against zero subscribers. Modash Discovery is
+$16,200/yr and InsightIQ $199/mo — 2×–13× the entire infrastructure budget. But a credit-metered tier
+exists an order of magnitude below both (~$0.002–0.004 per creator returned on search, ~$0.18–0.34
+per enriched report, **10 free credits, no card, no contract**), so the adapter can be **built and
+demoed at $0** and the vendor switched on when revenue justifies it. This does **not** overturn
+`docs/group2-build-vs-buy.md`: that document declined *building* on the grounds that follower-level
+data is unobtainable, which is untouched. Its §2 cost table considered only fixed-subscription
+vendors and should be revised, not reversed.
+
+**YouTube changes the arithmetic.** `search.list` costs 100 quota units and returns up to 50 channel
+ids; `channels.list` hydrates all 50 for **1 more unit**. One search ≈ 101 units ≈ 50 fully-hydrated
+profiles, so a 9,000-unit daily discovery budget yields ~4,450 hydrated channels/day at $0. Crawled
+into an index, that is the artefact Modash sells — for one platform. It reframes the vendor question
+from *buy or have nothing* to **buy only the platforms you cannot crawl** (Instagram and TikTok
+expose no search endpoint at any tier). Two conditions before the crawler ships: verify YouTube's
+stored-data refresh cadence against the current Developer Policies, and state a lawful basis for
+holding public profile data about people who never signed up.
+
+### 13.3 The precondition — an unbounded meter that is live now
+
+`PlanPolicy.AGENCY` is `UNLIMITED` on every limit **including `maxAiGenerationsPerMonth`**, and
+production sets `WEBE_DEFAULT_PLAN: agency` (`docker-compose.yml.tftpl:206`). The live generator is
+`AnthropicPageGenerator` on `claude-opus-5`. **Every account in production therefore has an unlimited
+monthly allowance of billed Opus calls.**
+
+The `agency` default was a deliberate call — nobody should meet a ceiling with no upgrade path to
+explain while pricing is unset — and that reasoning is sound for **capacity** limits (brands,
+creators, seats, where one more row costs nothing). It does not hold for **externally-billed** meters,
+where UNLIMITED means unbounded cash. The sentinel was reused across a semantic boundary. Renting
+discovery data behind the same tier converts a per-token exposure into a per-lookup one with a vendor
+invoice attached, so `OP-40` gates everything else here.
+
+### 13.4 The rows
+
+| ID | Item | Size | Status |
+|---|---|---|---|
+| `OP-40` | Finite ceiling on every **externally-billed** meter, on every tier including `AGENCY`; separate the billed axis from the capacity axis in `PlanPolicy`, with a test that fails the build if a billed meter is ever `UNLIMITED` | 1 | **Do first.** The only row here currently costing money |
+| `OP-41` | Pass the creator filter state as query params in `InfluencerCreatorsUI/src/api/creators.js` — `listCreators` calls `/api/creators` with no query string, so `PR-67`'s indexed server-side search is unreachable and the page filters the fetched array client-side | 0.5 | Open. The crash half was fixed by `c06a5ad` |
+| `OP-42` | Give the six remotes a **render** test — mount each page with fixture data and assert it renders | 1 | Open. See §13.5 |
+| `PR-69` | `CreatorDiscoveryPort` + registry + dispatcher, provenance stamping, and the network source (our own opted-in creators). Default `network`, costing nothing. **Serves brands and agencies both** — see §13.12 | 4 | Planned |
+| `PR-70` | Discovery lookup meter — per-account allowance **and** a platform-wide monthly ceiling defaulting to zero. Fails **closed**, unlike `AiGenerationAllowance` | 2 | Planned |
+| `PR-71` | `OutreachSenderPort` + per-brand SMTP adapter, reusing `marketplace/CredentialCipher`; surface the stranded `interactions` table through the BFF | 4 | Planned. **Not via SES** — see §13.6 |
+| `PR-72` | Creator directory opt-in: consent type, public profile, `discoverable` defaulting to false | 3 | Planned |
+| `PR-73` | YouTube search source + quota guard + query cache | 3 | Planned |
+| `PR-74` | Creator-initiated social OAuth — first-party metrics, identity-scoped (**not** `creator_platform_tokens`, which is brand-scoped and written by nothing) | 5 | Planned |
+| `PR-75` | Agreements + ESIGN-compliant signing ceremony + certificate of completion | 5 | Planned. See §13.7 |
+| `PR-76` | Document storage, Postgres full-text search and archive. **Gated on turning on `S3AssetStorage`** — prod runs filesystem on EFS, which is not an archive | 3 | Planned |
+| `PR-77` | Payer of record — explicit `payer_type`/`payer_id` on commissions and payouts; threshold keyed per-payer | 3 | Planned. See §13.8 |
+| `PR-78` | Rate visibility control — no rate permission exists, so an agency's client can see the agency's margin | 2 | Planned. **Commercially blocking for agencies** |
+| `PR-79` | Brand-level data export, and brand transfer between accounts | 3 | Planned. See §13.9 |
+| `PR-80` | Agency verification — domain-control proof (reusing `DnsDomainRegistrar`) and a signed mandate per brand | 2 | Planned. **Free and mandatory, never a paid tier** |
+| `PR-81` | **Brand invitation and mandate capture** — an agency invites a brand; the brand's acceptance *is* the authority grant | 4 | Planned. See §13.11 |
+| `PR-82` | **Onboarding document collection** for both parties, with a per-party checklist and required-document state | 4 | Planned. Mostly wiring endpoints that already exist and cannot be reached |
+| `PR-83` | **Onboarding audit trail** — append-only record of what was requested, supplied, and decided, for parties as well as creators | 3 | Planned |
+| `PR-84` | **Brand discovery for agencies** — rented B2B company/contact data behind its own port, so an agency can find prospective brand clients. **Distinct from `PR-34`** — see §13.13 | 4 | Planned. Blocked on a vendor subscription |
+| `PR-85` | **Outreach campaigns + suppression** — sequences, templates, and a per-sending-account global unsubscribe/suppression list. **CAN-SPAM machinery; no suppression infrastructure exists today** | 5 | Planned. Hard prerequisite for `PR-84` being usable |
+
+Sequence: `OP-40` → `PR-69`+`PR-71` together (parity) → `PR-72`+`PR-74` (the network) → the rest.
+`PR-70` lands with `PR-69`. `PR-81`..`PR-83` are the onboarding block and depend on `PR-75`'s signing
+ceremony; `PR-80` should not ship before `PR-81`, for the reason §13.11 gives.
+
+### 13.5 `OP-42` exists because a build check would not have caught the bug that prompted it
+
+On 2026-09-05 `CreatorsPage.jsx` shipped with the `availableNiches` `useMemo` nested inside the
+`forEach` callback of `availablePlatforms`. `availableNiches` was referenced in the JSX where it was
+out of scope, so the page threw `ReferenceError` on **every** render — and `useMemo` in a loop
+violates the Rules of Hooks besides.
+
+**It is valid JavaScript, and `vite build` passed cleanly.** Verified both ways. The defect then
+survived a second session adding 48 lines to the same file, because there was nothing to notice. It
+reached production because `.env.production` sets `VITE_USE_REMOTES=true` while the shell's own copy
+of the page was correct — so it worked in dev and failed only where customers are. Fixed in
+`c06a5ad`.
+
+The lesson is narrow and worth keeping: **a passing build is not evidence a page works.** The six
+remotes have no `test` script and there is no CI, so the only thing between a render crash and
+production is someone opening the page.
+
+### 13.6 Outreach must not go through SES
+
+`OP-06` is a **denied** production-access request (case `178750875200560`). The resubmission drafted
+in `docs/ses-setup.md` §4 justifies access on the grounds that sending is *"transactional only"* to
+recipients who *"consented at signup."* **Cold creator outreach is neither.** Routing outreach
+through SES would contradict the justification being submitted, on the same account, while a denied
+case is open — and cold mail from a shared SES IP is a deliverability risk on top of that.
+
+Send from the **brand's own mailbox** instead. It is also the better product: replies land in the
+brand's inbox and deliverability rides the brand's own domain reputation. Per-brand SMTP credentials
+ship immediately with no approval from anyone; Gmail/Microsoft OAuth is the later upgrade, and
+`OAuthFlowService` already does Google's start/callback/token-exchange (its scope is hardcoded where
+Facebook's is configurable). Note `gmail.send` is a **restricted** scope requiring Google
+verification — cost it before committing.
+
+### 13.7 What `PR-75` actually has to build
+
+Under ESIGN/UETA an electronic signature is enforceable when five things are evidenced — consent,
+intent, attribution, retention, accuracy. **Four already exist**: `identity.consent_records` (`V36`)
+gives consent with withdrawal-as-a-new-row, which is §101(c)'s withdrawal right, plus `ip_address`,
+`user_agent` and an authenticated session for attribution; `V39` and `ConsentEvidenceWriter` give
+retention and accuracy via an Object Lock **COMPLIANCE** bucket with a SHA-256 over the exact bytes
+stored.
+
+The gap is **intent** — a signing ceremony. Reuse the `CreatorInvite` pattern (`V46`), which already
+solves opaque tokens, expiry, revocation and an unauthenticated public preview. A typed name plus an
+explicit intent checkbox satisfies ESIGN; a drawn-signature canvas is cosmetic. Write the Postgres
+row **before** the S3 evidence — `ConsentEvidenceWriter` is deliberately best-effort and its javadoc
+records that the database row is authoritative.
+
+Scope note: `PR-53` (campaign agreement + e-signature, held in §12.4) is superseded by this row and
+should not be separately re-estimated. And **`PR-68`'s rights fields are being built concurrently** —
+what remains is binding a grant to the `agreement_id` that granted it, so a usage-rights record
+points at a countersigned document rather than being columns anyone with `creator:write` can edit.
+
+**Counsel review before offering agreement templates**, on the same reasoning §2.2 already applies to
+`PR-38`. Claim US ESIGN/UETA only — this is not an eIDAS *qualified* signature, and identity
+assurance is email possession plus a session, not government ID.
+
+### 13.8 `PR-77` is a correctness fix, not a feature
+
+`TaxThresholdService` counts per `(brand, creator, calendar year)` and states the assumption
+explicitly: *"each brand is its own payer rather than the platform being an aggregator."* That is
+right for brand-pays-creator and **wrong the moment an agency pays the creator**, which is the normal
+agency arrangement — the brand delegates the relationship and the agency is both liaison and payer.
+
+An agency running five brands, each paying one creator $600, has paid **$3,000 from a single payer** —
+over the threshold. Per-brand counting sees five sub-threshold amounts and asks for no form. That is
+a missed filing obligation, which the code's own comment identifies as what an off-by-one here causes.
+
+**Decision 2026-09-05: support agency-as-payer paying from its own Stripe or bank.** That carries no
+money-transmission exposure — Stripe touches the money. The platform holding a pooled balance is a
+different model and stays out of scope. Brand-as-payer is not separate work; it falls out once the
+payer is explicit, so one change serves both.
+
+Also: `tax_form_required_at` / `_on_file_at` / `_kind` sit on brand-scoped `creator.creators`, so
+under an agency payer the same creator is asked for the same W-9 once per brand — exactly the
+friction `PR-49` existed to remove.
+
+**Separately, `THRESHOLD_USD = 600.00` is stale.** The One Big Beautiful Bill Act raised the
+1099-NEC/MISC reporting threshold to **$2,000 for tax year 2026**, inflation-indexed from 2027.
+Do not simply raise the number: several states kept lower thresholds, and over-collecting is safe
+while under-collecting is not. Make it a year-keyed, commented constant that records the choice.
+Have a CPA confirm the model before money moves.
+
+### 13.9 Why `PR-79` belongs here rather than in Stage 4
+
+`brands.account_id` is `not null references accounts(id) **on delete cascade**`, and there is **no
+brand export or transfer operation anywhere in the codebase**. When an agency owns the account — the
+topology the multi-brand tenancy, `PlanPolicy.AGENCY` and `PR-64` were all built for — the brand's
+records live in the agency's tenancy and it cannot take them on churn.
+
+That is two problems at once, and the first is the one that matters commercially: **it is lock-in,
+the single most-cited complaint about Grin**, and `MARKET-ANALYSIS.md` §7 explicitly says to position
+*against* it. Shipping it ourselves is an own goal. The second is a GDPR Art. 20 exposure. Export is
+the cheaper half and closes most of both; transfer is a migration and can wait for demand.
+
+One exclusion to design in: the export must not carry another brand's data about a shared creator.
+A creator in two brands has two `creator.creators` rows and only the requesting brand's is theirs —
+the same distinction `PR-78` enforces, on a different surface. Getting it wrong leaks an agency's
+entire client roster in one file.
+
+### 13.10 Packaging — recorded because it is a pricing decision
+
+No tier table here; the pricing page names no price by decision (`PR-63`) and packaging should follow
+real meter data. What is decided is **where the free/paid line falls**, so the meters get built in the
+right places: **meter what costs money per use, give away what does not.**
+
+- **Free:** rule-based vetting (`VettingRuleEngine` over data we already hold), discovery search
+  against the network and YouTube, agency **verification**.
+- **Metered:** vendor enrichment and email unlock, AI generation, vendor-backed authenticity scoring.
+- **Paid capability:** agency compliance *tooling* — mandate records, per-client audit export,
+  white-label DPA.
+
+**Agency verification must never be a paid feature.** Charging to be verified inverts the incentive:
+the agencies that decline are exactly the ones needing verification, and the party harmed by an
+unverified agency is the **creator**, who is not the one paying. Gatekeeping serves us and the
+creators, so it is free and mandatory; tooling serves the agency, so it is paid.
+
+Prefer a metered add-on purchasable on any plan over a fourth tier. Grin ran two pricing overhauls in
+six months and §2 already reads that as strategic uncertainty. And instrument **402 counts by meter**
+from the start — an allowance nobody reaches tells you nothing, one that refuses constantly is
+mispriced, and the refusal has to be logged rather than only thrown.
+
+### 13.11 The onboarding gap — an agency cannot invite a brand at all
+
+**Checked 2026-09-05.** The platform has four invitation surfaces and none of them invites a brand:
+
+| Surface | Invites | Exists |
+|---|---|---|
+| `/members/invite`, `/members/invite/bulk`, `/members/invitations/*` | a **person** into an account, with a role | ✅ incl. bulk CSV |
+| `/creator-invites`, `/public/creator-invites/{preview,redeem}` | a **creator** to claim a record (`V46`, tokenised) | ✅ |
+| `/creator-portal/invite` | a creator into the portal | ✅ |
+| `PageCollaborationService.invite` | a creator to co-edit a page | ✅ |
+| — | **a brand, to be managed by an agency** | ❌ **nothing** |
+
+Today an agency **types the brand in** (`POST /api/brands`). There is no counterparty. Nobody at the
+brand ever sees anything, accepts anything, or is asked for anything.
+
+**This is why `PR-80` must not ship first.** `PR-80` as originally written has the agency assert its
+own authority and prove control of a domain. Domain proof is real evidence; the mandate half is
+self-attestation — the agency signing a document that says it is allowed to do the thing it is doing.
+`PR-81` fixes that at the root: **the brand's acceptance of an invitation is the authority grant.**
+A counterparty who received an invitation, read what they were agreeing to, and accepted it is
+evidence in a way a self-signed attestation never is, and it is the same tokenised-link mechanism
+`CreatorInvite` (`V46`) already implements — opaque token, expiry, revocation, unauthenticated public
+preview. Shipping `PR-80` alone would bank the weaker evidence and make the stronger version look
+redundant.
+
+It is also, incidentally, the honest answer to §13.9's lock-in problem: a brand that accepted an
+invitation understands it is in the agency's workspace, which is a very different conversation at
+churn than a brand that was entered as a row.
+
+**What `PR-82` mostly does is connect things that already work.** The documents are not missing so
+much as unreachable:
+
+- **Creator side:** `POST /api/creators/{id}/tax-form` and `GET /tax-status` (W-9 / W-8BEN) and
+  `POST /api/creators/{id}/payout-onboarding` (Stripe Connect Express) are all shipped, tested, and
+  have **zero UI callers across all seven front-end trees**. An agency inviting a creator today
+  cannot actually complete their onboarding, because nothing in any interface asks for the form.
+- **Brand side:** nothing exists — no business details, no domain, no signed anything.
+
+So `PR-82` is a per-party onboarding checklist over a required-document state, reusing `PR-02`'s
+activation-checklist pattern, plus the brand-side fields. The creator half is largely wiring.
+
+**`PR-83` is the part that makes it auditable rather than merely collected.** Creators already have
+the substrate: `VettingRule`/`VettingEvent` (`V28`), a review queue, per-creator history and
+`CreatorQualityReport`. Parties — brands and agencies — have none of it. Extend the same shape:
+what was requested, what was supplied, when, by whom, and what was decided, append-only.
+
+Two design notes carried from the vetting work so they are not relitigated:
+
+- **Record the decision, not just the state.** A brand row that says `verified: true` cannot answer
+  *who verified it and on what evidence* a year later. `VettingEvent` already models this correctly
+  for creators; copy it rather than adding a boolean.
+- **Decide what failure means before building the check.** A gate with no defined failure mode is
+  bypassed the first time a real prospect trips it. Recommended line: an unverified workspace can be
+  **built** — creators imported, campaigns drafted — but cannot **send outreach, publish a landing
+  page, or move money**. Those three are where an unverified party reaches a third party, and it
+  keeps verification off the evaluation path, which matters while activation is the product.
+
+**Sequencing:** `PR-75` (signing ceremony) → `PR-81` (invite + mandate) → `PR-82` (documents) →
+`PR-83` (audit) → `PR-80` (domain proof, now the second factor rather than the whole story).
+
+### 13.12 Creator discovery serves agencies too, with three differences
+
+`PR-69` is written brand-scoped because every operational surface in the product is. For an agency
+the same feature needs three adjustments, and they are small because the pieces exist:
+
+1. **Search is account-scoped, not brand-scoped.** The index is global; nothing about a query depends
+   on which brand is selected. Only the *result decoration* is brand-specific.
+2. **"Already in your roster" must mean any of your brands.** For a single brand that is one lookup;
+   for an agency it is the cross-brand question `PR-66` answers, and `c414340` ("Tell an agency where
+   else it already books this creator") already shipped the read. Reuse `SharedCreatorService` rather
+   than adding a second cross-brand path.
+3. **"Add to roster" needs a brand selector**, because an agency discovering a creator has not yet
+   said which client it is for. A single-brand account skips the step.
+
+The meter needs no change: `PlanPolicy` limits are already **per account, not per brand** — and
+deliberately so, because metering per brand would let anyone multiply their allowance by creating
+brands, which is itself a metered resource. An agency and a brand consume the same discovery
+allowance from the same ceiling, which is the correct commercial answer as well as the correct
+technical one.
+
+**One thing to get right:** an agency's discovery results must not leak which creators another
+agency's brands have booked. The `alreadyInRoster` / `alreadyBooked` decoration is computed from the
+caller's own accessible brands and **never persisted on a global directory row** — the same rule
+§13.9 applies to the export, on a different surface.
+
+### 13.13 `PR-84` — brand discovery is a different data market, and `PR-34` is a different actor
+
+Two distinctions, and conflating either is expensive.
+
+**Different data market from creator discovery.** Finding creators means audience data — the vendors
+in §13.2, YouTube search, our own network. Finding *brands* means B2B company and contact data —
+Apollo, Clearbit, ZoomInfo, Hunter. Different vendors, different pricing, different lawful basis.
+`CreatorDiscoveryPort` is the wrong seam; `PR-84` needs its own port, sharing only the metering
+pattern.
+
+**Different actor from `PR-34`, and this is the subtle one.** `PR-34` syncs Apollo leads into Tejdux
+so that *we* can sell to brands and agencies. `PR-84` lets *an agency* find *its own* prospective
+brand clients. Same data type, different tenancy, and they must be kept apart for exactly the reason
+`PR-34`'s row already gives about creators:
+
+> *"Apollo data describes people this platform is SELLING to; creator data describes people its
+> customers PAY. Different consent story, different retention, and they must not meet."*
+
+`PR-84` adds a third population — people **our customers** are selling to. It inherits that rule
+rather than being an exception to it: an agency's prospect list and Tejdux's prospect list must not
+share a table, or one tenant's pipeline becomes visible in another's. Neither may touch the creator
+pipeline.
+
+**`PR-85` is the blocker, and it is a legal one, not a feature gap.** Grepping for
+`unsubscribe|suppress|opt.?out|can.?spam` across `InfluencerWebExperience/src/main` and `schema/`
+returns **nothing** — the only hits are prose in comments. `WelcomeEmail` even documents why it
+carries no unsubscribe link, correctly, because it is transactional.
+
+Cold outreach is not transactional. Under CAN-SPAM a commercial message needs accurate headers, a
+valid physical postal address, identification as an advertisement, and a working opt-out honoured
+within 10 business days. **None of that machinery exists**, so `PR-84` without `PR-85` ships a
+list-building tool whose only use would be non-compliant. Two design rules:
+
+- **Suppression is global per sending account, never per campaign.** A per-campaign list re-mails
+  someone who already opted out, from the next sequence, which is the violation.
+- **Honour it at send time, not at list-build time.** A list assembled on Monday and sent on Friday
+  must re-check.
+
+**Send from the agency's own mailbox — this matters more here than in `PR-71`.** §13.6 argues it for
+creator outreach; for cold B2B it is stronger. Routing customers' cold email through our
+infrastructure puts our domain and IP reputation behind lists we did not build and cannot vet, on top
+of the SES sandbox problem. Keeping the sender's own mailbox in the loop leaves reputation and legal
+exposure with the party who chose the recipients. `OutreachSenderPort` (`PR-71`) already is the right
+seam — it does not care whether the recipient is a creator or a brand contact, so `PR-85` extends it
+rather than forking it.
+
+**Jurisdiction:** CAN-SPAM is the target because §6 Decision 2 is **US-only at launch**. That is
+convenient rather than lucky — CAN-SPAM is an opt-out regime, while GDPR/PECR and CASL require a
+lawful basis or consent before the first message. **Revisit this row before any EU/UK sale**, on the
+same trigger as the VAT decision.
+
+**Scope honesty.** Agency-prospects-brands is sales-CRM territory — Apollo, Instantly, HubSpot — and
+it widens the product beyond influencer marketing. The cheap version is the hybrid instinct applied
+again: **rent the brand data, reuse the outreach engine already being built for creators**, and do
+not build a B2B data product. If that framing stops being true, this row has grown into a second
+product and should be re-argued rather than extended.
 
 ---
 
